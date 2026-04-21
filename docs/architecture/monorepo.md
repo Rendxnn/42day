@@ -1,0 +1,138 @@
+# Estructura del monorepo
+
+## Objetivo
+
+Mantener backend, frontend, tipos, schema, logica de negocio y documentacion en un solo repositorio, con limites claros para que dos personas puedan trabajar en paralelo.
+
+## Layout
+
+```txt
+apps/
+  api/
+    src/
+      routes/
+      modules/
+      lib/
+    README.md
+
+  dashboard/
+    README.md
+
+packages/
+  core/
+  db/
+  types/
+  config/
+  prompts/
+
+docs/
+```
+
+## Responsabilidades por carpeta
+
+### `apps/api`
+
+Backend ejecutado en Cloudflare Workers.
+
+Debe contener:
+
+- rutas HTTP,
+- webhook de WhatsApp,
+- endpoints para dashboard,
+- integraciones externas,
+- adaptadores hacia base de datos,
+- orquestacion del flujo conversacional.
+
+No debe contener:
+
+- reglas de negocio complejas mezcladas en rutas,
+- logica de pricing duplicada,
+- tipos privados que tambien necesite el dashboard.
+
+### `apps/dashboard`
+
+Aplicacion web del restaurante.
+
+Debe contener:
+
+- vistas,
+- componentes,
+- formularios,
+- estado de UI,
+- llamadas al API,
+- experiencia visual.
+
+No debe contener:
+
+- calculo final de precios,
+- validacion final de disponibilidad,
+- creacion directa de ordenes confirmadas sin pasar por backend.
+
+### `packages/core`
+
+Logica de dominio pura.
+
+Ejemplos:
+
+- `calculateOrderTotal`
+- `validateDraftOrder`
+- `getNextConversationState`
+- `isConversationExpired`
+- `shouldTriggerHumanHandoff`
+
+### `packages/db`
+
+Base de datos.
+
+Debe contener:
+
+- schema Drizzle,
+- migraciones,
+- seeds,
+- helpers de conexion,
+- queries compartidas.
+
+### `packages/types`
+
+Contratos compartidos.
+
+Debe evitar dependencias pesadas. Idealmente solo tipos TypeScript y schemas Zod cuando sean compartidos.
+
+### `packages/config`
+
+Validacion de variables de entorno y configuracion por ambiente.
+
+### `packages/prompts`
+
+Prompts versionados para el parser semantico.
+
+## Regla de dependencia
+
+Dependencias permitidas:
+
+```txt
+apps/api -> packages/*
+apps/dashboard -> packages/types, packages/config
+packages/core -> packages/types
+packages/db -> packages/types
+packages/prompts -> packages/types
+```
+
+Evitar que `packages/core` dependa de `apps/api`, Supabase, Hono o Cloudflare.
+
+## Convencion de trabajo con frontend
+
+El frontend puede avanzar usando contratos definidos en `packages/types`.
+
+Antes de conectar la UI real, backend deberia publicar endpoints documentados para:
+
+- listar ordenes,
+- listar alertas,
+- obtener menu del dia,
+- crear/editar productos,
+- crear/editar combos,
+- crear/editar promociones,
+- publicar menu del dia,
+- cambiar estado de orden,
+- marcar alerta como atendida.
+
