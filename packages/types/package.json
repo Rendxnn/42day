@@ -1,0 +1,16 @@
+{
+  "name": "@42day/types",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "echo \"No tests configured yet\""
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

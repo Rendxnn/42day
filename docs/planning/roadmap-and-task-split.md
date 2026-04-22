@@ -61,12 +61,17 @@ Responsable de ambos:
 
 ### Milestone 0: base del proyecto
 
+Estado: completado.
+
 Backend:
 
 - estructura monorepo,
 - documentacion base,
 - `.env.example`,
-- decisiones de arquitectura.
+- decisiones de arquitectura,
+- paquetes compartidos,
+- Worker inicial,
+- migraciones SQL iniciales.
 
 Frontend:
 
@@ -76,6 +81,8 @@ Frontend:
 
 ### Milestone 1: WhatsApp inbound
 
+Estado: smoke test completado.
+
 Backend:
 
 - crear Hono app,
@@ -84,9 +91,23 @@ Backend:
 - validar challenge,
 - recibir mensajes,
 - guardar raw webhook,
-- guardar mensaje normalizado,
 - responder 200 a Meta,
-- idempotencia por `provider_message_id`.
+- idempotencia por `provider_message_id`,
+- enviar respuesta automatica basica por WhatsApp.
+
+Validado:
+
+- Cloudflare Worker staging desplegado,
+- Meta webhook conectado,
+- raw webhook guardado en `control.webhook_events`,
+- respuesta automatica recibida en WhatsApp.
+
+Pendiente para cerrar este milestone tecnicamente:
+
+- guardar mensaje normalizado en `tenant_demo.messages`,
+- diferenciar mensajes inbound de status updates,
+- marcar `processed_at`,
+- guardar outbound en `tenant_demo.messages`.
 
 Frontend:
 
@@ -94,6 +115,8 @@ Frontend:
 - puede trabajar mockups de ordenes/alertas.
 
 ### Milestone 2: Supabase y tenant demo
+
+Estado: base completada.
 
 Backend:
 
@@ -104,6 +127,18 @@ Backend:
 - seed tenant demo,
 - resolver tenant por `phone_number_id`,
 - registrar mensajes por tenant.
+
+Validado:
+
+- tenant demo activo,
+- canal WhatsApp demo registrado,
+- bucket `payment-proofs` creado,
+- advisors de seguridad sin alertas.
+
+Pendiente:
+
+- reemplazar fallback de tenant por consulta real a `control.tenant_channels`,
+- crear menu demo seed para flujo guiado.
 
 Frontend:
 
@@ -235,7 +270,7 @@ POST   /dashboard/menus/:id/publish
 - categorias exactas,
 - si el menu del dia tiene disponibilidad por cantidad,
 - si un producto puede estar en varios menus,
-- si combos usan productos existentes o son entidad independiente,
+- cerrado: combos tienen entidad propia y se relacionan con productos existentes mediante `combo_items`,
 - reglas de promociones V1.
 
 ### Operacion del restaurante

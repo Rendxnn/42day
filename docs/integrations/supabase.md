@@ -108,8 +108,9 @@ Cada tenant tiene sus tablas operativas.
 7. Crear tenant demo.
 8. Crear schema `tenant_demo`.
 9. Correr migraciones.
-10. Crear usuario demo en Supabase Auth.
-11. Asociar usuario demo al tenant en `control.tenant_users`.
+10. Exponer schemas `control` y `tenant_demo` en Project Settings -> API -> Exposed schemas si el Worker usara REST API.
+11. Crear usuario demo en Supabase Auth.
+12. Asociar usuario demo al tenant en `control.tenant_users`.
 
 ## Storage
 

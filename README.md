@@ -54,9 +54,11 @@ docs/
 ## Documentacion principal
 
 - [Contexto del proyecto](./PROJECT_CONTEXT.md)
+- [Estado actual](./docs/planning/current-status.md)
 - [Estructura del monorepo](./docs/architecture/monorepo.md)
 - [Arquitectura backend](./docs/architecture/backend.md)
 - [Supabase vs Cloudflare Workers](./docs/architecture/runtime-responsibilities.md)
+- [Onboarding de nuevos clientes](./docs/architecture/tenant-onboarding.md)
 - [Flujo conversacional](./docs/flows/conversation-flow.md)
 - [Handoff humano](./docs/flows/handoff.md)
 - [WhatsApp Cloud API](./docs/integrations/whatsapp-cloud-api.md)
@@ -64,4 +66,7 @@ docs/
 - [Schema de base de datos V1](./docs/schemas/database-v1.md)
 - [Logging y monitoreo](./docs/schemas/logging-events.md)
 - [Roadmap y division de tareas](./docs/planning/roadmap-and-task-split.md)
+- [Plan de trabajo adelantable](./docs/planning/parallel-work-plan.md)
 - [Setup local](./docs/runbooks/local-setup.md)
+- [Configuracion externa paso a paso](./docs/runbooks/external-configuration-step-by-step.md)
+- [Cloudflare Worker setup](./docs/runbooks/cloudflare-worker-setup.md)

@@ -1,0 +1,30 @@
+name = "42day-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+
+[vars]
+APP_ENV = "local"
+META_GRAPH_API_VERSION = "v22.0"
+
+# Secrets must be configured with:
+# pnpm --filter @42day/api exec wrangler secret put META_VERIFY_TOKEN
+# pnpm --filter @42day/api exec wrangler secret put META_ACCESS_TOKEN
+# pnpm --filter @42day/api exec wrangler secret put META_PHONE_NUMBER_ID
+# pnpm --filter @42day/api exec wrangler secret put META_WABA_ID
+# pnpm --filter @42day/api exec wrangler secret put SUPABASE_URL
+# pnpm --filter @42day/api exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# pnpm --filter @42day/api exec wrangler secret put OPENAI_API_KEY
+
+[env.staging]
+name = "42day-api-staging"
+
+[env.staging.vars]
+APP_ENV = "staging"
+META_GRAPH_API_VERSION = "v22.0"
+
+[env.production]
+name = "42day-api-production"
+
+[env.production.vars]
+APP_ENV = "production"
+META_GRAPH_API_VERSION = "v22.0"

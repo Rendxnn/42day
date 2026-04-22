@@ -12,12 +12,25 @@ El repo tiene estructura y documentacion base, pero todavia no tiene implementac
 - Cuenta Meta Developers.
 - Cuenta Cloudflare.
 
+Si `pnpm` no esta disponible pero Node trae Corepack:
+
+```bash
+corepack pnpm --version
+corepack pnpm install
+```
+
 ## Instalacion inicial
 
 Cuando se empiece implementacion:
 
 ```bash
 pnpm install
+```
+
+Alternativa si no existe el shim directo de pnpm:
+
+```bash
+corepack pnpm install
 ```
 
 ## Variables de entorno
@@ -88,3 +101,6 @@ Cuando exista implementacion:
 6. Confirmar que se resolvio tenant demo.
 7. Confirmar que se envio respuesta automatica basica.
 
+## Guia completa
+
+Ver [external-configuration-step-by-step.md](./external-configuration-step-by-step.md).
