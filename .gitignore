@@ -5,13 +5,17 @@ node_modules/
 .env.*
 !.env.example
 
+.dev.vars
+apps/api/.dev.vars
+apps/api/.wrangler/
+.dev-logs/
+
 dist/
 build/
 .next/
 out/
 
 .wrangler/
-.dev.vars
 
 *.log
 coverage/
