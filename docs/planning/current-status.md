@@ -100,6 +100,12 @@ Backend inicial:
 - almacenamiento de ubicaciones WhatsApp en `tenant_demo.customer_addresses`,
 - marcado de webhook procesado,
 - envio outbound basico por WhatsApp,
+- lectura del menu publicado del dia desde Supabase,
+- respuesta `menu` real por WhatsApp con lista numerada,
+- seleccion guiada inicial por numero,
+- creacion/persistencia inicial de `draft_orders`,
+- agregado de items a `draft_order_items`,
+- `conversation.context` y `clarification_attempts`,
 - cliente REST minimo para Supabase.
 
 Dashboard:
@@ -178,7 +184,6 @@ Ya se aplicaron en Supabase:
 
 Todavia no se crean automaticamente:
 
-- `draft_orders`,
 - `orders`.
 
 Todavia no existe:
@@ -197,11 +202,10 @@ Construir el flujo guiado real de pedido sobre la base persistente ya validada.
 Secuencia recomendada:
 
 1. Probar dashboard local contra API local.
-2. Implementar respuesta real de `menu` desde `tenant_demo.menus` y `tenant_demo.menu_items`.
-3. Crear `draft_order` y `draft_order_items`.
-4. Implementar delivery/pickup.
-5. Implementar pago y resumen.
-6. Implementar confirmacion manual desde dashboard.
+2. Implementar delivery/pickup.
+3. Implementar pago y resumen.
+4. Implementar confirmacion manual desde dashboard.
+5. Implementar producto agotado al confirmar y retoma de conversacion.
 
 ## Siguiente objetivo de producto
 
@@ -213,11 +217,8 @@ usuario escribe hola
 -> usuario pide ver menu
 -> bot muestra menu del dia
 -> usuario elige item
+-> bot crea draft_order y primer item
 -> bot pide delivery/pickup
--> bot pide pago
--> bot muestra resumen
--> usuario confirma
--> se crea order
 ```
 
 ## Decisiones pendientes
