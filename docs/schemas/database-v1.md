@@ -82,6 +82,14 @@ Decision MVP: una sola sede por restaurante. Se mantiene la tabla para no bloque
 - `address`
 - `phone`
 - `delivery_fee_fixed`
+- `pickup_enabled`
+- `delivery_enabled`
+- `automation_enabled`
+- `latitude`
+- `longitude`
+- `opening_hours`
+- `coverage_config`
+- `transfer_payment_instructions`
 - `is_active`
 - `created_at`
 - `updated_at`
@@ -198,6 +206,22 @@ Clientes conocidos.
 - `created_at`
 - `updated_at`
 
+### `customer_addresses`
+
+Direcciones conocidas del cliente.
+
+- `id`
+- `customer_id`
+- `label`
+- `address_text`
+- `latitude`
+- `longitude`
+- `raw_location_payload`
+- `source` = `text | whatsapp_location | dashboard`
+- `is_default`
+- `created_at`
+- `updated_at`
+
 ### `conversations`
 
 Hilo conversacional.
@@ -245,6 +269,7 @@ Pedido mutable.
 - `status`
 - `fulfillment_type` = `delivery | pickup`
 - `delivery_address`
+- `delivery_address_id`
 - `payment_method`
 - `subtotal`
 - `delivery_fee`
@@ -281,6 +306,7 @@ Pedido final confirmado.
 - `status`
 - `fulfillment_type` = `delivery | pickup`
 - `delivery_address`
+- `delivery_address_id`
 - `payment_method`
 - `payment_proof_file_id`
 - `subtotal`

@@ -29,6 +29,11 @@ insert into tenant_demo.locations (
   address,
   phone,
   delivery_fee_fixed,
+  pickup_enabled,
+  delivery_enabled,
+  automation_enabled,
+  opening_hours,
+  coverage_config,
   is_active
 )
 values (
@@ -36,6 +41,11 @@ values (
   'Direccion pendiente',
   null,
   5000,
+  true,
+  true,
+  true,
+  '{}'::jsonb,
+  '{"type":"none"}'::jsonb,
   true
 )
 on conflict do nothing;

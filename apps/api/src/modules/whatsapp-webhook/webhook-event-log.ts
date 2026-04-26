@@ -1,12 +1,20 @@
 import { createSupabaseRestClient, SupabaseRestError } from "../../lib/supabase-rest";
 import type { ApiBindings } from "../../lib/bindings";
 
-export async function logRawWhatsAppWebhook(env: ApiBindings, payload: unknown): Promise<"logged" | "duplicate"> {
+export type RawWebhookLogResult =
+  | { status: "logged"; webhookEventId?: string }
+  | { status: "duplicate" };
+
+type WebhookEventRow = {
+  id: string;
+};
+
+export async function logRawWhatsAppWebhook(env: ApiBindings, payload: unknown): Promise<RawWebhookLogResult> {
   const client = createSupabaseRestClient(env);
   const firstMessage = extractFirstMessage(payload);
 
   try {
-    await client.insert({
+    const rows = await client.insert<WebhookEventRow>({
       schema: "control",
       table: "webhook_events",
       rows: {
@@ -17,15 +25,36 @@ export async function logRawWhatsAppWebhook(env: ApiBindings, payload: unknown):
         payload,
         status: "received",
       },
+      returning: "representation",
     });
-    return "logged";
+    return { status: "logged", webhookEventId: rows[0]?.id };
   } catch (error) {
     if (error instanceof SupabaseRestError && error.status === 409) {
-      return "duplicate";
+      return { status: "duplicate" };
     }
 
     throw error;
   }
+}
+
+export async function markRawWhatsAppWebhookProcessed(env: ApiBindings, webhookEventId: string | undefined): Promise<void> {
+  if (!webhookEventId) {
+    return;
+  }
+
+  const client = createSupabaseRestClient(env);
+
+  await client.update({
+    schema: "control",
+    table: "webhook_events",
+    values: {
+      status: "processed",
+      processed_at: new Date().toISOString(),
+    },
+    query: {
+      id: `eq.${webhookEventId}`,
+    },
+  });
 }
 
 function extractFirstMessage(payload: unknown): {

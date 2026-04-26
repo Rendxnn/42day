@@ -51,6 +51,7 @@ function normalizeMessage(rawMessage: Record<string, unknown>, phoneNumberId: st
   const type = normalizeMessageType(rawMessage.type);
   const text = extractText(rawMessage, type);
   const mediaId = extractMediaId(rawMessage, type);
+  const location = extractLocation(rawMessage, type);
 
   return {
     provider: "whatsapp_cloud",
@@ -62,6 +63,7 @@ function normalizeMessage(rawMessage: Record<string, unknown>, phoneNumberId: st
     type,
     text,
     mediaId,
+    location,
     raw: rawMessage,
   };
 }
@@ -73,7 +75,8 @@ function normalizeMessageType(type: unknown): WhatsAppMessageType {
     type === "interactive" ||
     type === "image" ||
     type === "document" ||
-    type === "audio"
+    type === "audio" ||
+    type === "location"
   ) {
     return type;
   }
@@ -123,4 +126,30 @@ function extractMediaId(rawMessage: Record<string, unknown>, type: WhatsAppMessa
 
   const media = rawMessage[type] as { id?: unknown } | undefined;
   return typeof media?.id === "string" ? media.id : undefined;
+}
+
+function extractLocation(rawMessage: Record<string, unknown>, type: WhatsAppMessageType) {
+  if (type !== "location") {
+    return undefined;
+  }
+
+  const location = rawMessage.location as
+    | {
+        latitude?: unknown;
+        longitude?: unknown;
+        name?: unknown;
+        address?: unknown;
+      }
+    | undefined;
+
+  if (typeof location?.latitude !== "number" || typeof location.longitude !== "number") {
+    return undefined;
+  }
+
+  return {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    name: typeof location.name === "string" ? location.name : undefined,
+    address: typeof location.address === "string" ? location.address : undefined,
+  };
 }

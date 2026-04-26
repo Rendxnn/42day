@@ -1,4 +1,4 @@
-import type { OutboundTextMessage } from "@42day/types";
+import type { OutboundMessageResult, OutboundTextMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 
 type WhatsAppSendTextResponse = {
@@ -8,7 +8,7 @@ type WhatsAppSendTextResponse = {
   error?: unknown;
 };
 
-export async function sendWhatsAppTextMessage(env: ApiBindings, message: OutboundTextMessage): Promise<WhatsAppSendTextResponse> {
+export async function sendWhatsAppTextMessage(env: ApiBindings, message: OutboundTextMessage): Promise<OutboundMessageResult> {
   const version = env.META_GRAPH_API_VERSION ?? "v22.0";
   const url = `https://graph.facebook.com/${version}/${env.META_PHONE_NUMBER_ID}/messages`;
 
@@ -36,7 +36,10 @@ export async function sendWhatsAppTextMessage(env: ApiBindings, message: Outboun
       status: response.status,
       body,
     });
-    return body;
+    return {
+      providerMessageId: body.messages?.[0]?.id,
+      raw: body,
+    };
   }
 
   console.info("whatsapp.message.outbound_sent", {
@@ -44,5 +47,8 @@ export async function sendWhatsAppTextMessage(env: ApiBindings, message: Outboun
     providerMessageId: body.messages?.[0]?.id,
   });
 
-  return body;
+  return {
+    providerMessageId: body.messages?.[0]?.id,
+    raw: body,
+  };
 }

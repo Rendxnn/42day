@@ -1,6 +1,6 @@
 # Estado actual
 
-Ultima actualizacion: 2026-04-21.
+Ultima actualizacion: 2026-04-22.
 
 ## Logro principal
 
@@ -40,7 +40,8 @@ Configurado:
 - bucket privado `payment-proofs`,
 - grants para Data API,
 - indices de foreign keys,
-- advisors de seguridad sin alertas.
+- RLS activado en tablas expuestas por PostgREST,
+- advisors de seguridad sin errores de RLS desactivado.
 
 Canal demo:
 
@@ -87,7 +88,14 @@ Backend inicial:
 - normalizacion inicial de payload WhatsApp,
 - registro raw en `control.webhook_events`,
 - idempotencia inicial por `provider_message_id`,
-- resolucion temporal de tenant demo,
+- resolucion de tenant desde `control.tenant_channels`,
+- creacion/busqueda de customer por telefono,
+- creacion/carga de conversation activa,
+- timeout de conversation a 30 minutos,
+- guardado de inbound/outbound en `tenant_demo.messages`,
+- normalizacion de mensajes tipo ubicacion de WhatsApp,
+- almacenamiento de ubicaciones WhatsApp en `tenant_demo.customer_addresses`,
+- marcado de webhook procesado,
 - envio outbound basico por WhatsApp,
 - cliente REST minimo para Supabase.
 
@@ -129,19 +137,25 @@ order by received_at desc
 limit 20;
 ```
 
-Resultado observado:
+Resultado observado antes de la siguiente iteracion de persistencia:
 
 - eventos guardados con `status = received`,
 - logs API con `POST /rest/v1/webhook_events -> 201`.
 
 ## Limitaciones actuales
 
-Todavia no se guarda el mensaje normalizado en `tenant_demo.messages`.
+La nueva persistencia de `customers`, `conversations`, `messages`, `customer_addresses` y `processed_at` ya esta implementada en codigo.
+
+Ya se aplicaron en Supabase:
+
+- migracion `business_config_and_addresses`,
+- migracion `enable_rls_for_exposed_tables`,
+- seed `menu_demo.sql`.
+
+Falta volver a desplegar el Worker staging para probar esta version contra Supabase remoto.
 
 Todavia no se crean automaticamente:
 
-- `customers`,
-- `conversations`,
 - `draft_orders`,
 - `orders`.
 
@@ -160,16 +174,10 @@ Convertir la respuesta fija en el primer motor conversacional persistente.
 
 Secuencia recomendada:
 
-1. Diferenciar eventos `messages` vs `statuses` de WhatsApp.
-2. Marcar `control.webhook_events.processed_at`.
-3. Resolver tenant desde `control.tenant_channels` en vez de usar fallback por env.
-4. Crear o buscar customer por telefono.
-5. Crear o cargar conversation activa.
-6. Guardar inbound en `tenant_demo.messages`.
-7. Guardar outbound en `tenant_demo.messages`.
-8. Aplicar timeout de 30 minutos.
-9. Responder opciones iniciales desde `message_router`.
-10. Empezar flujo guiado con menu seed.
+1. Desplegar de nuevo el Worker staging.
+2. Probar mensaje de texto desde WhatsApp y verificar `tenant_demo.customers`, `tenant_demo.conversations` y `tenant_demo.messages`.
+3. Probar envio de ubicacion desde WhatsApp y verificar `tenant_demo.customer_addresses`.
+4. Empezar flujo guiado con menu seed.
 
 ## Siguiente objetivo de producto
 
@@ -192,11 +200,7 @@ usuario escribe hola
 
 Necesitamos definir:
 
-- datos minimos de direccion valida,
 - reglas iniciales de promociones,
 - que pasa si un producto se agota durante una conversacion,
-- cuantos intentos de aclaracion antes de handoff,
 - quien puede reactivar automatizacion,
-- si dashboard consume solo API o tambien Supabase directo,
-- mensaje exacto de expiracion,
 - eventos que generan notificacion visual/sonora.
