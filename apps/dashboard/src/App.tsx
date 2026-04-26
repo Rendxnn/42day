@@ -1,0 +1,934 @@
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import type { MenuItem, Product } from "@42day/types";
+import {
+  addMenuItem,
+  createProduct,
+  deleteMenuItem,
+  deleteProduct,
+  getDiagnostics,
+  getTodayMenu,
+  listTenants,
+  updateMenuItem,
+  updateProduct,
+  uploadProductImage,
+} from "./api";
+import type { DashboardTenant } from "./api";
+import {
+  Camera,
+  Check,
+  ChefHat,
+  Clock,
+  Edit3,
+  Home,
+  ImagePlus,
+  Loader2,
+  Plus,
+  Search,
+  SearchCheck,
+  Sparkles,
+  Trash2,
+  UploadCloud,
+  Utensils,
+  X,
+} from "lucide-react";
+
+type View = "menu" | "summary" | "catalog" | "upload";
+type SaveStatus = "loading" | "saving" | "saved" | "offline";
+type ProductFormValue = Partial<Product> & { imageFile?: File };
+
+const fallbackTenants: DashboardTenant[] = [
+  { id: "local-demo", name: "Restaurante Demo", slug: "demo", schemaName: "tenant_demo" },
+  { id: "local-arepas", name: "Arepas del Parque", slug: "arepas", schemaName: "tenant_arepas" },
+  { id: "local-pizza", name: "Pizza Norte", slug: "pizza", schemaName: "tenant_pizza" },
+];
+
+const fallbackProducts: Product[] = [
+  {
+    id: "local-product-1",
+    name: "Bandeja paisa ejecutiva",
+    description: "Frijoles, arroz, carne molida, huevo, maduro y aguacate.",
+    basePrice: 24000,
+    category: "almuerzos",
+    imageUrl: "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=420&q=80",
+    isActive: true,
+  },
+  {
+    id: "local-product-2",
+    name: "Pollo a la plancha",
+    description: "Pechuga asada con ensalada fresca y papas criollas.",
+    basePrice: 21000,
+    category: "almuerzos",
+    imageUrl: "https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=420&q=80",
+    isActive: true,
+  },
+  {
+    id: "local-product-3",
+    name: "Sopa del dia",
+    description: "Entrada caliente preparada con ingredientes del dia.",
+    basePrice: 9000,
+    category: "entradas",
+    imageUrl: "https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=420&q=80",
+    isActive: true,
+  },
+];
+
+const fallbackItems: MenuItem[] = fallbackProducts.map((product, index) => ({
+  id: `local-item-${index + 1}`,
+  menuId: "local-menu",
+  productId: product.id,
+  displayName: product.name,
+  priceOverride: product.basePrice,
+  isAvailable: index < 2,
+  sortOrder: index,
+  product,
+}));
+
+function getFallbackProducts(tenantSlug: string): Product[] {
+  if (tenantSlug === "arepas") {
+    return [
+      {
+        id: "local-arepas-product-1",
+        name: "Arepa mixta",
+        description: "Arepa asada con carne desmechada, pollo y queso.",
+        basePrice: 16000,
+        category: "arepas",
+        imageUrl: "https://images.unsplash.com/photo-1627662236973-4fd83550a2c8?auto=format&fit=crop&w=420&q=80",
+        isActive: true,
+      },
+      {
+        id: "local-arepas-product-2",
+        name: "Arepa de queso",
+        description: "Arepa clasica con queso doble.",
+        basePrice: 9500,
+        category: "arepas",
+        isActive: true,
+      },
+    ];
+  }
+
+  if (tenantSlug === "pizza") {
+    return [
+      {
+        id: "local-pizza-product-1",
+        name: "Pizza personal pepperoni",
+        description: "Masa artesanal, mozzarella y pepperoni.",
+        basePrice: 22000,
+        category: "pizzas",
+        imageUrl: "https://images.unsplash.com/photo-1628840042765-356cda07504e?auto=format&fit=crop&w=420&q=80",
+        isActive: true,
+      },
+      {
+        id: "local-pizza-product-2",
+        name: "Pizza vegetariana",
+        description: "Champinones, pimenton, cebolla y aceitunas.",
+        basePrice: 24000,
+        category: "pizzas",
+        isActive: true,
+      },
+    ];
+  }
+
+  return fallbackProducts;
+}
+
+function getFallbackItems(tenantSlug: string): MenuItem[] {
+  return getFallbackProducts(tenantSlug).map((product, index) => ({
+    id: `local-${tenantSlug}-item-${index + 1}`,
+    menuId: `local-${tenantSlug}-menu`,
+    productId: product.id,
+    displayName: product.name,
+    priceOverride: product.basePrice,
+    isAvailable: index === 0,
+    sortOrder: index,
+    product,
+  }));
+}
+
+const detectedProducts = [
+  { name: "Arroz con pollo", price: 18000, confidence: "98%" },
+  { name: "Carne asada", price: 26000, confidence: "94%" },
+  { name: "Jugo de mora", price: 7000, confidence: "91%" },
+];
+
+const navItems = [
+  { id: "menu" as const, label: "Hoy", icon: Utensils },
+  { id: "summary" as const, label: "Resumen", icon: Home },
+  { id: "catalog" as const, label: "Catalogo", icon: ChefHat },
+  { id: "upload" as const, label: "Subida", icon: UploadCloud },
+];
+
+let toastTimer = 0;
+
+function formatPrice(value: number | undefined) {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
+
+export function App() {
+  // The daily operation screen must always be the first screen on load.
+  const [activeView, setActiveView] = useState<View>("menu");
+  const [tenantSlug, setTenantSlug] = useState(import.meta.env.VITE_TENANT_SLUG ?? "demo");
+  const [tenants, setTenants] = useState<DashboardTenant[]>(fallbackTenants);
+  const [products, setProducts] = useState<Product[]>(fallbackProducts);
+  const [items, setItems] = useState<MenuItem[]>(fallbackItems);
+  const [imageColumnReady, setImageColumnReady] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
+  const [lastUpdated, setLastUpdated] = useState("hace 2 min");
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    listTenants()
+      .then((apiTenants) => {
+        if (apiTenants.length > 0) {
+          setTenants(apiTenants);
+        }
+      })
+      .catch(() => setTenants(fallbackTenants));
+  }, []);
+
+  useEffect(() => {
+    setSaveStatus("loading");
+    getTodayMenu(tenantSlug)
+      .then((payload) => {
+        setProducts(payload.products);
+        setItems(payload.items);
+        setSaveStatus("saved");
+        setLastUpdated(payload.menu?.publishedAt ? "desde Supabase" : "sin menu publicado");
+      })
+      .catch(() => {
+        setProducts(getFallbackProducts(tenantSlug));
+        setItems(getFallbackItems(tenantSlug));
+        setSaveStatus("offline");
+        setLastUpdated("modo local");
+        notify(`Usando datos locales para ${tenantSlug}`);
+      });
+
+    getDiagnostics(tenantSlug)
+      .then((diagnostics) => setImageColumnReady(diagnostics.productImageColumn && diagnostics.productImagesBucket))
+      .catch(() => setImageColumnReady(false));
+  }, [tenantSlug]);
+
+  const activeItems = items.filter((item) => item.isAvailable);
+  const menuIsActive = activeItems.length > 0;
+
+  function notify(message: string) {
+    setToast(message);
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function persistItem(itemId: string, patch: Partial<MenuItem>) {
+    setItems((current) => current.map((item) => (item.id === itemId ? { ...item, ...patch } : item)));
+    setSaveStatus("saving");
+
+    try {
+      await updateMenuItem(tenantSlug, itemId, patch);
+      setSaveStatus("saved");
+      setLastUpdated("ahora");
+    } catch {
+      setSaveStatus("offline");
+    }
+  }
+
+  async function addFromCatalog(productId: string) {
+    const product = products.find((entry) => entry.id === productId);
+    if (!product) return;
+
+    setSaveStatus("saving");
+    try {
+      const created = await addMenuItem(tenantSlug, productId);
+      setItems((current) => [...current, created]);
+      setSaveStatus("saved");
+    } catch {
+      const localItem: MenuItem = {
+        id: `local-item-${Date.now()}`,
+        menuId: "local-menu",
+        productId: product.id,
+        displayName: product.name,
+        priceOverride: product.basePrice,
+        isAvailable: true,
+        sortOrder: Date.now(),
+        product,
+      };
+      setItems((current) => [...current, localItem]);
+      setSaveStatus("offline");
+    }
+  }
+
+  async function removeMenuItem(itemId: string) {
+    setItems((current) => current.filter((item) => item.id !== itemId));
+    setSaveStatus("saving");
+    try {
+      await deleteMenuItem(tenantSlug, itemId);
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("offline");
+    }
+  }
+
+  async function saveProduct(product: ProductFormValue) {
+    setSaveStatus("saving");
+
+    try {
+      const imageUrl = product.imageFile && imageColumnReady
+        ? (await uploadProductImage(tenantSlug, product.imageFile)).publicUrl
+        : product.imageUrl;
+      const payload = { ...product, imageFile: undefined, imageUrl };
+      const persisted = product.id ? await updateProduct(tenantSlug, product.id, payload) : await createProduct(tenantSlug, payload);
+
+      setProducts((current) => (product.id ? current.map((item) => (item.id === product.id ? persisted : item)) : [persisted, ...current]));
+      setSaveStatus("saved");
+      notify(product.imageFile && !imageColumnReady ? "Producto creado sin imagen: falta migracion image_url" : product.id ? "Producto actualizado" : "Producto creado");
+    } catch {
+      setSaveStatus("offline");
+      notify("No se pudo guardar. Conecta API y Supabase para persistir.");
+      throw new Error("product_save_failed");
+    }
+  }
+
+  async function removeProduct(productId: string) {
+    await deleteProduct(tenantSlug, productId).catch(() => undefined);
+    setProducts((current) => current.filter((product) => product.id !== productId));
+    setItems((current) => current.filter((item) => item.productId !== productId));
+    notify("Producto desactivado");
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f8f8f5] text-zinc-950">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl">
+        <Sidebar activeView={activeView} onNavigate={setActiveView} />
+        <main className="min-w-0 flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-8">
+          <Header
+            menuIsActive={menuIsActive}
+            saveStatus={saveStatus}
+            tenantSlug={tenantSlug}
+            tenants={tenants}
+            onTenantChange={setTenantSlug}
+          />
+
+          {activeView === "menu" && (
+            <TodayMenu
+              activeCount={activeItems.length}
+              items={items}
+              lastUpdated={lastUpdated}
+              menuIsActive={menuIsActive}
+              products={products}
+              saveStatus={saveStatus}
+              onAddDish={addFromCatalog}
+              onDeleteDish={removeMenuItem}
+              onUpdateDish={persistItem}
+            />
+          )}
+          {activeView === "summary" && (
+            <Summary activeCount={activeItems.length} totalCount={items.length} onEditMenu={() => setActiveView("menu")} />
+          )}
+          {activeView === "catalog" && <Catalog imageColumnReady={imageColumnReady} products={products} onDelete={removeProduct} onSave={saveProduct} />}
+          {activeView === "upload" && (
+            <SmartUpload
+              onAddProducts={(newProducts) => setProducts((current) => [...newProducts, ...current])}
+              onNotify={notify}
+            />
+          )}
+        </main>
+        <BottomNav activeView={activeView} onNavigate={setActiveView} />
+      </div>
+      {toast && <Toast message={toast} />}
+    </div>
+  );
+}
+
+function Header({
+  menuIsActive,
+  onTenantChange,
+  saveStatus,
+  tenantSlug,
+  tenants,
+}: {
+  menuIsActive: boolean;
+  onTenantChange: (tenantSlug: string) => void;
+  saveStatus: SaveStatus;
+  tenantSlug: string;
+  tenants: DashboardTenant[];
+}) {
+  return (
+    <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3">
+        <div className="grid h-9 w-9 place-items-center rounded-lg bg-white text-zinc-800 ring-1 ring-zinc-200 lg:hidden">
+          <ChefHat size={18} />
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">42Today</p>
+          <h1 className="mt-0.5 text-xl font-semibold tracking-normal text-zinc-950">Operacion WhatsApp</h1>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <select
+          className="h-10 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 outline-none transition focus:border-zinc-300 focus:ring-4 focus:ring-zinc-100"
+          onChange={(event) => onTenantChange(event.target.value)}
+          value={tenantSlug}
+        >
+          {tenants.map((tenant) => (
+            <option key={tenant.slug} value={tenant.slug}>
+              {tenant.name}
+            </option>
+          ))}
+        </select>
+        <SaveIndicator status={saveStatus} menuIsActive={menuIsActive} />
+      </div>
+    </header>
+  );
+}
+
+function SaveIndicator({ status, menuIsActive }: { status: SaveStatus; menuIsActive: boolean }) {
+  const copy = {
+    loading: "Cargando...",
+    saving: "Guardando...",
+    saved: "Guardado automaticamente",
+    offline: "Modo local",
+  }[status];
+
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200">
+      {status === "saving" || status === "loading" ? <Loader2 className="animate-spin" size={15} /> : <Check className="text-emerald-600" size={15} />}
+      <span className="hidden sm:inline">{copy}</span>
+      <span className={`h-2 w-2 rounded-full ${menuIsActive ? "bg-emerald-500" : "bg-zinc-300"}`} />
+    </div>
+  );
+}
+
+function Sidebar({ activeView, onNavigate }: { activeView: View; onNavigate: (view: View) => void }) {
+  return (
+    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 border-r border-zinc-200 bg-white/80 px-3 py-4 backdrop-blur lg:block">
+      <div className="mb-6 flex items-center gap-2 px-2">
+        <div className="grid h-8 w-8 place-items-center rounded-lg bg-zinc-900 text-white">
+          <ChefHat size={17} />
+        </div>
+        <div>
+          <p className="text-sm font-semibold leading-5">42Today</p>
+          <p className="text-xs text-zinc-500">Restaurante demo</p>
+        </div>
+      </div>
+      <nav className="space-y-0.5">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = activeView === item.id;
+          return (
+            <button
+              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-medium transition ${active ? "bg-zinc-100 text-zinc-950 ring-1 ring-zinc-200" : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"}`}
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              type="button"
+            >
+              <Icon size={17} />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+function BottomNav({ activeView, onNavigate }: { activeView: View; onNavigate: (view: View) => void }) {
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 px-2 py-2 shadow-[0_-8px_24px_rgba(24,24,27,0.08)] backdrop-blur lg:hidden">
+      <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = activeView === item.id;
+          return (
+            <button
+              className={`flex min-h-14 flex-col items-center justify-center rounded-lg text-xs font-medium transition ${active ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              type="button"
+            >
+              <Icon size={18} />
+              <span className="mt-1">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function TodayMenu(props: {
+  activeCount: number;
+  items: MenuItem[];
+  lastUpdated: string;
+  menuIsActive: boolean;
+  products: Product[];
+  saveStatus: SaveStatus;
+  onAddDish: (productId: string) => void;
+  onDeleteDish: (itemId: string) => void;
+  onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
+}) {
+  const [catalogOpen, setCatalogOpen] = useState(false);
+
+  return (
+    <section className="space-y-5">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+        <div className="border-b border-zinc-100 bg-gradient-to-br from-white to-emerald-50/60 p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200">
+                <Clock size={14} />
+                Ultima actualizacion: {props.lastUpdated}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Menu de hoy</h2>
+                <StatusPill active={props.menuIsActive} />
+              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+                Activa, desactiva o corrige precios. El chatbot consulta `menus` y `menu_items`.
+              </p>
+            </div>
+            <button
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              onClick={() => setCatalogOpen(true)}
+              type="button"
+            >
+              <Plus size={18} />
+              Agregar desde catalogo
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-3 sm:p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MiniStat label="Activos hoy" value={props.activeCount} />
+            <MiniStat label="En menu_items" value={props.items.length} />
+            <MiniStat label="Estado" value={props.saveStatus === "saving" ? "Guardando" : "Listo"} />
+          </div>
+          {props.items.map((item) => (
+            <DishRow
+              item={item}
+              key={item.id}
+              onDelete={() => props.onDeleteDish(item.id)}
+              onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
+            />
+          ))}
+        </div>
+      </div>
+      {catalogOpen && (
+        <AddDishModal items={props.items} products={props.products} onAdd={props.onAddDish} onClose={() => setCatalogOpen(false)} />
+      )}
+    </section>
+  );
+}
+
+function StatusPill({ active }: { active: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${active ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600"}`}>
+      <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-zinc-400"}`} />
+      {active ? "Activo hoy" : "Inactivo"}
+    </span>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg bg-zinc-50 px-4 py-3 ring-1 ring-zinc-100">
+      <p className="text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-zinc-950">{value}</p>
+    </div>
+  );
+}
+
+function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () => void; onUpdate: (patch: Partial<MenuItem>) => void }) {
+  const name = item.displayName ?? item.product?.name ?? "Producto sin nombre";
+  const price = item.priceOverride ?? item.product?.basePrice ?? 0;
+
+  return (
+    <article className={`rounded-xl border p-3 transition sm:p-4 ${item.isAvailable ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-white"}`}>
+      <div className="grid gap-3 sm:grid-cols-[72px_1fr_auto] sm:items-center">
+        <ProductImage imageUrl={item.product?.imageUrl} name={name} />
+        <div className="min-w-0">
+          <h3 className={`truncate text-base font-semibold ${item.isAvailable ? "text-zinc-950" : "text-zinc-500"}`}>{name}</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="inline-flex h-10 items-center rounded-lg bg-white px-3 ring-1 ring-zinc-200 transition focus-within:ring-2 focus-within:ring-emerald-200">
+              <span className="text-sm text-zinc-500">$</span>
+              <input
+                className="ml-1 w-28 bg-transparent text-sm font-semibold text-zinc-950 outline-none"
+                min="0"
+                onChange={(event) => onUpdate({ priceOverride: Number(event.target.value) })}
+                type="number"
+                value={price}
+              />
+            </label>
+            <span className="text-sm text-zinc-500">{formatPrice(price)}</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          <Toggle checked={item.isAvailable} onChange={() => onUpdate({ isAvailable: !item.isAvailable })} />
+          <button className="grid h-10 w-10 place-items-center rounded-lg bg-white text-zinc-400 ring-1 ring-zinc-200 transition hover:bg-red-50 hover:text-red-600" onClick={onDelete} title="Eliminar plato" type="button">
+            <Trash2 size={17} />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (productId: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const existingIds = useMemo(() => new Set(props.items.map((item) => item.productId)), [props.items]);
+  const availableProducts = props.products
+    .filter((product) => product.isActive && !existingIds.has(product.id))
+    .filter((product) => `${product.name} ${product.description ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <Modal title="Agregar desde catalogo" onClose={props.onClose}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={17} />
+        <input
+          autoFocus
+          className="h-11 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-10 pr-3 text-sm outline-none transition focus:border-zinc-300 focus:bg-white focus:ring-4 focus:ring-zinc-100"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar plato..."
+          value={query}
+        />
+      </div>
+      <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto">
+        {availableProducts.map((product) => (
+          <button
+            className="flex w-full items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50"
+            key={product.id}
+            onClick={() => {
+              props.onAdd(product.id);
+              props.onClose();
+            }}
+            type="button"
+          >
+            <ProductImage imageUrl={product.imageUrl} name={product.name} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-zinc-950">{product.name}</p>
+              <p className="mt-1 truncate text-sm text-zinc-500">{product.description}</p>
+            </div>
+            <span className="text-sm font-semibold text-zinc-950">{formatPrice(product.basePrice)}</span>
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function Summary({ activeCount, totalCount, onEditMenu }: { activeCount: number; totalCount: number; onEditMenu: () => void }) {
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <StatusPill active={activeCount > 0} />
+      <h2 className="mt-3 text-2xl font-semibold tracking-normal">Listo para operar hoy</h2>
+      <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+        {activeCount} de {totalCount} platos estan activos para el chatbot de WhatsApp.
+      </p>
+      <button className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800" onClick={onEditMenu} type="button">
+        <Edit3 size={17} />
+        Actualizar menu de hoy
+      </button>
+    </section>
+  );
+}
+
+function Catalog({
+  imageColumnReady,
+  products,
+  onDelete,
+  onSave,
+}: {
+  imageColumnReady: boolean;
+  products: Product[];
+  onDelete: (id: string) => void;
+  onSave: (product: ProductFormValue) => Promise<void>;
+}) {
+  const [modalProduct, setModalProduct] = useState<Partial<Product> | null>(null);
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SectionTitle title="Catalogo general" subtitle="Tabla `products` del schema tenant." />
+        <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800" onClick={() => setModalProduct({ isActive: true })} type="button">
+          <Plus size={17} />
+          Nuevo producto
+        </button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {products.map((product) => (
+          <ProductCard key={product.id} product={product} onDelete={() => onDelete(product.id)} onEdit={() => setModalProduct(product)} />
+        ))}
+      </div>
+      {modalProduct && (
+        <ProductModal
+          imageColumnReady={imageColumnReady}
+          initialProduct={modalProduct}
+          onClose={() => setModalProduct(null)}
+          onSave={async (product) => {
+            await onSave(product);
+            setModalProduct(null);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ProductCard({ product, onDelete, onEdit }: { product: Product; onDelete: () => void; onEdit: () => void }) {
+  return (
+    <article className="group rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-zinc-300 hover:shadow-md">
+      <div className="flex gap-3">
+        <ProductImage imageUrl={product.imageUrl} name={product.name} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-semibold">{product.name}</h3>
+          <p className="mt-1 line-clamp-2 text-sm leading-5 text-zinc-600">{product.description}</p>
+          <p className="mt-2 text-sm font-semibold text-zinc-950">{formatPrice(product.basePrice)}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex justify-end gap-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+        <button className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50" onClick={onEdit} title="Editar producto" type="button">
+          <Edit3 size={17} />
+        </button>
+        <button className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:border-red-100 hover:bg-red-50 hover:text-red-600" onClick={onDelete} title="Eliminar producto" type="button">
+          <Trash2 size={17} />
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function ProductModal({
+  imageColumnReady,
+  initialProduct,
+  onClose,
+  onSave,
+}: {
+  imageColumnReady: boolean;
+  initialProduct: Partial<Product>;
+  onClose: () => void;
+  onSave: (product: ProductFormValue) => Promise<void>;
+}) {
+  const [form, setForm] = useState<ProductFormValue>(initialProduct);
+  const [previewUrl, setPreviewUrl] = useState(initialProduct.imageUrl ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  return (
+    <Modal title={form.id ? "Editar producto" : "Nuevo producto"} onClose={onClose}>
+      <form
+        className="space-y-3"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setIsSaving(true);
+          try {
+            await onSave({ ...form, basePrice: Number(form.basePrice ?? 0), isActive: form.isActive ?? true });
+          } finally {
+            setIsSaving(false);
+          }
+        }}
+      >
+        <TextInput label="Nombre" onChange={(value) => setForm({ ...form, name: value })} placeholder="Ej. Almuerzo ejecutivo" value={form.name ?? ""} />
+        <TextInput label="Precio base" onChange={(value) => setForm({ ...form, basePrice: Number(value) })} placeholder="22000" type="number" value={String(form.basePrice ?? "")} />
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">Imagen</span>
+          <div className="flex items-center gap-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3">
+            <ProductImage imageUrl={previewUrl} name={form.name ?? "Producto"} />
+            <div className="min-w-0 flex-1">
+              <input
+                accept="image/jpeg,image/png,image/webp"
+                className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-950 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!imageColumnReady}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  setForm({ ...form, imageFile: file, imageUrl: undefined });
+                  setPreviewUrl(URL.createObjectURL(file));
+                }}
+                type="file"
+              />
+              <p className="mt-2 text-xs leading-5 text-zinc-500">
+                {imageColumnReady
+                  ? "Sube JPG, PNG o WebP. Se aloja en nuestro bucket `product-images`."
+                  : "Imagen desactivada: falta aplicar la migracion `products.image_url`. El producto si se puede guardar."}
+              </p>
+            </div>
+          </div>
+        </label>
+        <TextInput label="Descripcion" onChange={(value) => setForm({ ...form, description: value })} placeholder="Descripcion corta para WhatsApp" value={form.description ?? ""} />
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="inline-flex h-11 items-center justify-center rounded-lg border border-zinc-200 px-4 text-sm font-semibold transition hover:bg-zinc-50" onClick={onClose} type="button">
+            Cancelar
+          </button>
+          <button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70" disabled={isSaving} type="submit">
+            {isSaving && <Loader2 className="animate-spin" size={16} />}
+            {isSaving ? "Guardando" : "Guardar"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Product[]) => void; onNotify: (message: string) => void }) {
+  const [preview, setPreview] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [results, setResults] = useState<typeof detectedProducts>([]);
+
+  function readFile(file?: File) {
+    if (!file) return;
+    setPreview(URL.createObjectURL(file));
+    setResults([]);
+  }
+
+  function importResults() {
+    const importedProducts: Product[] = results.map((item, index) => ({
+      id: `detected-${Date.now()}-${index}`,
+      name: item.name,
+      description: "Detectado automaticamente desde imagen del menu.",
+      basePrice: item.price,
+      isActive: true,
+    }));
+
+    onAddProducts(importedProducts);
+    onNotify("Productos detectados agregados localmente");
+  }
+
+  return (
+    <section className="space-y-4">
+      <SectionTitle title="Subida inteligente" subtitle="Futura entrada para OCR/IA antes de guardar en `products`." />
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        <label className="flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-center shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/40">
+          <input accept="image/*" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
+          {preview ? (
+            <img alt="Preview del menu" className="h-72 w-full rounded-lg object-cover" src={preview} />
+          ) : (
+            <>
+              <div className="mb-4 grid h-14 w-14 place-items-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <Sparkles size={24} />
+              </div>
+              <p className="text-sm font-semibold">Sube una foto del menu</p>
+              <p className="mt-1 max-w-xs text-sm text-zinc-500">El sistema detectara productos y precios para agregarlos al catalogo.</p>
+            </>
+          )}
+        </label>
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <button
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!preview || isAnalyzing}
+            onClick={() => {
+              setIsAnalyzing(true);
+              window.setTimeout(() => {
+                setResults(detectedProducts);
+                setIsAnalyzing(false);
+                onNotify("Menu analizado");
+              }, 900);
+            }}
+            type="button"
+          >
+            {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
+            {isAnalyzing ? "Analizando" : "Analizar menu"}
+          </button>
+          <div className="mt-4 space-y-2">
+            {results.length === 0 && (
+              <div className="rounded-lg bg-zinc-50 p-4 text-center text-sm text-zinc-500">
+                <Camera className="mx-auto mb-2 text-zinc-400" size={22} />
+                Los productos detectados apareceran aqui.
+              </div>
+            )}
+            {results.map((item) => (
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 p-3" key={item.name}>
+                <div>
+                  <p className="text-sm font-semibold">{item.name}</p>
+                  <p className="text-xs text-zinc-500">Confianza {item.confidence}</p>
+                </div>
+                <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
+              </div>
+            ))}
+          </div>
+          {results.length > 0 && (
+            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-3 text-sm font-semibold transition hover:bg-zinc-50" onClick={importResults} type="button">
+              <Plus size={17} />
+              Agregar al catalogo
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Modal({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-end bg-zinc-950/30 p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
+      <div className="max-h-[92vh] w-full overflow-hidden rounded-t-2xl bg-white shadow-2xl ring-1 ring-zinc-200 sm:max-w-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <button className="grid h-9 w-9 place-items-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="max-h-[calc(92vh-70px)] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div>
+      <h2 className="text-xl font-semibold tracking-normal">{title}</h2>
+      <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
+    </div>
+  );
+}
+
+function TextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">{props.label}</span>
+      <input
+        className="h-11 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm outline-none transition focus:border-zinc-300 focus:bg-white focus:ring-4 focus:ring-zinc-100"
+        onChange={(event) => props.onChange(event.target.value)}
+        placeholder={props.placeholder}
+        type={props.type ?? "text"}
+        value={props.value}
+      />
+    </label>
+  );
+}
+
+function ProductImage({ imageUrl, name }: { imageUrl?: string; name: string }) {
+  if (!imageUrl) {
+    return (
+      <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg bg-zinc-100 text-zinc-400">
+        <ImagePlus size={20} />
+      </div>
+    );
+  }
+
+  return <img alt={name} className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-zinc-200" src={imageUrl} />;
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${checked ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:text-zinc-950"}`}
+      onClick={onChange}
+      type="button"
+    >
+      <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-white" : "bg-zinc-300"}`} />
+      {checked ? "Activo hoy" : "Inactivo"}
+    </button>
+  );
+}
+
+function Toast({ message }: { message: string }) {
+  return (
+    <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg bg-zinc-950 px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6">
+      <Check size={17} />
+      {message}
+    </div>
+  );
+}

@@ -141,6 +141,27 @@ Rutas sugeridas:
 tenant_<slug>/<yyyy>/<mm>/<order_id>/<message_id>.<ext>
 ```
 
+Para imagenes de productos:
+
+- el dashboard sube el archivo al API,
+- el API usa `SUPABASE_SERVICE_ROLE_KEY` para subirlo a Supabase Storage,
+- el bucket es publico porque las imagenes se muestran en el dashboard y pueden ser consumidas por canales publicos,
+- Postgres guarda solo la URL final en `tenant_<slug>.products.image_url`.
+
+Bucket:
+
+```txt
+product-images
+```
+
+Rutas:
+
+```txt
+<tenant_slug>/products/<uuid>.<ext>
+```
+
+No se recomienda guardar hotlinks externos como fuente final. Pueden fallar por CORS, bloqueo del host, expiracion de URLs, cambios del sitio origen o imagenes muy pesadas. La fuente estable debe ser nuestro Storage.
+
 ## RLS
 
 Si el dashboard consulta directo Supabase:

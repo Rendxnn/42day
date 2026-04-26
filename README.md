@@ -28,6 +28,46 @@ Por ahora el foco del backend es:
 
 El frontend/dashboard lo trabaja otro integrante del equipo y debe vivir en `apps/dashboard`.
 
+## Desarrollo local rapido
+
+Levantar API y dashboard:
+
+```bash
+python scripts/dev_services.py --start
+```
+
+Ver estado:
+
+```bash
+python scripts/dev_services.py --status
+```
+
+Tumbar servicios:
+
+```bash
+python scripts/dev_services.py --stop
+```
+
+Reiniciar:
+
+```bash
+python scripts/dev_services.py --restart
+```
+
+URLs locales:
+
+- Dashboard: `http://localhost:5173`
+- API: `http://127.0.0.1:8787`
+
+Logs:
+
+```txt
+.dev-logs/api.log
+.dev-logs/api.err.log
+.dev-logs/dashboard.log
+.dev-logs/dashboard.err.log
+```
+
 ## Estructura
 
 ```txt

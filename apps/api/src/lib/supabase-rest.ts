@@ -1,7 +1,7 @@
 import type { ApiBindings } from "./bindings";
 
 export type SupabaseRestClient = {
-  select: <T>(input: {
+  select: <T = Record<string, unknown>>(input: {
     schema: string;
     table: string;
     query?: Record<string, string | number | boolean | undefined>;
@@ -11,6 +11,11 @@ export type SupabaseRestClient = {
     table: string;
     rows: Record<string, unknown> | Array<Record<string, unknown>>;
     returning?: "minimal" | "representation";
+  }) => Promise<T[]>;
+  insertReturning: <T = Record<string, unknown>>(input: {
+    schema: string;
+    table: string;
+    rows: Record<string, unknown> | Array<Record<string, unknown>>;
   }) => Promise<T[]>;
   upsert: <T = Record<string, unknown>>(input: {
     schema: string;
@@ -26,6 +31,24 @@ export type SupabaseRestClient = {
     query: Record<string, string | number | boolean | undefined>;
     returning?: "minimal" | "representation";
   }) => Promise<T[]>;
+  updateReturning: <T = Record<string, unknown>>(input: {
+    schema: string;
+    table: string;
+    query: Record<string, string | number | boolean | undefined>;
+    patch: Record<string, unknown>;
+  }) => Promise<T[]>;
+  delete: (input: {
+    schema: string;
+    table: string;
+    query: Record<string, string | number | boolean | undefined>;
+  }) => Promise<void>;
+  uploadObject: (input: {
+    bucket: string;
+    path: string;
+    body: Blob;
+    contentType: string;
+    upsert?: boolean;
+  }) => Promise<{ path: string; publicUrl: string }>;
 };
 
 export class SupabaseRestError extends Error {
@@ -42,7 +65,7 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
   const baseUrl = env.SUPABASE_URL.replace(/\/$/, "");
 
   return {
-    async select<T>(input: {
+    async select<T = Record<string, unknown>>(input: {
       schema: string;
       table: string;
       query?: Record<string, string | number | boolean | undefined>;
@@ -52,12 +75,7 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         headers: buildHeaders(env, input.schema),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new SupabaseRestError(`supabase_select_failed:${input.schema}.${input.table}`, response.status, errorText);
-      }
-
-      return (await response.json()) as T[];
+      return parseResponse<T[]>(response, `supabase_select_failed:${input.schema}.${input.table}`);
     },
 
     async insert<T = Record<string, unknown>>(input: {
@@ -79,7 +97,20 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         throw new SupabaseRestError(`supabase_insert_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
 
-      return input.returning === "representation" ? ((await response.json()) as T[]) : [];
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_insert_failed:${input.schema}.${input.table}`)
+        : [];
+    },
+
+    async insertReturning<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      rows: Record<string, unknown> | Array<Record<string, unknown>>;
+    }) {
+      return this.insert<T>({
+        ...input,
+        returning: "representation",
+      });
     },
 
     async upsert<T = Record<string, unknown>>(input: {
@@ -102,7 +133,9 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         throw new SupabaseRestError(`supabase_upsert_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
 
-      return input.returning === "representation" ? ((await response.json()) as T[]) : [];
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_upsert_failed:${input.schema}.${input.table}`)
+        : [];
     },
 
     async update<T = Record<string, unknown>>(input: {
@@ -125,7 +158,65 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         throw new SupabaseRestError(`supabase_update_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
 
-      return input.returning === "representation" ? ((await response.json()) as T[]) : [];
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_update_failed:${input.schema}.${input.table}`)
+        : [];
+    },
+
+    async updateReturning<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      query: Record<string, string | number | boolean | undefined>;
+      patch: Record<string, unknown>;
+    }) {
+      return this.update<T>({
+        schema: input.schema,
+        table: input.table,
+        query: input.query,
+        values: input.patch,
+        returning: "representation",
+      });
+    },
+
+    async delete(input) {
+      const response = await fetch(buildUrl(baseUrl, input.table, input.query), {
+        method: "DELETE",
+        headers: buildHeaders(env, input.schema, {
+          Prefer: "return=minimal",
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new SupabaseRestError(`supabase_delete_failed:${input.schema}.${input.table}`, response.status, errorText);
+      }
+    },
+
+    async uploadObject(input) {
+      const encodedPath = input.path
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+      const response = await fetch(`${baseUrl}/storage/v1/object/${input.bucket}/${encodedPath}`, {
+        method: "POST",
+        headers: {
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          "Content-Type": input.contentType,
+          ...(input.upsert ? { "x-upsert": "true" } : {}),
+        },
+        body: input.body,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new SupabaseRestError(`supabase_storage_upload_failed:${input.bucket}/${input.path}`, response.status, errorText);
+      }
+
+      return {
+        path: input.path,
+        publicUrl: `${baseUrl}/storage/v1/object/public/${input.bucket}/${encodedPath}`,
+      };
     },
   };
 }
@@ -151,4 +242,13 @@ function buildHeaders(env: ApiBindings, schema: string, extra?: Record<string, s
     "Content-Profile": schema,
     ...extra,
   };
+}
+
+async function parseResponse<T>(response: Response, operation: string): Promise<T> {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new SupabaseRestError(operation, response.status, errorText);
+  }
+
+  return response.json() as Promise<T>;
 }

@@ -103,6 +103,7 @@ Catalogo base.
 - `description`
 - `base_price`
 - `category`
+- `image_url`
 - `is_active`
 - `created_at`
 - `updated_at`
