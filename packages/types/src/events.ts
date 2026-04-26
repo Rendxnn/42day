@@ -15,6 +15,7 @@ export type AppEvent = {
 };
 
 export type HumanInterventionType =
+  | "order_pending_confirmation"
   | "support_requested"
   | "transfer_payment_review"
   | "parser_failed"
@@ -22,3 +23,21 @@ export type HumanInterventionType =
   | "technical_error"
   | "order_change_requested"
   | "automation_disabled";
+
+export const humanInterventionStatuses = ["open", "acknowledged", "resolved"] as const;
+
+export type HumanInterventionStatus = (typeof humanInterventionStatuses)[number];
+
+export type HumanInterventionAlert = {
+  id: string;
+  conversationId?: string;
+  draftOrderId?: string;
+  orderId?: string;
+  type: HumanInterventionType;
+  status: HumanInterventionStatus;
+  title: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  resolvedAt?: string;
+};

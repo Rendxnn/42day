@@ -108,6 +108,8 @@ Dashboard:
 - rutas `/dashboard/*` en `apps/api`,
 - CRUD basico de productos,
 - CRUD basico de menu del dia,
+- rutas base para modulo de ordenes y alertas,
+- toggle API para activar/desactivar automatizacion,
 - upload de imagen de producto,
 - tenant demo `demo`,
 - tenants demo adicionales `arepas` y `pizza`.
@@ -171,6 +173,7 @@ Ya se aplicaron en Supabase:
 - migracion `business_config_and_addresses`,
 - migracion `enable_rls_for_exposed_tables`,
 - migracion `enable_rls_for_dashboard_demo_tenants`,
+- migracion `order_console_and_conversation_context`,
 - seed `menu_demo.sql`.
 
 Todavia no se crean automaticamente:
@@ -184,8 +187,8 @@ Todavia no existe:
 - parser semantico,
 - handoff persistido,
 - flujo real de comprobantes en conversacion,
-- confirmacion operativa desde dashboard,
-- manejo de producto agotado al confirmar.
+- confirmacion operativa completa desde dashboard,
+- manejo operativo completo de producto agotado al confirmar.
 
 ## Siguiente objetivo tecnico
 
@@ -221,5 +224,4 @@ usuario escribe hola
 
 Necesitamos definir:
 
-- reglas iniciales de promociones,
-- eventos que generan notificacion visual/sonora.
+- reglas iniciales de promociones.

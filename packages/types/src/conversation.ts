@@ -13,12 +13,15 @@ export const conversationStates = [
 ] as const;
 
 export type ConversationState = (typeof conversationStates)[number];
+export type ConversationContext = Record<string, unknown>;
 
 export type Conversation = {
   id: string;
   customerId: string;
   channel: "whatsapp";
   state: ConversationState;
+  context: ConversationContext;
+  clarificationAttempts: number;
   currentDraftOrderId?: string;
   manualReason?: string;
   lastInboundAt?: string;

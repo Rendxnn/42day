@@ -194,6 +194,10 @@ Implicacion:
 
 - el dashboard debe mostrar con claridad pedidos listos para confirmar,
 - el backend debe diferenciar entre pedido listo y pedido ya aceptado por el restaurante.
+- el modulo de ordenes del dashboard debe separar al menos:
+  - pendientes por confirmar,
+  - activas,
+  - historicas.
 
 ## Producto agotado al confirmar
 
@@ -220,6 +224,7 @@ Implicacion tecnica:
 
 - el toggle debe afectar `control.tenants.automation_enabled` y, si hace falta luego, tambien `locations.automation_enabled`,
 - cuando se desactiva, el sistema sigue registrando mensajes pero deja de responder automaticamente.
+- por ahora el backend expondra el toggle por API; la validacion fuerte por rol quedara conectada cuando entre auth del dashboard.
 
 ## Contexto del flujo guiado
 
@@ -234,6 +239,34 @@ Por que en `conversations` y no en `draft_orders`:
 - el estado de la conversacion no siempre equivale al contenido del pedido,
 - hay pasos como saludo, modo, aclaraciones o handoff que pertenecen a la conversacion, no al draft,
 - mantiene el `draft_order` mas limpio como objeto de negocio.
+
+## Notificaciones del dashboard
+
+Decision:
+
+- por ahora deben generar aviso visual/sonoro:
+  - pedidos pendientes por confirmar,
+  - comprobantes de transferencia detectados.
+
+Implicacion tecnica:
+
+- `human_intervention_alerts` debe usarse como la fuente principal de alertas operativas,
+- `order_pending_confirmation` y `transfer_payment_review` son tipos base para el MVP,
+- el dashboard puede consultar alertas abiertas por API y decidir la experiencia visual/sonora.
+
+## Programacion de pedidos
+
+Recomendacion adoptada:
+
+- modelar programacion con `service_timing` y `scheduled_for`,
+- usar `service_timing = asap` para pedidos inmediatos,
+- usar `service_timing = scheduled` para pedidos programados o preordenes fuera de horario.
+
+Implicacion:
+
+- no hace falta una tabla aparte para preordenes,
+- la misma orden puede verse en dashboard como inmediata o programada,
+- el flujo de WhatsApp solo necesita pedir y validar una hora objetivo cuando aplique.
 
 ## Lo que sigue siendo decision real
 

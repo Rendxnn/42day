@@ -231,6 +231,8 @@ Hilo conversacional.
 - `customer_id`
 - `channel`
 - `state`
+- `context` jsonb
+- `clarification_attempts`
 - `current_draft_order_id`
 - `manual_reason`
 - `last_inbound_at`
@@ -269,6 +271,8 @@ Pedido mutable.
 - `location_id`
 - `status`
 - `fulfillment_type` = `delivery | pickup`
+- `service_timing` = `asap | scheduled`
+- `scheduled_for`
 - `delivery_address`
 - `delivery_address_id`
 - `payment_method`
@@ -306,10 +310,14 @@ Pedido final confirmado.
 - `location_id`
 - `status`
 - `fulfillment_type` = `delivery | pickup`
+- `service_timing` = `asap | scheduled`
+- `scheduled_for`
 - `delivery_address`
 - `delivery_address_id`
 - `payment_method`
 - `payment_proof_file_id`
+- `restaurant_confirmed_at`
+- `payment_confirmed_at`
 - `subtotal`
 - `delivery_fee`
 - `discount_total`
@@ -372,6 +380,22 @@ Decision V1:
 - guardar metadata en Postgres,
 - crear alerta `transfer_payment_review`,
 - dejar la orden en `payment_pending_review` hasta revision humana.
+
+## Modelado recomendado para pedidos programados
+
+Propuesta V1:
+
+- `service_timing = asap` cuando el pedido es para lo antes posible,
+- `service_timing = scheduled` cuando el pedido queda programado,
+- `scheduled_for` guarda la fecha y hora objetivo.
+
+Esto aplica tanto a `draft_orders` como a `orders`.
+
+Ventajas:
+
+- sirve para pedidos fuera de horario sin crear una tabla aparte,
+- deja claro si el pedido es inmediato o programado,
+- simplifica filtros del dashboard.
 
 ### `app_events`
 

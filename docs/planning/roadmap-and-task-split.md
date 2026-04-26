@@ -233,34 +233,27 @@ Pendientes de concretar en OpenAPI o docs tecnicas.
 Sugeridos:
 
 ```txt
-GET    /dashboard/orders
-GET    /dashboard/orders/:id
-PATCH  /dashboard/orders/:id/status
+GET    /dashboard/tenants
+GET    /dashboard/:tenantSlug/menu/today
 
-GET    /dashboard/alerts
-GET    /dashboard/alerts/:id
-PATCH  /dashboard/alerts/:id/acknowledge
-PATCH  /dashboard/alerts/:id/resolve
+GET    /dashboard/:tenantSlug/orders?bucket=pending_confirmation|active|history|all
+GET    /dashboard/:tenantSlug/orders/:orderId
+PATCH  /dashboard/:tenantSlug/orders/:orderId/status
 
-GET    /dashboard/products
-POST   /dashboard/products
-PATCH  /dashboard/products/:id
-DELETE /dashboard/products/:id
+GET    /dashboard/:tenantSlug/alerts
+PATCH  /dashboard/:tenantSlug/alerts/:alertId/acknowledge
+PATCH  /dashboard/:tenantSlug/alerts/:alertId/resolve
 
-GET    /dashboard/combos
-POST   /dashboard/combos
-PATCH  /dashboard/combos/:id
-DELETE /dashboard/combos/:id
+GET    /dashboard/:tenantSlug/settings/automation
+PATCH  /dashboard/:tenantSlug/settings/automation
 
-GET    /dashboard/promotions
-POST   /dashboard/promotions
-PATCH  /dashboard/promotions/:id
-DELETE /dashboard/promotions/:id
+POST   /dashboard/:tenantSlug/products
+PATCH  /dashboard/:tenantSlug/products/:productId
+DELETE /dashboard/:tenantSlug/products/:productId
 
-GET    /dashboard/menus/today
-POST   /dashboard/menus
-PATCH  /dashboard/menus/:id
-POST   /dashboard/menus/:id/publish
+POST   /dashboard/:tenantSlug/menu/today/items
+PATCH  /dashboard/:tenantSlug/menu/today/items/:itemId
+DELETE /dashboard/:tenantSlug/menu/today/items/:itemId
 ```
 
 ## Cosas que faltan por definir

@@ -1,4 +1,14 @@
-import type { MenuItem, Product, TodayMenuPayload } from "@42day/types";
+import type {
+  AutomationSettings,
+  HumanInterventionAlert,
+  MenuItem,
+  OrderDetail,
+  OrdersBucket,
+  OrdersDashboardPayload,
+  OrderStatus,
+  Product,
+  TodayMenuPayload,
+} from "@42day/types";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -46,6 +56,57 @@ export function getDiagnostics(tenantSlug: string) {
 
 export function getTodayMenu(tenantSlug: string) {
   return request<TodayMenuPayload>(`/${tenantSlug}/menu/today`);
+}
+
+export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {
+  return request<OrdersDashboardPayload>(`/${tenantSlug}/orders?bucket=${bucket}`);
+}
+
+export function getOrder(tenantSlug: string, orderId: string) {
+  return request<OrderDetail>(`/${tenantSlug}/orders/${orderId}`);
+}
+
+export function updateOrderStatus(
+  tenantSlug: string,
+  orderId: string,
+  patch: {
+    status?: OrderStatus;
+    restaurantConfirmed?: boolean;
+    paymentConfirmed?: boolean;
+  },
+) {
+  return request(`/${tenantSlug}/orders/${orderId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function listAlerts(tenantSlug: string, status?: HumanInterventionAlert["status"]) {
+  const suffix = status ? `?status=${status}` : "";
+  return request<HumanInterventionAlert[]>(`/${tenantSlug}/alerts${suffix}`);
+}
+
+export function acknowledgeAlert(tenantSlug: string, alertId: string) {
+  return request<HumanInterventionAlert>(`/${tenantSlug}/alerts/${alertId}/acknowledge`, {
+    method: "PATCH",
+  });
+}
+
+export function resolveAlert(tenantSlug: string, alertId: string) {
+  return request<HumanInterventionAlert>(`/${tenantSlug}/alerts/${alertId}/resolve`, {
+    method: "PATCH",
+  });
+}
+
+export function getAutomationSettings(tenantSlug: string) {
+  return request<AutomationSettings>(`/${tenantSlug}/settings/automation`);
+}
+
+export function updateAutomationSettings(tenantSlug: string, enabled: boolean) {
+  return request<AutomationSettings>(`/${tenantSlug}/settings/automation`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 export function createProduct(tenantSlug: string, product: Partial<Product>) {

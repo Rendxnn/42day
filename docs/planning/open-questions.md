@@ -15,7 +15,7 @@
 11. Cerrado: el dashboard consumira solo nuestro API por ahora.
 12. Cerrado: se almacenaran comprobantes desde V1 usando Supabase Storage y metadata en Postgres.
 13. Cerrado a nivel de producto: fuera de horario se puede ofrecer preorden explicita.
-14. ¿Que eventos deben generar notificacion visual/sonora en dashboard?
+14. Cerrado: notificacion visual/sonora para pedidos pendientes por confirmar y comprobantes de transferencia detectados.
 
 ## Sugerencias de decision MVP
 

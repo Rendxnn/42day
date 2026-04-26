@@ -11,6 +11,13 @@ export type Tenant = {
   automationEnabled: boolean;
 };
 
+export type AutomationSettings = {
+  tenantId: string;
+  tenantSlug: string;
+  tenantAutomationEnabled: boolean;
+  locationAutomationEnabled?: boolean;
+};
+
 export type TenantChannel = {
   id: string;
   tenantId: string;
