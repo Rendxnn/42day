@@ -183,6 +183,58 @@ Motivo:
 - concentra la logica del negocio en backend,
 - facilita auditoria, validacion y cambios de contrato.
 
+## Confirmacion final
+
+Decision:
+
+- todos los pedidos deben terminar en confirmacion manual del restaurante,
+- el bot puede armar, validar y dejar listo el pedido, pero el cierre operativo queda del lado humano.
+
+Implicacion:
+
+- el dashboard debe mostrar con claridad pedidos listos para confirmar,
+- el backend debe diferenciar entre pedido listo y pedido ya aceptado por el restaurante.
+
+## Producto agotado al confirmar
+
+Decision:
+
+- si al momento de confirmar el restaurante detecta que un producto ya no esta disponible,
+- el restaurante marca ese producto como agotado,
+- el sistema retoma la conversacion con disculpa y permite editar el pedido usando productos disponibles.
+
+Implicacion tecnica:
+
+- el dashboard necesita una accion rapida para marcar no disponible,
+- el draft no debe perderse,
+- la conversacion debe volver a un estado de correccion controlado.
+
+## Activacion de respuestas automaticas
+
+Decision:
+
+- solo `encargado` puede activar o desactivar respuestas automaticas,
+- debe existir un boton visible y facil en dashboard.
+
+Implicacion tecnica:
+
+- el toggle debe afectar `control.tenants.automation_enabled` y, si hace falta luego, tambien `locations.automation_enabled`,
+- cuando se desactiva, el sistema sigue registrando mensajes pero deja de responder automaticamente.
+
+## Contexto del flujo guiado
+
+Recomendacion:
+
+- guardar el contexto transitorio del flujo en `conversations`,
+- idealmente en un campo `context jsonb`,
+- y guardar un contador `clarification_attempts`.
+
+Por que en `conversations` y no en `draft_orders`:
+
+- el estado de la conversacion no siempre equivale al contenido del pedido,
+- hay pasos como saludo, modo, aclaraciones o handoff que pertenecen a la conversacion, no al draft,
+- mantiene el `draft_order` mas limpio como objeto de negocio.
+
 ## Lo que sigue siendo decision real
 
 - si Google Maps entra en V1 o V2,

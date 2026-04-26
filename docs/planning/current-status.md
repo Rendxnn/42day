@@ -1,6 +1,6 @@
 # Estado actual
 
-Ultima actualizacion: 2026-04-22.
+Ultima actualizacion: 2026-04-26.
 
 ## Logro principal
 
@@ -34,14 +34,17 @@ Configurado:
 
 - schema `control`,
 - schema `tenant_demo`,
+- schema `tenant_arepas`,
+- schema `tenant_pizza`,
 - tenant demo activo,
 - sede demo,
 - canal WhatsApp demo registrado,
 - bucket privado `payment-proofs`,
+- bucket publico `product-images`,
 - grants para Data API,
 - indices de foreign keys,
 - RLS activado en tablas expuestas por PostgREST,
-- advisors de seguridad sin errores de RLS desactivado.
+- RLS activado tambien en schemas demo del dashboard.
 
 Canal demo:
 
@@ -99,6 +102,16 @@ Backend inicial:
 - envio outbound basico por WhatsApp,
 - cliente REST minimo para Supabase.
 
+Dashboard:
+
+- app `apps/dashboard` integrada al monorepo,
+- rutas `/dashboard/*` en `apps/api`,
+- CRUD basico de productos,
+- CRUD basico de menu del dia,
+- upload de imagen de producto,
+- tenant demo `demo`,
+- tenants demo adicionales `arepas` y `pizza`.
+
 Paquetes compartidos:
 
 - `@42day/types`,
@@ -137,22 +150,28 @@ order by received_at desc
 limit 20;
 ```
 
-Resultado observado antes de la siguiente iteracion de persistencia:
+Resultado observado:
 
-- eventos guardados con `status = received`,
-- logs API con `POST /rest/v1/webhook_events -> 201`.
+- webhooks recientes con `status = processed`,
+- `customer` persistido,
+- `conversation` activa con expiracion a 30 minutos,
+- inbound y outbound guardados en `tenant_demo.messages`,
+- outbound recientes con `status = sent`,
+- ubicaciones WhatsApp guardadas en `tenant_demo.customer_addresses`.
 
 ## Limitaciones actuales
 
-La nueva persistencia de `customers`, `conversations`, `messages`, `customer_addresses` y `processed_at` ya esta implementada en codigo.
+La persistencia de `customers`, `conversations`, `messages`, `customer_addresses` y `processed_at` ya esta implementada y validada.
 
 Ya se aplicaron en Supabase:
 
+- migracion `dashboard_product_images`,
+- migracion `test_tenants_arepas_pizza`,
+- migracion `product_images_bucket`,
 - migracion `business_config_and_addresses`,
 - migracion `enable_rls_for_exposed_tables`,
+- migracion `enable_rls_for_dashboard_demo_tenants`,
 - seed `menu_demo.sql`.
-
-Falta volver a desplegar el Worker staging para probar esta version contra Supabase remoto.
 
 Todavia no se crean automaticamente:
 
@@ -161,23 +180,25 @@ Todavia no se crean automaticamente:
 
 Todavia no existe:
 
-- flujo guiado,
-- menu activo real,
+- flujo guiado completo,
 - parser semantico,
 - handoff persistido,
-- dashboard API,
-- descarga/subida real de comprobantes.
+- flujo real de comprobantes en conversacion,
+- confirmacion operativa desde dashboard,
+- manejo de producto agotado al confirmar.
 
 ## Siguiente objetivo tecnico
 
-Convertir la respuesta fija en el primer motor conversacional persistente.
+Construir el flujo guiado real de pedido sobre la base persistente ya validada.
 
 Secuencia recomendada:
 
-1. Desplegar de nuevo el Worker staging.
-2. Probar mensaje de texto desde WhatsApp y verificar `tenant_demo.customers`, `tenant_demo.conversations` y `tenant_demo.messages`.
-3. Probar envio de ubicacion desde WhatsApp y verificar `tenant_demo.customer_addresses`.
-4. Empezar flujo guiado con menu seed.
+1. Probar dashboard local contra API local.
+2. Implementar respuesta real de `menu` desde `tenant_demo.menus` y `tenant_demo.menu_items`.
+3. Crear `draft_order` y `draft_order_items`.
+4. Implementar delivery/pickup.
+5. Implementar pago y resumen.
+6. Implementar confirmacion manual desde dashboard.
 
 ## Siguiente objetivo de producto
 
@@ -201,6 +222,4 @@ usuario escribe hola
 Necesitamos definir:
 
 - reglas iniciales de promociones,
-- que pasa si un producto se agota durante una conversacion,
-- quien puede reactivar automatizacion,
 - eventos que generan notificacion visual/sonora.
