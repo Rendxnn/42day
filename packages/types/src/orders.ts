@@ -39,10 +39,12 @@ export type OrderLineItem = {
 export type DraftOrder = {
   id: string;
   status: DraftOrderStatus;
+  locationId?: string;
   fulfillmentType?: FulfillmentType;
   serviceTiming?: ServiceTiming;
   scheduledFor?: string;
   deliveryAddress?: string;
+  deliveryAddressId?: string;
   paymentMethod?: PaymentMethod;
   items: OrderLineItem[];
   subtotal: number;

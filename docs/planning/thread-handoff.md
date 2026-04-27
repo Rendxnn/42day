@@ -1,6 +1,6 @@
 # Handoff para continuar desde otro hilo
 
-Ultima actualizacion: 2026-04-26.
+Ultima actualizacion: 2026-04-27.
 
 ## Rama de trabajo
 
@@ -15,9 +15,10 @@ No continuar desde `master`.
 ## Commits clave en esta rama
 
 ```txt
+523be9d Improve WhatsApp welcome and menu fallback
+26ddfa4 Fix dashboard menu item sort order
 5f22a70 Implement menu display and draft order creation
 f57e6b4 Add order console and conversation context foundations
-c12f3b2 Document flow decisions and dashboard tenant RLS
 ```
 
 ## Estado real ya implementado
@@ -37,10 +38,16 @@ Ya funciona:
 - respuesta automatica basica,
 - comando `menu` con lectura real del menu publicado del dia,
 - menu numerado por WhatsApp,
-- seleccion inicial por numero,
+- seleccion por numero o texto con cantidad simple,
 - creacion o reutilizacion de `draft_order`,
 - agregado del primer item a `draft_order_items`,
-- cambio de estado a `awaiting_fulfillment_type`.
+- cambio de estado a `awaiting_fulfillment_type`,
+- seleccion de `delivery/pickup`,
+- captura de direccion por texto o ubicacion,
+- seleccion de pago,
+- resumen final determinista,
+- creacion de `orders` y `order_items`,
+- alertas `order_pending_confirmation` y `transfer_payment_review`.
 
 ### Dashboard / API
 
@@ -122,35 +129,40 @@ corepack pnpm --filter @42day/api exec wrangler deploy --env staging
 ### Prueba WhatsApp actual esperada
 
 1. enviar `hola`
-2. enviar `menu`
-3. enviar `1`
+2. enviar `2 menu del dia por favor`
+3. enviar `domicilio`
+4. enviar ubicacion o direccion
+5. enviar `efectivo`
+6. enviar `si`
 
 Resultado esperado:
 
 1. `hola`
    - responde con saludo general
-2. `menu`
-   - responde con menu publicado del dia en formato numerado
-3. `1`
+2. `2 menu del dia por favor`
+   - detecta cantidad y producto
    - crea o reutiliza `draft_order`
    - agrega el item seleccionado
-   - responde:
-
-```txt
-Agregue <producto> a tu pedido.
-Llevas <n> item(s) y un subtotal de <valor>.
-
-Ahora dime como lo quieres:
-1. Domicilio
-2. Pickup
-```
+   - responde con subtotal y pregunta delivery/pickup
+3. `domicilio`
+   - guarda `fulfillment_type = delivery`
+   - pide direccion o ubicacion
+4. ubicacion o direccion
+   - guarda `delivery_address`
+   - pide metodo de pago
+5. `efectivo`
+   - muestra resumen final
+6. `si`
+   - crea `order`
+   - crea alerta pendiente de confirmacion
+   - responde que el restaurante lo revisa
 
 ## Datos que deben verse en Supabase despues de esa prueba
 
 En `tenant_demo`:
 
 - `messages` con inbound/outbound nuevos,
-- `conversations.state = awaiting_fulfillment_type`,
+- `conversations.state = completed` para efectivo o `awaiting_transfer_proof` para transferencia,
 - `conversations.current_draft_order_id` con valor,
 - `conversations.context` con:
   - `flow = guided`
@@ -158,36 +170,25 @@ En `tenant_demo`:
   - `activeLocationId`
   - `lastSelectedMenuItemId`
 - `draft_orders` con una fila nueva o reutilizada,
-- `draft_order_items` con el primer item agregado.
+- `draft_order_items` con el item agregado,
+- `orders` con una fila nueva,
+- `order_items` con copia del draft,
+- `human_intervention_alerts` con alerta abierta.
 
 ## Siguiente bloque exacto de implementacion
 
 Construir este tramo, en este orden:
 
-1. resolver `1 domicilio / 2 pickup`
-2. si es `pickup`:
-   - guardar `fulfillment_type = pickup`
-   - `delivery_fee = 0`
-   - pasar a pago
-3. si es `delivery`:
-   - guardar `fulfillment_type = delivery`
-   - pedir direccion o usar ubicacion si ya existe
-4. si esta fuera de horario:
+1. aplicar migracion de extensiones a `product_options`
+2. empezar soporte de configurables en dashboard y matcher determinista
+3. si esta fuera de horario:
    - ofrecer preorden
    - pedir hora
    - guardar `service_timing = scheduled`
    - guardar `scheduled_for`
-5. pedir metodo de pago:
-   - efectivo
-   - transferencia
-6. si es transferencia:
-   - guardar comprobante luego
-   - crear alerta `transfer_payment_review`
-   - dejar orden en `payment_pending_review`
-7. construir resumen
-8. confirmar por cliente
-9. crear `order`
-10. dejar pendiente de confirmacion manual del restaurante
+4. integrar comprobantes reales de transferencia
+5. confirmar pedido manualmente desde dashboard
+6. manejar producto agotado y retoma de conversacion
 
 ## Decisiones ya cerradas que no hay que reabrir
 
@@ -203,7 +204,8 @@ Construir este tramo, en este orden:
   - comprobantes de transferencia detectados,
 - todas las ordenes terminan en confirmacion manual del restaurante,
 - solo `encargado` puede activar/desactivar automatizacion,
-- el dashboard consume solo nuestro API por ahora.
+- el dashboard consume solo nuestro API por ahora,
+- el router generico se llamara `t-router`.
 
 ## Deuda conocida
 

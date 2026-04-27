@@ -1,13 +1,13 @@
 # Estado actual
 
-Ultima actualizacion: 2026-04-26.
+Ultima actualizacion: 2026-04-27.
 
 Referencia de handoff para continuar desde otro hilo:
 
 - [thread-handoff.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/thread-handoff.md)
 - [cloudflare-meta-token-and-deploy.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/runbooks/cloudflare-meta-token-and-deploy.md)
 - [deterministic-order-engine-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/deterministic-order-engine-plan.md)
-- [x-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/x-router-adoption-plan.md)
+- [t-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/t-router-adoption-plan.md)
 
 ## Logro principal
 
@@ -109,10 +109,16 @@ Backend inicial:
 - envio outbound basico por WhatsApp,
 - lectura del menu publicado del dia desde Supabase,
 - respuesta `menu` real por WhatsApp con lista numerada,
-- seleccion guiada inicial por numero,
+- seleccion guiada por numero o texto con cantidad simple,
 - creacion/persistencia inicial de `draft_orders`,
 - agregado de items a `draft_order_items`,
 - `conversation.context` y `clarification_attempts`,
+- seleccion determinista de `delivery/pickup`,
+- captura de direccion por texto o ubicacion,
+- seleccion de pago,
+- resumen final determinista,
+- creacion de `orders` y `order_items`,
+- alertas `order_pending_confirmation` y `transfer_payment_review`,
 - cliente REST minimo para Supabase.
 
 Dashboard:
@@ -189,13 +195,12 @@ Ya se aplicaron en Supabase:
 - migracion `order_console_and_conversation_context`,
 - seed `menu_demo.sql`.
 
-Todavia no se crean automaticamente:
+Pendiente de aplicar:
 
-- `orders`.
+- migracion `0013_extend_product_options_for_deterministic_configurables.sql`
 
 Todavia no existe:
 
-- flujo guiado completo,
 - parser semantico,
 - handoff persistido,
 - flujo real de comprobantes en conversacion,
@@ -209,9 +214,9 @@ Construir el flujo guiado real de pedido sobre la base persistente ya validada.
 Secuencia recomendada:
 
 1. Probar dashboard local contra API local.
-2. Implementar delivery/pickup.
-3. Implementar pago y resumen.
-4. Implementar confirmacion manual desde dashboard.
+2. Validar en staging el flujo `hola -> pedido -> delivery/pickup -> pago -> confirmacion`.
+3. Implementar confirmacion manual desde dashboard.
+4. Implementar comprobantes de transferencia.
 5. Implementar producto agotado al confirmar y retoma de conversacion.
 
 ## Siguiente objetivo de producto
@@ -221,15 +226,18 @@ Probar un flujo guiado minimo:
 ```txt
 usuario escribe hola
 -> bot muestra opciones
--> usuario pide ver menu
--> bot muestra menu del dia
--> usuario elige item
--> bot crea draft_order y primer item
+-> usuario elige item o escribe `2 menu del dia`
+-> bot crea o actualiza draft_order
 -> bot pide delivery/pickup
+-> bot pide direccion si aplica
+-> bot pide pago
+-> bot muestra resumen
+-> bot crea order al confirmar
 ```
 
 ## Decisiones pendientes
 
 Necesitamos definir:
 
-- reglas iniciales de promociones.
+- reglas iniciales de promociones
+- integracion de comprobantes y media

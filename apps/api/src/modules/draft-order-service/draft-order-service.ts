@@ -5,10 +5,12 @@ import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
 export function createEmptyDraftOrder(input: {
   id: string;
+  locationId?: string;
   items?: OrderLineItem[];
   fulfillmentType?: FulfillmentType;
   serviceTiming?: DraftOrder["serviceTiming"];
   deliveryAddress?: string;
+  deliveryAddressId?: string;
   paymentMethod?: PaymentMethod;
   deliveryFeeFixed?: number;
 }): DraftOrder {
@@ -21,9 +23,11 @@ export function createEmptyDraftOrder(input: {
   return {
     id: input.id,
     status: "draft",
+    locationId: input.locationId,
     fulfillmentType: input.fulfillmentType,
     serviceTiming: input.serviceTiming ?? "asap",
     deliveryAddress: input.deliveryAddress,
+    deliveryAddressId: input.deliveryAddressId,
     paymentMethod: input.paymentMethod,
     items: input.items ?? [],
     ...totals,
@@ -227,6 +231,99 @@ export async function addMenuItemToDraftOrder(input: {
   });
 }
 
+export async function updateDraftOrderFulfillment(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  fulfillmentType: FulfillmentType;
+  deliveryFeeFixed?: number;
+}): Promise<DraftOrder> {
+  const client = createSupabaseRestClient(input.env);
+  const patch: Record<string, unknown> = {
+    fulfillment_type: input.fulfillmentType,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.fulfillmentType === "pickup") {
+    patch.delivery_address = null;
+    patch.delivery_address_id = null;
+  }
+
+  await client.update({
+    schema: input.schemaName,
+    table: "draft_orders",
+    values: patch,
+    query: {
+      id: `eq.${input.draftOrderId}`,
+    },
+  });
+
+  return recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+}
+
+export async function updateDraftOrderDeliveryAddress(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  addressText: string;
+  deliveryAddressId?: string;
+  deliveryFeeFixed?: number;
+}): Promise<DraftOrder> {
+  const client = createSupabaseRestClient(input.env);
+  await client.update({
+    schema: input.schemaName,
+    table: "draft_orders",
+    values: {
+      delivery_address: input.addressText,
+      delivery_address_id: input.deliveryAddressId ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    query: {
+      id: `eq.${input.draftOrderId}`,
+    },
+  });
+
+  return recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+}
+
+export async function updateDraftOrderPaymentMethod(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  paymentMethod: PaymentMethod;
+  deliveryFeeFixed?: number;
+}): Promise<DraftOrder> {
+  const client = createSupabaseRestClient(input.env);
+  await client.update({
+    schema: input.schemaName,
+    table: "draft_orders",
+    values: {
+      payment_method: input.paymentMethod,
+      updated_at: new Date().toISOString(),
+    },
+    query: {
+      id: `eq.${input.draftOrderId}`,
+    },
+  });
+
+  return recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+}
+
 async function recalculateDraftOrder(input: {
   env: ApiBindings;
   schemaName: string;
@@ -317,10 +414,12 @@ function mapDraftOrder(row: DraftOrderRow, items: OrderLineItem[]): DraftOrder {
   return {
     id: row.id,
     status: row.status,
+    locationId: row.location_id ?? undefined,
     fulfillmentType: row.fulfillment_type ?? undefined,
     serviceTiming: row.service_timing ?? "asap",
     scheduledFor: row.scheduled_for ?? undefined,
     deliveryAddress: row.delivery_address ?? undefined,
+    deliveryAddressId: row.delivery_address_id ?? undefined,
     paymentMethod: row.payment_method ?? undefined,
     items,
     subtotal: row.subtotal,

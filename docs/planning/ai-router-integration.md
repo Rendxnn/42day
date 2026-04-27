@@ -40,12 +40,12 @@ Problemas para 42day:
 
 Se creo un scaffold reutilizable en:
 
-- `/mnt/c/Users/samir/Documents/freelance/ai-provider-router`
+- `/mnt/c/Users/samir/Documents/freelance/t-router`
 
 Nombre decidido para evolucionarlo como dependencia:
 
 ```txt
-x-router
+t-router
 ```
 
 Objetivo:
@@ -93,4 +93,4 @@ Prompts y schemas de salida deben vivir en 42day, no dentro del paquete generico
 
 Para el plan actualizado de adopcion como dependencia:
 
-- [x-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/x-router-adoption-plan.md)
+- [t-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/t-router-adoption-plan.md)

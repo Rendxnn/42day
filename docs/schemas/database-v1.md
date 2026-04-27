@@ -114,11 +114,22 @@ Opciones o variantes.
 
 - `id`
 - `product_id`
+- `code`
 - `name`
+- `description`
 - `type`
 - `is_required`
 - `min_select`
 - `max_select`
+- `aliases` jsonb
+- `sort_order`
+- `display_mode`
+
+Uso esperado en V1:
+
+- soportar productos configurables tipo "arma tu plato",
+- definir grupos como `proteina`, `sopa`, `bebida`,
+- manejar aliases por grupo desde dashboard para matching determinista.
 
 ### `product_option_values`
 
@@ -126,9 +137,13 @@ Valores posibles.
 
 - `id`
 - `option_id`
+- `code`
 - `name`
+- `description`
 - `price_delta`
 - `is_active`
+- `aliases` jsonb
+- `sort_order`
 
 ### `combos`
 

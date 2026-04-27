@@ -14,6 +14,9 @@ export type Location = {
   address?: string;
   phone?: string;
   deliveryFeeFixed: number;
+  pickupEnabled?: boolean;
+  deliveryEnabled?: boolean;
+  automationEnabled?: boolean;
   isActive: boolean;
 };
 

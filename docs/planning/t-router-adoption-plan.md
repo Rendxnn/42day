@@ -1,4 +1,4 @@
-# Plan de adopcion de x-router
+# Plan de adopcion de t-router
 
 Ultima actualizacion: 2026-04-27.
 
@@ -9,7 +9,7 @@ El router generico vivira como proyecto aparte.
 Nombre decidido:
 
 ```txt
-x-router
+t-router
 ```
 
 Objetivo:
@@ -20,13 +20,13 @@ Objetivo:
 
 ## Estado deseado
 
-42day debe consumir `x-router` como dependencia remota desde GitHub.
+42day debe consumir `t-router` como dependencia remota desde GitHub.
 
 ## Pregunta clave: que le toca hacer a otro desarrollador
 
-Si `x-router` se publica en un repositorio publico y 42day lo referencia como dependencia GitHub:
+Si `t-router` se publica en un repositorio publico y 42day lo referencia como dependencia GitHub:
 
-- tu amigo **no** tiene que clonar manualmente `x-router`,
+- tu amigo **no** tiene que clonar manualmente `t-router`,
 - solo clona `42day`,
 - corre `pnpm install`,
 - y el package manager descarga la dependencia automaticamente.
@@ -42,7 +42,7 @@ Ejemplo conceptual:
 ```json
 {
   "dependencies": {
-    "@samir/x-router": "github:tuusuario/x-router#v0.1.0"
+    "@rendxnn/t-router": "github:Rendxnn/t-router#v0.1.0"
   }
 }
 ```
@@ -82,7 +82,7 @@ Implica:
 
 ### No
 
-- dependencia `file:../x-router` para trabajo colaborativo normal
+- dependencia `file:../t-router` para trabajo colaborativo normal
 
 Esa opcion local sirve solo temporalmente para una sola maquina.
 
@@ -150,11 +150,11 @@ Por ahora solo:
 1. `semantic_order_parse`
 2. `menu_ingestion`
 
-## Plan de implementacion de x-router
+## Plan de implementacion de t-router
 
 ### Fase 1. Repo y empaquetado
 
-1. inicializar repo git de `x-router`
+1. inicializar repo git de `t-router`
 2. crear README
 3. definir package name final
 4. subir a GitHub publico
@@ -181,7 +181,7 @@ Por ahora solo:
 ## Que queda pendiente antes de implementarlo
 
 1. nombre final del package npm
-2. URL real del repo GitHub
+2. URL real del repo GitHub: `https://github.com/Rendxnn/t-router`
 3. version inicial/tag
 4. detalle exacto del cifrado app-level en 42day
 

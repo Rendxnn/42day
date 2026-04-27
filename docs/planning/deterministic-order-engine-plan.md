@@ -310,10 +310,9 @@ No usar LLM como camino principal del pedido guiado.
 
 Queda por aterrizar en datos y dashboard:
 
-1. estructura exacta de extension de `product_options`
-2. UI/dashboard para aliases
-3. UI/dashboard para grupos y opciones configurables
-4. si el producto configurable soporta extras pagados desde V1 o luego
+1. UI/dashboard para aliases
+2. UI/dashboard para grupos y opciones configurables
+3. si el producto configurable soporta extras pagados desde V1 o luego
 
 ## Resultado esperado
 
