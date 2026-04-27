@@ -116,6 +116,11 @@ Quedaron en:
 - [Set-MetaAccessToken.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Set-MetaAccessToken.ps1)
 - [Deploy-Api.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Deploy-Api.ps1)
 - [Test-ApiHealth.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Test-ApiHealth.ps1)
+- [Show-Helpers.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Show-Helpers.ps1)
+- [Start-ApiDev.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Start-ApiDev.ps1)
+- [Start-DashboardDev.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Start-DashboardDev.ps1)
+- [Start-LocalStack.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Start-LocalStack.ps1)
+- [Publish-Staging.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Publish-Staging.ps1)
 
 Uso recomendado:
 
@@ -123,6 +128,14 @@ Uso recomendado:
 .\scripts\powershell\Set-MetaAccessToken.ps1
 .\scripts\powershell\Deploy-Api.ps1
 .\scripts\powershell\Test-ApiHealth.ps1
+```
+
+Flujos rapidos:
+
+```powershell
+.\scripts\powershell\Show-Helpers.ps1
+.\scripts\powershell\Start-LocalStack.ps1
+.\scripts\powershell\Publish-Staging.ps1
 ```
 
 ## Tengo que cambiar el token dentro del deploy?
