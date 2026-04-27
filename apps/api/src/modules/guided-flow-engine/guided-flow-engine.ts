@@ -5,7 +5,7 @@ export type GuidedFlowResult = {
 
 export function getInitialGuidedFlowResponse(): GuidedFlowResult {
   return {
-    responseText: "Perfecto. Te muestro el menu del dia y vamos armando el pedido paso a paso.",
+    responseText: "Te dejo el menu disponible para que arranquemos.",
     nextState: "awaiting_guided_item_selection",
   };
 }

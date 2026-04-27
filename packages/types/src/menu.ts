@@ -44,6 +44,8 @@ export type MenuItem = {
 export type TodayMenuPayload = {
   tenantSlug: string;
   tenantSchema: string;
+  requestedDate?: string;
+  isFallbackMenu?: boolean;
   location?: Location;
   menu?: Menu;
   items: MenuItem[];

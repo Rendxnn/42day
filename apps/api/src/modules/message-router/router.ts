@@ -5,7 +5,7 @@ import {
   incrementClarificationAttempts,
   updateConversationState,
 } from "../conversation-service/conversation-service";
-import { buildMenuText, loadTodayPublishedMenu, resolveMenuSelection } from "../menu-service/menu-service";
+import { buildMenuText, buildWelcomeMenuText, loadTodayPublishedMenu, resolveMenuSelection } from "../menu-service/menu-service";
 import { logOutboundTextMessage } from "../message-log/message-log";
 import { sendWhatsAppTextMessage } from "../whatsapp-webhook/whatsapp-client";
 import { getInitialGuidedFlowResponse } from "../guided-flow-engine/guided-flow-engine";
@@ -36,6 +36,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
 
   const text = normalizeText(input.message.text);
   const numericSelection = parseNumericSelection(text);
+  const isGreeting = matchesGreeting(text);
 
   if (text.includes("asesor") || text.includes("humano")) {
     console.info("handoff.requested", {
@@ -56,6 +57,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   }
 
   if (
+    isGreeting ||
     text.includes("menu") ||
     text.includes("menú") ||
     text.includes("pedido guiado") ||
@@ -85,7 +87,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
 
     await sendAndLogText(
       input,
-      `${intro.responseText}\n\n${buildMenuText(menu)}`,
+      isGreeting ? buildWelcomeMenuText(menu) : `${intro.responseText}\n\n${buildMenuText(menu)}`,
     );
     return;
   }
@@ -179,7 +181,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
 
   await sendAndLogText(
     input,
-    "Hola, te ayudo con tu pedido. Puedes ver el menu, hacer pedido guiado, escribirlo como quieras o hablar con alguien del restaurante.",
+    "No te entendi del todo, pero te ayudo enseguida.\n\nEscribe menu para ver las opciones o asesor si prefieres hablar con alguien del restaurante.",
   );
 }
 
@@ -217,6 +219,10 @@ function parseNumericSelection(text: string): number | null {
   }
 
   return Number(text);
+}
+
+function matchesGreeting(text: string): boolean {
+  return ["hola", "buenas", "buenos dias", "buen dia", "buenas tardes", "buenas noches", "hey", "holi"].includes(text);
 }
 
 function formatCop(value: number): string {

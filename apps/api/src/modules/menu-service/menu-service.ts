@@ -53,7 +53,7 @@ export async function loadTodayPublishedMenu(input: {
   date?: string;
 }): Promise<TodayMenuPayload> {
   const supabase = createSupabaseRestClient(input.env);
-  const date = resolveBusinessDate(input.date, input.timezone);
+  const requestedDate = resolveBusinessDate(input.date, input.timezone);
   const [location] = await supabase.select<LocationRow>({
     schema: input.schemaName,
     table: "locations",
@@ -64,19 +64,34 @@ export async function loadTodayPublishedMenu(input: {
     },
   });
 
-  const [menu] = location
+  const [menuForDate] = location
     ? await supabase.select<MenuRow>({
         schema: input.schemaName,
         table: "menus",
         query: {
           select: "id,location_id,date,name,status,published_at",
           location_id: `eq.${location.id}`,
-          date: `eq.${date}`,
+          date: `eq.${requestedDate}`,
           status: "eq.published",
           limit: 1,
         },
       })
     : [];
+  const [fallbackMenu] =
+    location && !menuForDate
+      ? await supabase.select<MenuRow>({
+          schema: input.schemaName,
+          table: "menus",
+          query: {
+            select: "id,location_id,date,name,status,published_at",
+            location_id: `eq.${location.id}`,
+            status: "eq.published",
+            order: "date.desc",
+            limit: 1,
+          },
+        })
+      : [];
+  const menu = menuForDate ?? fallbackMenu;
 
   const products = await supabase.select<ProductRow>({
     schema: input.schemaName,
@@ -106,6 +121,8 @@ export async function loadTodayPublishedMenu(input: {
   return {
     tenantSlug: input.tenantSlug,
     tenantSchema: input.schemaName,
+    requestedDate,
+    isFallbackMenu: Boolean(menu && menu.date !== requestedDate),
     location: location
       ? {
           id: location.id,
@@ -144,7 +161,10 @@ export async function loadTodayPublishedMenu(input: {
 
 export function buildMenuText(payload: TodayMenuPayload): string {
   if (!payload.location || !payload.menu || payload.items.length === 0) {
-    return "Hoy no tengo un menu publicado para mostrarte. Si quieres, te paso con alguien del restaurante.";
+    return [
+      "Todavia no veo un menu publicado para hoy.",
+      "Si quieres, te paso con alguien del restaurante o lo intentamos de nuevo en un momento.",
+    ].join("\n");
   }
 
   const lines = payload.items.map((item, index) => {
@@ -153,11 +173,28 @@ export function buildMenuText(payload: TodayMenuPayload): string {
     return `${index + 1}. ${name} - ${formatCop(price)}`;
   });
 
+  const heading = payload.isFallbackMenu
+    ? `Te muestro el ultimo menu publicado (${payload.menu.date}) de ${payload.location.name}:`
+    : `Este es el menu de hoy de ${payload.location.name}:`;
+
   return [
-    `Menu de hoy de ${payload.location.name}:`,
+    heading,
     ...lines,
     "",
     "Escribe el numero del producto para agregarlo al pedido.",
+  ].join("\n");
+}
+
+export function buildWelcomeMenuText(payload: TodayMenuPayload): string {
+  return [
+    `Hola, soy el asistente de pedidos de ${payload.location?.name ?? "la tienda"}. ¿Como vas?`,
+    "",
+    buildMenuText(payload),
+    "",
+    "Si quieres, tambien puedes escribir:",
+    "- asesor",
+    "- menu",
+    "- pedido guiado",
   ].join("\n");
 }
 
