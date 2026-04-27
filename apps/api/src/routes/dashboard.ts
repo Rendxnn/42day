@@ -738,6 +738,7 @@ dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
   const supabase = createSupabaseRestClient(c.env);
   const body = await c.req.json<{ productId: string; date?: string }>();
   const menu = await findOrCreateTodayMenu(supabase, tenant.schema_name, tenant.timezone, body.date);
+  const nextSortOrder = await getNextMenuSortOrder(supabase, tenant.schema_name, menu.id);
   const [product] = await selectProducts(supabase, tenant.schema_name, {
       id: `eq.${body.productId}`,
       is_active: "eq.true",
@@ -757,7 +758,7 @@ dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
       display_name: product.name,
       price_override: product.base_price,
       is_available: true,
-      sort_order: Date.now(),
+      sort_order: nextSortOrder,
     },
   });
 
@@ -889,6 +890,25 @@ async function selectProducts(
 
     throw error;
   }
+}
+
+async function getNextMenuSortOrder(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  menuId: string,
+): Promise<number> {
+  const [lastItem] = await supabase.select<Pick<MenuItemRow, "sort_order">>({
+    schema,
+    table: "menu_items",
+    query: {
+      select: "sort_order",
+      menu_id: `eq.${menuId}`,
+      order: "sort_order.desc",
+      limit: 1,
+    },
+  });
+
+  return (lastItem?.sort_order ?? 0) + 10;
 }
 
 async function selectAlerts(
