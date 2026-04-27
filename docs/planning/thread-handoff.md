@@ -99,6 +99,20 @@ Importante:
 corepack pnpm typecheck:direct
 ```
 
+### Scripts PowerShell utiles
+
+Desde PowerShell en la raiz del repo:
+
+```powershell
+.\scripts\powershell\Set-MetaAccessToken.ps1
+.\scripts\powershell\Deploy-Api.ps1
+.\scripts\powershell\Test-ApiHealth.ps1
+```
+
+Guia corta:
+
+- [cloudflare-meta-token-and-deploy.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/runbooks/cloudflare-meta-token-and-deploy.md)
+
 ### Deploy staging
 
 ```powershell
