@@ -42,6 +42,12 @@ Se creo un scaffold reutilizable en:
 
 - `/mnt/c/Users/samir/Documents/freelance/ai-provider-router`
 
+Nombre decidido para evolucionarlo como dependencia:
+
+```txt
+x-router
+```
+
 Objetivo:
 
 - desacoplar proveedores del dominio de 42day,
@@ -82,3 +88,9 @@ Y desde backend:
 ## Regla importante
 
 Prompts y schemas de salida deben vivir en 42day, no dentro del paquete generico.
+
+## Siguiente referencia
+
+Para el plan actualizado de adopcion como dependencia:
+
+- [x-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/x-router-adoption-plan.md)

@@ -6,6 +6,8 @@ Referencia de handoff para continuar desde otro hilo:
 
 - [thread-handoff.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/thread-handoff.md)
 - [cloudflare-meta-token-and-deploy.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/runbooks/cloudflare-meta-token-and-deploy.md)
+- [deterministic-order-engine-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/deterministic-order-engine-plan.md)
+- [x-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/x-router-adoption-plan.md)
 
 ## Logro principal
 
