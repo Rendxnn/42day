@@ -20,7 +20,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`dashboard_api_error:${response.status}`);
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    throw new Error(payload?.error ?? `dashboard_api_error:${response.status}`);
   }
 
   return response.json() as Promise<T>;
@@ -47,6 +48,14 @@ export type DashboardDiagnostics = {
   productsTable: boolean;
   productImageColumn: boolean;
   productImagesBucket: boolean;
+};
+
+export type DetectedMenuProduct = {
+  name: string;
+  description?: string;
+  basePrice: number;
+  category?: string;
+  confidence?: number;
 };
 
 export function listTenants() {
@@ -77,6 +86,17 @@ export function uploadProductImage(tenantSlug: string, file: File) {
   formData.append("file", file);
 
   return request<{ bucket: string; path: string; publicUrl: string }>(`/${tenantSlug}/uploads/product-image`, {
+    method: "POST",
+    body: formData,
+    headers: {},
+  });
+}
+
+export function analyzeMenuImage(tenantSlug: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return request<{ products: DetectedMenuProduct[] }>(`/${tenantSlug}/uploads/menu-image/analyze`, {
     method: "POST",
     body: formData,
     headers: {},

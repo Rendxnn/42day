@@ -55,6 +55,7 @@ Variables necesarias en backend:
 SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
+GEMINI_API_KEY
 ```
 
 ## Desarrollo local
@@ -74,4 +75,6 @@ Para conectar con el Worker local, ejecutar tambien:
 ```bash
 corepack pnpm --filter @42day/api dev
 ```
+
+La vista `Subida inteligente` analiza fotos de menu con Gemini desde el API. La clave debe vivir en `apps/api/.dev.vars` como `GEMINI_API_KEY`; no se expone al frontend.
 

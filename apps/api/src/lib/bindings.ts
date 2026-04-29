@@ -14,4 +14,5 @@ export type ApiBindings = {
   DATABASE_URL?: string;
 
   OPENAI_API_KEY?: string;
+  GEMINI_API_KEY?: string;
 };

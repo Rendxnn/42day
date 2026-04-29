@@ -4,6 +4,7 @@ import type { MenuItem, Product } from "@42day/types";
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
+  analyzeMenuImage,
   createProduct,
   deleteMenuItem,
   deleteProduct,
@@ -14,7 +15,7 @@ import {
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { DashboardTenant } from "./api";
+import type { DashboardTenant, DetectedMenuProduct } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut } from "./auth";
 import {
   Camera,
@@ -146,12 +147,6 @@ function getFallbackItems(tenantSlug: string): MenuItem[] {
     product,
   }));
 }
-
-const detectedProducts = [
-  { name: "Arroz con pollo", price: 18000, confidence: "98%" },
-  { name: "Carne asada", price: 26000, confidence: "94%" },
-  { name: "Jugo de mora", price: 7000, confidence: "91%" },
-];
 
 const navItems = [
   { id: "menu" as const, label: "Hoy", icon: Utensils },
@@ -401,7 +396,18 @@ export function App() {
           {activeView === "catalog" && <Catalog imageColumnReady={imageColumnReady} products={products} onDelete={removeProduct} onSave={saveProduct} />}
           {activeView === "upload" && (
             <SmartUpload
-              onAddProducts={(newProducts) => setProducts((current) => [...newProducts, ...current])}
+              onAnalyze={(file) => analyzeMenuImage(tenantSlug, file)}
+              onCreateProducts={async (detectedProducts) => {
+                for (const product of detectedProducts) {
+                  await saveProduct({
+                    name: product.name,
+                    description: product.description ?? "Detectado automaticamente desde imagen del menu.",
+                    basePrice: product.basePrice,
+                    category: product.category,
+                    isActive: true,
+                  });
+                }
+              }}
               onNotify={notify}
             />
           )}
@@ -870,33 +876,64 @@ function ProductModal({
   );
 }
 
-function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Product[]) => void; onNotify: (message: string) => void }) {
+function SmartUpload({
+  onAnalyze,
+  onCreateProducts,
+  onNotify,
+}: {
+  onAnalyze: (file: File) => Promise<{ products: DetectedMenuProduct[] }>;
+  onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
+  onNotify: (message: string) => void;
+}) {
   const [preview, setPreview] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [results, setResults] = useState<typeof detectedProducts>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [results, setResults] = useState<DetectedMenuProduct[]>([]);
+  const [error, setError] = useState("");
 
   function readFile(file?: File) {
     if (!file) return;
+    setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
     setResults([]);
+    setError("");
   }
 
-  function importResults() {
-    const importedProducts: Product[] = results.map((item, index) => ({
-      id: `detected-${Date.now()}-${index}`,
-      name: item.name,
-      description: "Detectado automaticamente desde imagen del menu.",
-      basePrice: item.price,
-      isActive: true,
-    }));
+  async function analyzeSelectedFile() {
+    if (!selectedFile) return;
+    setIsAnalyzing(true);
+    setError("");
+    try {
+      const payload = await onAnalyze(selectedFile);
+      setResults(payload.products);
+      onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
+    } catch (error) {
+      setError(error instanceof Error && error.message === "gemini_quota_exhausted"
+        ? "Gemini no tiene creditos disponibles para analizar la imagen."
+        : "No se pudo analizar la imagen. Revisa la foto o la configuracion de Gemini.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
 
-    onAddProducts(importedProducts);
-    onNotify("Productos detectados agregados localmente");
+  async function importResults() {
+    setIsImporting(true);
+    setError("");
+    try {
+      await onCreateProducts(results);
+      setResults([]);
+      onNotify("Productos agregados al catalogo");
+    } catch {
+      setError("No se pudieron guardar todos los productos detectados.");
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   return (
     <section className="space-y-4">
-      <SectionTitle title="Subida inteligente" subtitle="Futura entrada para OCR/IA antes de guardar en `products`." />
+      <SectionTitle title="Subida inteligente" subtitle="Detecta platos y precios con Gemini antes de guardarlos en `products`." />
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <label className="flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-center shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/40">
           <input accept="image/*" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
@@ -915,20 +952,14 @@ function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Pr
         <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!preview || isAnalyzing}
-            onClick={() => {
-              setIsAnalyzing(true);
-              window.setTimeout(() => {
-                setResults(detectedProducts);
-                setIsAnalyzing(false);
-                onNotify("Menu analizado");
-              }, 900);
-            }}
+            disabled={!selectedFile || isAnalyzing}
+            onClick={() => void analyzeSelectedFile()}
             type="button"
           >
             {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
             {isAnalyzing ? "Analizando" : "Analizar menu"}
           </button>
+          {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>}
           <div className="mt-4 space-y-2">
             {results.length === 0 && (
               <div className="rounded-lg bg-zinc-50 p-4 text-center text-sm text-zinc-500">
@@ -940,16 +971,19 @@ function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Pr
               <div className="flex items-center justify-between rounded-lg border border-zinc-200 p-3" key={item.name}>
                 <div>
                   <p className="text-sm font-semibold">{item.name}</p>
-                  <p className="text-xs text-zinc-500">Confianza {item.confidence}</p>
+                  <p className="text-xs text-zinc-500">
+                    {item.category ?? "sin categoria"}
+                    {item.confidence !== undefined ? ` · Confianza ${Math.round(item.confidence * 100)}%` : ""}
+                  </p>
                 </div>
-                <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
+                <p className="text-sm font-semibold">{formatPrice(item.basePrice)}</p>
               </div>
             ))}
           </div>
           {results.length > 0 && (
-            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-3 text-sm font-semibold transition hover:bg-zinc-50" onClick={importResults} type="button">
-              <Plus size={17} />
-              Agregar al catalogo
+            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-3 text-sm font-semibold transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60" disabled={isImporting} onClick={() => void importResults()} type="button">
+              {isImporting ? <Loader2 className="animate-spin" size={17} /> : <Plus size={17} />}
+              {isImporting ? "Guardando" : "Agregar al catalogo"}
             </button>
           )}
         </div>
