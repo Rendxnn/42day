@@ -1,17 +1,22 @@
 import type { MenuItem, Product, TodayMenuPayload } from "@42day/types";
+import { getAccessToken } from "./auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
+  const token = await getAccessToken();
+  const headers = isFormData
+    ? { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+    : {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
   const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
     ...init,
-    headers: isFormData
-      ? init?.headers
-      : {
-          "Content-Type": "application/json",
-          ...init?.headers,
-        },
+    headers,
   });
 
   if (!response.ok) {
@@ -28,6 +33,14 @@ export type DashboardTenant = {
   schemaName: string;
 };
 
+export type DashboardMe = {
+  user: {
+    id: string;
+    email?: string;
+  };
+  tenants: DashboardTenant[];
+};
+
 export type DashboardDiagnostics = {
   tenant: string;
   schema: string;
@@ -38,6 +51,10 @@ export type DashboardDiagnostics = {
 
 export function listTenants() {
   return request<DashboardTenant[]>("/tenants");
+}
+
+export function getMe() {
+  return request<DashboardMe>("/me");
 }
 
 export function getDiagnostics(tenantSlug: string) {

@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { MenuItem, Product } from "@42day/types";
+import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
   createProduct,
   deleteMenuItem,
   deleteProduct,
   getDiagnostics,
+  getMe,
   getTodayMenu,
-  listTenants,
   updateMenuItem,
   updateProduct,
   uploadProductImage,
 } from "./api";
 import type { DashboardTenant } from "./api";
+import { authConfigured, getSession, onAuthStateChange, signIn, signOut } from "./auth";
 import {
   Camera,
   Check,
@@ -171,8 +173,11 @@ function formatPrice(value: number | undefined) {
 export function App() {
   // The daily operation screen must always be the first screen on load.
   const [activeView, setActiveView] = useState<View>("menu");
-  const [tenantSlug, setTenantSlug] = useState(import.meta.env.VITE_TENANT_SLUG ?? "demo");
-  const [tenants, setTenants] = useState<DashboardTenant[]>(fallbackTenants);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginError, setLoginError] = useState("");
+  const [tenantSlug, setTenantSlug] = useState("");
+  const [tenants, setTenants] = useState<DashboardTenant[]>([]);
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
   const [imageColumnReady, setImageColumnReady] = useState(false);
@@ -181,16 +186,55 @@ export function App() {
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    listTenants()
-      .then((apiTenants) => {
-        if (apiTenants.length > 0) {
-          setTenants(apiTenants);
-        }
+    if (!authConfigured) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let mounted = true;
+
+    getSession()
+      .then((currentSession) => {
+        if (!mounted) return;
+        setSession(currentSession);
       })
-      .catch(() => setTenants(fallbackTenants));
+      .finally(() => {
+        if (mounted) {
+          setAuthLoading(false);
+        }
+      });
+
+    const unsubscribe = onAuthStateChange((nextSession) => {
+      setSession(nextSession);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
+    if (!session) {
+      setTenants([]);
+      setTenantSlug("");
+      return;
+    }
+
+    getMe()
+      .then((payload) => {
+        setTenants(payload.tenants);
+        setTenantSlug((current) => current || payload.tenants[0]?.slug || "");
+      })
+      .catch(() => {
+        setTenants([]);
+        setTenantSlug("");
+      });
+  }, [session]);
+
+  useEffect(() => {
+    if (!tenantSlug) return;
     setSaveStatus("loading");
     getTodayMenu(tenantSlug)
       .then((payload) => {
@@ -200,11 +244,11 @@ export function App() {
         setLastUpdated(payload.menu?.publishedAt ? "desde Supabase" : "sin menu publicado");
       })
       .catch(() => {
-        setProducts(getFallbackProducts(tenantSlug));
-        setItems(getFallbackItems(tenantSlug));
+        setProducts([]);
+        setItems([]);
         setSaveStatus("offline");
-        setLastUpdated("modo local");
-        notify(`Usando datos locales para ${tenantSlug}`);
+        setLastUpdated("sin conexion");
+        notify("No se pudo cargar el tenant desde la API");
       });
 
     getDiagnostics(tenantSlug)
@@ -214,6 +258,25 @@ export function App() {
 
   const activeItems = items.filter((item) => item.isAvailable);
   const menuIsActive = activeItems.length > 0;
+
+  async function handleLogin(email: string, password: string) {
+    setLoginError("");
+    try {
+      const { session: nextSession } = await signIn(email, password);
+      setSession(nextSession);
+    } catch {
+      setLoginError("No se pudo iniciar sesion. Revisa correo y contrasena.");
+    }
+  }
+
+  async function handleLogout() {
+    await signOut();
+    setSession(null);
+    setTenants([]);
+    setTenantSlug("");
+    setProducts(fallbackProducts);
+    setItems(fallbackItems);
+  }
 
   function notify(message: string) {
     setToast(message);
@@ -231,6 +294,7 @@ export function App() {
       setLastUpdated("ahora");
     } catch {
       setSaveStatus("offline");
+      notify("No se pudo guardar el cambio");
     }
   }
 
@@ -244,18 +308,8 @@ export function App() {
       setItems((current) => [...current, created]);
       setSaveStatus("saved");
     } catch {
-      const localItem: MenuItem = {
-        id: `local-item-${Date.now()}`,
-        menuId: "local-menu",
-        productId: product.id,
-        displayName: product.name,
-        priceOverride: product.basePrice,
-        isAvailable: true,
-        sortOrder: Date.now(),
-        product,
-      };
-      setItems((current) => [...current, localItem]);
       setSaveStatus("offline");
+      notify("No se pudo agregar el plato");
     }
   }
 
@@ -267,6 +321,7 @@ export function App() {
       setSaveStatus("saved");
     } catch {
       setSaveStatus("offline");
+      notify("No se pudo eliminar el plato");
     }
   }
 
@@ -297,6 +352,22 @@ export function App() {
     notify("Producto desactivado");
   }
 
+  if (!authConfigured) {
+    return <ConfigRequiredScreen />;
+  }
+
+  if (authLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!session) {
+    return <LoginScreen error={loginError} onLogin={handleLogin} />;
+  }
+
+  if (tenants.length === 0) {
+    return <NoTenantScreen onLogout={handleLogout} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#f8f8f5] text-zinc-950">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl">
@@ -308,6 +379,7 @@ export function App() {
             tenantSlug={tenantSlug}
             tenants={tenants}
             onTenantChange={setTenantSlug}
+          onLogout={() => void handleLogout()}
           />
 
           {activeView === "menu" && (
@@ -344,12 +416,14 @@ export function App() {
 function Header({
   menuIsActive,
   onTenantChange,
+  onLogout,
   saveStatus,
   tenantSlug,
   tenants,
 }: {
   menuIsActive: boolean;
   onTenantChange: (tenantSlug: string) => void;
+  onLogout: () => void;
   saveStatus: SaveStatus;
   tenantSlug: string;
   tenants: DashboardTenant[];
@@ -378,6 +452,13 @@ function Header({
           ))}
         </select>
         <SaveIndicator status={saveStatus} menuIsActive={menuIsActive} />
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
+          onClick={onLogout}
+          type="button"
+        >
+          Salir
+        </button>
       </div>
     </header>
   );
@@ -855,6 +936,93 @@ function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Pr
         </div>
       </div>
     </section>
+  );
+}
+
+function ConfigRequiredScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">42Today</p>
+        <h1 className="mt-2 text-2xl font-semibold">Configura Supabase Auth</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Falta definir `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` para habilitar el login del dashboard.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5]">
+      <div className="inline-flex items-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-medium text-zinc-600 ring-1 ring-zinc-200">
+        <Loader2 className="animate-spin" size={18} />
+        Cargando sesion...
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <form
+        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setIsSubmitting(true);
+          try {
+            await onLogin(email, password);
+          } finally {
+            setIsSubmitting(false);
+          }
+        }}
+      >
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">42Today</p>
+        <h1 className="mt-2 text-2xl font-semibold">Ingreso empresas</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Cada empresa entra con su usuario de Supabase Auth y solo ve el tenant que tenga asignado en `control.tenant_users`.
+        </p>
+        <div className="mt-6 space-y-3">
+          <TextInput label="Correo" onChange={setEmail} placeholder="empresa@correo.com" value={email} />
+          <TextInput label="Contrasena" onChange={setPassword} placeholder="••••••••" type="password" value={password} />
+        </div>
+        {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
+        <button
+          className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70"
+          disabled={isSubmitting}
+          type="submit"
+        >
+          {isSubmitting && <Loader2 className="animate-spin" size={16} />}
+          {isSubmitting ? "Entrando" : "Iniciar sesion"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <h1 className="text-2xl font-semibold">Usuario sin tenant asignado</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Este usuario existe en Supabase Auth, pero no tiene relacion activa en `control.tenant_users`. Asigna el tenant correspondiente para permitir el acceso.
+        </p>
+        <button
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-lg border border-zinc-200 px-4 text-sm font-semibold transition hover:bg-zinc-50"
+          onClick={() => void onLogout()}
+          type="button"
+        >
+          Salir
+        </button>
+      </div>
+    </div>
   );
 }
 

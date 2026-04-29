@@ -1,12 +1,21 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { Menu, MenuItem, Product, TodayMenuPayload } from "@42day/types";
 import type { ApiBindings } from "../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-rest";
 
 type TenantRow = {
   id: string;
+  name?: string;
   slug: string;
   schema_name: string;
+};
+
+type TenantUserRow = {
+  tenant_id: string;
+  user_id: string;
+  role: "encargado" | "trabajador";
+  status: "active" | "inactive";
 };
 
 type LocationRow = {
@@ -50,7 +59,14 @@ type MenuItemRow = {
 };
 
 type DashboardVariables = {
+  authUser: AuthUser;
+  authorizedTenants: TenantRow[];
   tenant: TenantRow;
+};
+
+type AuthUser = {
+  id: string;
+  email?: string;
 };
 
 export const dashboardRoutes = new Hono<{
@@ -59,15 +75,9 @@ export const dashboardRoutes = new Hono<{
 }>();
 
 dashboardRoutes.get("/tenants", async (c) => {
-  const tenants = await createSupabaseRestClient(c.env).select<TenantRow & { name: string }>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,name,slug,schema_name",
-      status: "eq.active",
-      order: "name.asc",
-    },
-  });
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
 
   return c.json(
     tenants.map((tenant) => ({
@@ -79,23 +89,35 @@ dashboardRoutes.get("/tenants", async (c) => {
   );
 });
 
-dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
-  const supabase = createSupabaseRestClient(c.env);
-  const [tenant] = await supabase.select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,slug,schema_name",
-      slug: `eq.${c.req.param("tenantSlug")}`,
-      status: "eq.active",
-      limit: 1,
-    },
+dashboardRoutes.get("/me", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
+
+  return c.json({
+    user: authUser,
+    tenants: tenants.map((tenant) => ({
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      schemaName: tenant.schema_name,
+    })),
   });
+});
+
+dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const supabase = createSupabaseRestClient(c.env);
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
+  const tenant = tenants.find((entry) => entry.slug === c.req.param("tenantSlug"));
 
   if (!tenant) {
     return c.json({ error: "tenant_not_found" }, 404);
   }
 
+  c.set("authUser", authUser);
+  c.set("authorizedTenants", tenants);
   c.set("tenant", tenant);
   await next();
 });
@@ -339,7 +361,7 @@ dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
       display_name: product.name,
       price_override: product.base_price,
       is_available: true,
-      sort_order: Date.now(),
+      sort_order: await getNextMenuItemSortOrder(supabase, tenant.schema_name, menu.id),
     },
   });
 
@@ -438,6 +460,25 @@ async function findOrCreateTodayMenu(
   return menu;
 }
 
+async function getNextMenuItemSortOrder(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  menuId: string,
+): Promise<number> {
+  const [lastItem] = await supabase.select<MenuItemRow>({
+    schema,
+    table: "menu_items",
+    query: {
+      select: "id,menu_id,sort_order",
+      menu_id: `eq.${menuId}`,
+      order: "sort_order.desc",
+      limit: 1,
+    },
+  });
+
+  return (lastItem?.sort_order ?? 0) + 10;
+}
+
 async function selectProducts(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
@@ -519,4 +560,66 @@ function mapMenuItem(row: MenuItemRow, product?: Product): MenuItem {
     sortOrder: row.sort_order,
     product,
   };
+}
+
+async function requireAuthUser(
+  c: Context<{
+    Bindings: ApiBindings;
+    Variables: DashboardVariables;
+  }>,
+): Promise<AuthUser | Response> {
+  const anonKey = c.env.SUPABASE_ANON_KEY;
+  if (!anonKey || anonKey === "replace-me") {
+    return c.json({ error: "supabase_anon_not_configured" }, 500);
+  }
+
+  const authorization = c.req.header("Authorization");
+  const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+
+  if (!token) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const response = await fetch(`${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const user = (await response.json()) as AuthUser;
+  return user;
+}
+
+async function getAuthorizedTenants(env: ApiBindings, userId: string): Promise<TenantRow[]> {
+  const supabase = createSupabaseRestClient(env);
+  const tenantUsers = await supabase.select<TenantUserRow>({
+    schema: "control",
+    table: "tenant_users",
+    query: {
+      select: "tenant_id,user_id,role,status",
+      user_id: `eq.${userId}`,
+      status: "eq.active",
+    },
+  });
+
+  if (tenantUsers.length === 0) {
+    return [];
+  }
+
+  const tenantIds = tenantUsers.map((row) => row.tenant_id).join(",");
+  return supabase.select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name",
+      id: `in.(${tenantIds})`,
+      status: "eq.active",
+      order: "name.asc",
+    },
+  });
 }

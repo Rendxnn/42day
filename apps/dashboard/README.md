@@ -29,15 +29,41 @@ Endpoints usados:
 - `PATCH /dashboard/:tenantSlug/menu/today/items/:itemId`
 - `DELETE /dashboard/:tenantSlug/menu/today/items/:itemId`
 
+## Login
+
+El dashboard usa Supabase Auth directamente en frontend con `@supabase/supabase-js`.
+
+Flujo:
+
+1. el usuario inicia sesion con email y contrasena desde el dashboard,
+2. Supabase Auth crea y persiste la sesion en el navegador,
+3. el frontend manda el `access_token` como `Bearer` al API,
+4. el API valida el token en `auth/v1/user`,
+5. el API resuelve los tenants permitidos leyendo `control.tenant_users`.
+
+Variables necesarias en frontend:
+
+```txt
+VITE_API_BASE_URL
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+Variables necesarias en backend:
+
+```txt
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
 ## Desarrollo local
 
-El dashboard usa `VITE_TENANT_SLUG=demo` por defecto.
-Si el endpoint `GET /dashboard/tenants` responde, el selector de restaurante usa los tenants activos de `control.tenants`.
-Si el API no esta corriendo, cae a tenants locales de prueba:
+El dashboard abre en la vista `Hoy`, pero requiere:
 
-- `demo` -> `tenant_demo`
-- `arepas` -> `tenant_arepas`
-- `pizza` -> `tenant_pizza`
+- una sesion valida en Supabase Auth,
+- `control.tenant_users` con relacion activa hacia el tenant,
+- API local corriendo para resolver permisos y operaciones.
 
 ```bash
 corepack pnpm --filter @42day/dashboard dev
