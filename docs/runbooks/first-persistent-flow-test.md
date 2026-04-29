@@ -80,7 +80,12 @@ hola
 Respuesta esperada:
 
 ```txt
-Hola, te ayudo con tu pedido. Puedes ver el menu, hacer pedido guiado, escribirlo como quieras o hablar con alguien del restaurante.
+Hola, soy el asistente de pedidos de <nombre del restaurante>. Como vas?
+
+Este es el menu de hoy de <nombre del restaurante>:
+1. ...
+
+Escribe el numero del producto para agregarlo al pedido.
 ```
 
 ## 5. Verificar datos en Supabase
@@ -132,7 +137,7 @@ limit 10;
 
 Esperado:
 
-- conversation con `state = awaiting_mode_selection`,
+- conversation con `state = awaiting_guided_item_selection` si el mensaje fue `hola` o `menu`,
 - `expires_at` cerca de 30 minutos despues del ultimo mensaje.
 
 ```sql

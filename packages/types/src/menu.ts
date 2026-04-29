@@ -5,6 +5,7 @@ export type Product = {
   basePrice: number;
   category?: string;
   imageUrl?: string;
+  aliases?: string[];
   isActive: boolean;
 };
 
@@ -39,6 +40,7 @@ export type MenuItem = {
   displayName?: string;
   priceOverride?: number;
   availableQuantity?: number;
+  aliases?: string[];
   isAvailable: boolean;
   sortOrder: number;
   product?: Product;

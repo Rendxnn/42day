@@ -64,7 +64,7 @@ export async function loadOrCreateActiveConversation(input: {
 
   const reusable = rows
     .map(mapConversationRow)
-    .find((conversation) => !conversationNeedsExpiration(conversation, now) && !["manual", "completed", "expired"].includes(conversation.state));
+    .find((conversation) => !conversationNeedsExpiration(conversation, now) && !["completed", "expired"].includes(conversation.state));
 
   if (reusable) {
     const expiresAt = getConversationExpiration(now).toISOString();

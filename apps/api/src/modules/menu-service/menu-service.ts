@@ -30,6 +30,7 @@ type ProductRow = {
   base_price: number;
   category?: string | null;
   image_url?: string | null;
+  aliases?: unknown;
   is_active: boolean;
 };
 
@@ -41,6 +42,7 @@ type MenuItemRow = {
   display_name?: string | null;
   price_override?: number | null;
   available_quantity?: number | null;
+  aliases?: unknown;
   is_available: boolean;
   sort_order: number;
 };
@@ -97,7 +99,7 @@ export async function loadTodayPublishedMenu(input: {
     schema: input.schemaName,
     table: "products",
     query: {
-      select: "id,name,description,base_price,category,image_url,is_active",
+      select: "id,name,description,base_price,category,image_url,aliases,is_active",
       is_active: "eq.true",
       order: "name.asc",
     },
@@ -108,7 +110,7 @@ export async function loadTodayPublishedMenu(input: {
         schema: input.schemaName,
         table: "menu_items",
         query: {
-          select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
+          select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,aliases,is_available,sort_order",
           menu_id: `eq.${menu.id}`,
           is_available: "eq.true",
           order: "sort_order.asc",
@@ -154,6 +156,7 @@ export async function loadTodayPublishedMenu(input: {
       displayName: item.display_name ?? undefined,
       priceOverride: item.price_override ?? undefined,
       availableQuantity: item.available_quantity ?? undefined,
+      aliases: parseAliases(item.aliases),
       isAvailable: item.is_available,
       sortOrder: item.sort_order,
       product: item.product_id ? productById.get(item.product_id) : undefined,
@@ -184,20 +187,17 @@ export function buildMenuText(payload: TodayMenuPayload): string {
     heading,
     ...lines,
     "",
-    "Escribe el numero del producto para agregarlo al pedido.",
+    "Puedes pedirme por nombre, cantidad o numero. Por ejemplo: dos almuerzos y una limonada.",
   ].join("\n");
 }
 
 export function buildWelcomeMenuText(payload: TodayMenuPayload): string {
   return [
-    `Hola, soy el asistente de pedidos de ${payload.location?.name ?? "la tienda"}. ¿Como vas?`,
+    `Hola, como vas? Te ayudo con pedidos de ${payload.location?.name ?? "la tienda"}.`,
     "",
     buildMenuText(payload),
     "",
-    "Si quieres, tambien puedes escribir:",
-    "- asesor",
-    "- menu",
-    "- pedido guiado",
+    "Si necesitas a alguien del restaurante, escribeme asesor.",
   ].join("\n");
 }
 
@@ -246,6 +246,47 @@ export function resolveMenuSelectionFromText(payload: TodayMenuPayload, text: st
   };
 }
 
+export function resolveMenuSelectionsFromText(payload: TodayMenuPayload, text: string): Array<{ item: MenuItem; quantity: number }> {
+  const normalizedText = normalizeText(text);
+  if (!normalizedText) {
+    return [];
+  }
+
+  const segments = normalizedText
+    .split(/\b(?:y|tambien|ademas)\b|,/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length <= 1) {
+    const single = resolveMenuSelectionFromText(payload, text);
+    return single ? [single] : [];
+  }
+
+  const resolved: Array<{ item: MenuItem; quantity: number }> = [];
+  const seen = new Set<string>();
+
+  for (const segment of segments) {
+    const selection = resolveMenuSelectionFromText(payload, segment);
+    if (!selection) {
+      continue;
+    }
+
+    const key = selection.item.id;
+    if (seen.has(key)) {
+      const existing = resolved.find((entry) => entry.item.id === key);
+      if (existing) {
+        existing.quantity += selection.quantity;
+      }
+      continue;
+    }
+
+    seen.add(key);
+    resolved.push(selection);
+  }
+
+  return resolved;
+}
+
 function mapProduct(row: ProductRow): Product {
   return {
     id: row.id,
@@ -254,6 +295,7 @@ function mapProduct(row: ProductRow): Product {
     basePrice: row.base_price,
     category: row.category ?? undefined,
     imageUrl: row.image_url ?? undefined,
+    aliases: parseAliases(row.aliases),
     isActive: row.is_active,
   };
 }
@@ -322,7 +364,11 @@ function computeMenuMatchScore(item: MenuItem, searchText: string): number {
 function buildCandidateTexts(item: MenuItem): string[] {
   const name = item.displayName ?? item.product?.name ?? "";
   const normalizedName = normalizeText(name);
-  const candidates = new Set<string>([normalizedName]);
+  const candidates = new Set<string>([
+    normalizedName,
+    ...(item.aliases ?? []).map(normalizeText),
+    ...(item.product?.aliases ?? []).map(normalizeText),
+  ]);
 
   if (normalizedName.includes("almuerzo del dia")) {
     candidates.add("menu del dia");
@@ -355,10 +401,16 @@ function extractQuantity(text: string): number {
     seis: 6,
   };
 
-  for (const [token, value] of Object.entries(spelledNumbers)) {
-    if (new RegExp(`\\b${token}\\b`).test(text)) {
-      return value;
-    }
+  const matches = Object.entries(spelledNumbers)
+    .map(([token, value]) => {
+      const match = new RegExp(`\\b${token}\\b`).exec(text);
+      return match ? { index: match.index, value } : null;
+    })
+    .filter((entry): entry is { index: number; value: number } => Boolean(entry))
+    .sort((left, right) => left.index - right.index);
+
+  if (matches[0]) {
+    return matches[0].value;
   }
 
   return 1;
@@ -368,7 +420,7 @@ function stripQuantityAndNoise(text: string): string {
   return text
     .replace(/\b\d+\b/g, " ")
     .replace(/\b(un|una|uno|dos|tres|cuatro|cinco|seis)\b/g, " ")
-    .replace(/\b(porfa|por favor|quiero|me regalas|regalame|deme|dame|para|favor|pedido|porfis)\b/g, " ")
+    .replace(/\b(porfa|por favor|quiero|me regalas|regalame|deme|dame|para|favor|pedido|porfis|domicilio|delivery|envio|recoger|retiro|pickup|tienda|pago|pagar|efectivo|cash|transferencia|transferir|nequi|daviplata)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -376,8 +428,20 @@ function stripQuantityAndNoise(text: string): string {
 function tokenize(text: string): string[] {
   return text
     .split(/\s+/)
-    .map((token) => token.trim())
+    .map((token) => singularizeToken(token.trim()))
     .filter((token) => token.length > 1 && !["de", "del", "la", "el", "los", "las", "con"].includes(token));
+}
+
+function singularizeToken(token: string): string {
+  if (token.length > 4 && token.endsWith("es")) {
+    return token.slice(0, -2);
+  }
+
+  if (token.length > 3 && token.endsWith("s")) {
+    return token.slice(0, -1);
+  }
+
+  return token;
 }
 
 function normalizeText(text: string): string {
@@ -388,4 +452,13 @@ function normalizeText(text: string): string {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseAliases(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const aliases = value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  return aliases.length > 0 ? aliases : undefined;
 }

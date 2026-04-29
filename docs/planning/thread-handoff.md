@@ -1,6 +1,6 @@
 # Handoff para continuar desde otro hilo
 
-Ultima actualizacion: 2026-04-27.
+Ultima actualizacion: 2026-04-29.
 
 ## Rama de trabajo
 
@@ -15,6 +15,8 @@ No continuar desde `master`.
 ## Commits clave en esta rama
 
 ```txt
+2b2071c Vendor t-router into workspace
+4c417f4 Implement deterministic checkout flow and align t-router
 523be9d Improve WhatsApp welcome and menu fallback
 26ddfa4 Fix dashboard menu item sort order
 5f22a70 Implement menu display and draft order creation
@@ -48,6 +50,7 @@ Ya funciona:
 - resumen final determinista,
 - creacion de `orders` y `order_items`,
 - alertas `order_pending_confirmation` y `transfer_payment_review`.
+- `packages/t-router` vendorizado como workspace local; extraccion a dependencia GitHub sigue pendiente.
 
 ### Dashboard / API
 
@@ -62,7 +65,7 @@ Ya existen rutas base para:
 - modulo de alertas,
 - toggle de automatizacion.
 
-El frontend del dashboard ya tiene cliente API para esas rutas, pero el modulo visual completo de ordenes/alertas todavia no esta construido.
+El frontend del dashboard ya tiene cliente API para esas rutas, pero el modulo visual completo de ordenes/alertas/conversacion todavia no esta construido.
 
 ## Estado real en Supabase
 
@@ -179,16 +182,27 @@ En `tenant_demo`:
 
 Construir este tramo, en este orden:
 
-1. aplicar migracion de extensiones a `product_options`
-2. empezar soporte de configurables en dashboard y matcher determinista
-3. si esta fuera de horario:
+1. extraer normalizacion, detectores y matchers del router a modulos testeables
+2. soportar typos/sinonimos para pago, delivery/pickup y confirmacion
+3. capturar multiples senales claras en un mismo mensaje
+4. separar redaccion en `response_composer`
+5. agregar config LLM por tenant y usar Gemini como proveedor inicial
+6. integrar `semantic_order_parse` con `t-router` como fallback acotado
+7. empezar soporte de configurables en dashboard y matcher determinista usando la migracion ya aplicada de `product_options`
+8. corregir comportamiento de conversaciones `manual`
+9. si esta fuera de horario:
    - ofrecer preorden
    - pedir hora
    - guardar `service_timing = scheduled`
    - guardar `scheduled_for`
-4. integrar comprobantes reales de transferencia
-5. confirmar pedido manualmente desde dashboard
-6. manejar producto agotado y retoma de conversacion
+10. integrar comprobantes reales de transferencia
+11. confirmar pedido manualmente desde dashboard
+12. manejar producto agotado y retoma de conversacion
+
+Planes nuevos relacionados:
+
+- [natural-conversation-implementation-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/natural-conversation-implementation-plan.md)
+- [dashboard-product-alignment-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/dashboard-product-alignment-plan.md)
 
 ## Decisiones ya cerradas que no hay que reabrir
 

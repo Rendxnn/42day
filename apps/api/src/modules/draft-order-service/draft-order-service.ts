@@ -174,6 +174,8 @@ export async function addMenuItemToDraftOrder(input: {
   draftOrderId: string;
   menuItem: MenuItem;
   quantity?: number;
+  options?: Record<string, unknown>;
+  notes?: string;
   deliveryFeeFixed?: number;
 }): Promise<DraftOrder> {
   const client = createSupabaseRestClient(input.env);
@@ -191,7 +193,7 @@ export async function addMenuItemToDraftOrder(input: {
     },
   });
 
-  const existing = existingRows[0];
+  const existing = input.options || input.notes ? undefined : existingRows[0];
 
   if (existing) {
     const nextQuantity = existing.quantity + quantity;
@@ -218,6 +220,8 @@ export async function addMenuItemToDraftOrder(input: {
         name_snapshot: lineName,
         quantity,
         unit_price: unitPrice,
+        options_snapshot: input.options ?? null,
+        notes: input.notes ?? null,
         line_total: quantity * unitPrice,
       },
     });
@@ -229,6 +233,128 @@ export async function addMenuItemToDraftOrder(input: {
     draftOrderId: input.draftOrderId,
     deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
   });
+}
+
+export async function removeItemsFromDraftOrder(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  menuItem?: Pick<MenuItem, "id" | "productId" | "displayName" | "product">;
+  targetText?: string;
+  quantity?: number;
+  deliveryFeeFixed?: number;
+}): Promise<{ draft: DraftOrder; changed: boolean }> {
+  const client = createSupabaseRestClient(input.env);
+  const rows = await loadDraftOrderItemRows(input);
+  const matches = findMatchingRows(rows, {
+    menuItem: input.menuItem,
+    targetText: input.targetText,
+  });
+
+  if (matches.length === 0) {
+    const draft = await recalculateDraftOrder({
+      env: input.env,
+      schemaName: input.schemaName,
+      draftOrderId: input.draftOrderId,
+      deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+    });
+    return { draft, changed: false };
+  }
+
+  const quantityToRemove = input.quantity && input.quantity > 0 ? Math.round(input.quantity) : undefined;
+
+  for (const row of matches) {
+    if (quantityToRemove && quantityToRemove < row.quantity) {
+      const nextQuantity = row.quantity - quantityToRemove;
+      await client.update({
+        schema: input.schemaName,
+        table: "draft_order_items",
+        values: {
+          quantity: nextQuantity,
+          line_total: nextQuantity * row.unit_price,
+        },
+        query: {
+          id: `eq.${row.id}`,
+        },
+      });
+      continue;
+    }
+
+    await client.delete({
+      schema: input.schemaName,
+      table: "draft_order_items",
+      query: {
+        id: `eq.${row.id}`,
+      },
+    });
+  }
+
+  const draft = await recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+
+  return { draft, changed: true };
+}
+
+export async function setDraftOrderItemQuantity(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  menuItem?: Pick<MenuItem, "id" | "productId" | "displayName" | "product">;
+  targetText?: string;
+  quantity: number;
+  deliveryFeeFixed?: number;
+}): Promise<{ draft: DraftOrder; changed: boolean }> {
+  if (input.quantity <= 0) {
+    return removeItemsFromDraftOrder({
+      ...input,
+      quantity: undefined,
+    });
+  }
+
+  const client = createSupabaseRestClient(input.env);
+  const rows = await loadDraftOrderItemRows(input);
+  const matches = findMatchingRows(rows, {
+    menuItem: input.menuItem,
+    targetText: input.targetText,
+  });
+
+  if (matches.length === 0) {
+    const draft = await recalculateDraftOrder({
+      env: input.env,
+      schemaName: input.schemaName,
+      draftOrderId: input.draftOrderId,
+      deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+    });
+    return { draft, changed: false };
+  }
+
+  const nextQuantity = Math.max(1, Math.round(input.quantity));
+  for (const row of matches) {
+    await client.update({
+      schema: input.schemaName,
+      table: "draft_order_items",
+      values: {
+        quantity: nextQuantity,
+        line_total: nextQuantity * row.unit_price,
+      },
+      query: {
+        id: `eq.${row.id}`,
+      },
+    });
+  }
+
+  const draft = await recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+
+  return { draft, changed: true };
 }
 
 export async function updateDraftOrderFulfillment(input: {
@@ -322,6 +448,72 @@ export async function updateDraftOrderPaymentMethod(input: {
     draftOrderId: input.draftOrderId,
     deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
   });
+}
+
+async function loadDraftOrderItemRows(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+}): Promise<DraftOrderItemRow[]> {
+  return createSupabaseRestClient(input.env).select<DraftOrderItemRow>({
+    schema: input.schemaName,
+    table: "draft_order_items",
+    query: {
+      select: "id,draft_order_id,menu_item_id,product_id,combo_id,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total",
+      draft_order_id: `eq.${input.draftOrderId}`,
+    },
+  });
+}
+
+function findMatchingRows(rows: DraftOrderItemRow[], input: {
+  menuItem?: Pick<MenuItem, "id" | "productId" | "displayName" | "product">;
+  targetText?: string;
+}): DraftOrderItemRow[] {
+  const byMenuItem = input.menuItem?.id ? rows.filter((row) => row.menu_item_id === input.menuItem?.id) : [];
+  if (byMenuItem.length > 0) {
+    return byMenuItem;
+  }
+
+  const byProduct = input.menuItem?.productId ? rows.filter((row) => row.product_id === input.menuItem?.productId) : [];
+  if (byProduct.length > 0) {
+    return byProduct;
+  }
+
+  const target = normalizeMatchText(input.targetText ?? input.menuItem?.displayName ?? input.menuItem?.product?.name);
+  if (!target) {
+    return [];
+  }
+
+  return rows.filter((row) => {
+    const candidate = normalizeMatchText(row.name_snapshot);
+    return candidate === target || candidate.includes(target) || target.includes(candidate);
+  });
+}
+
+function normalizeMatchText(value: string | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\b(la|el|los|las|un|una|uno|unos|unas|del|de)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map(singularizeMatchToken)
+    .join(" ");
+}
+
+function singularizeMatchToken(token: string): string {
+  if (token.length > 4 && token.endsWith("es")) {
+    return token.slice(0, -2);
+  }
+
+  if (token.length > 3 && token.endsWith("s")) {
+    return token.slice(0, -1);
+  }
+
+  return token;
 }
 
 async function recalculateDraftOrder(input: {

@@ -69,6 +69,28 @@ Eventos raw recibidos desde proveedores.
 - `status`
 - `error_message`
 
+### `control.tenant_ai_provider_configs`
+
+Configuracion de proveedor LLM por tenant.
+
+- `id`
+- `tenant_id`
+- `provider_id` = `gemini | openai | openrouter | anthropic | custom`
+- `auth_mode` = `api_key | oauth | custom`
+- `encrypted_api_key`
+- `encrypted_access_token`
+- `default_model`
+- `provider_extra` jsonb
+- `status` = `active | inactive`
+- `created_at`
+- `updated_at`
+
+MVP:
+
+- se usa `GEMINI_API_KEY` desde env,
+- la tabla queda lista para configuracion por tenant,
+- antes de produccion se debe cifrar la API key y descifrarla solo en backend.
+
 ## Schema por tenant
 
 ### `locations`
@@ -104,6 +126,7 @@ Catalogo base.
 - `base_price`
 - `category`
 - `image_url`
+- `aliases` jsonb
 - `is_active`
 - `created_at`
 - `updated_at`
@@ -208,6 +231,7 @@ Productos disponibles en un menu del dia.
 - `display_name`
 - `price_override`
 - `available_quantity`
+- `aliases` jsonb
 - `is_available`
 - `sort_order`
 

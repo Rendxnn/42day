@@ -565,10 +565,15 @@ Resultado esperado:
 2. Worker inserta raw payload en `control.webhook_events`.
 3. Worker normaliza el mensaje.
 4. Worker resuelve tenant demo usando `META_PHONE_NUMBER_ID`.
-5. Worker responde:
+5. Worker responde con saludo y menu real. Ejemplo:
 
 ```txt
-Hola, te ayudo con tu pedido. Puedes ver el menu, hacer pedido guiado, escribirlo como quieras o hablar con alguien del restaurante.
+Hola, soy el asistente de pedidos de <nombre del restaurante>. Como vas?
+
+Este es el menu de hoy de <nombre del restaurante>:
+1. ...
+
+Escribe el numero del producto para agregarlo al pedido.
 ```
 
 Probar handoff simple:

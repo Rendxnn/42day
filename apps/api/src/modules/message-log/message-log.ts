@@ -32,6 +32,7 @@ export async function logOutboundTextMessage(input: {
   conversationId: string;
   text: string;
   result: OutboundMessageResult;
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   const client = createSupabaseRestClient(input.env);
 
@@ -45,8 +46,26 @@ export async function logOutboundTextMessage(input: {
       provider_message_id: input.result.providerMessageId,
       message_type: "text",
       text: input.text,
-      payload: input.result.raw,
+      payload: appendInternalPayload(input.result.raw, input.metadata),
       status: input.result.providerMessageId ? "sent" : "send_attempted",
     },
   });
+}
+
+function appendInternalPayload(raw: unknown, metadata: Record<string, unknown> | undefined): unknown {
+  if (!metadata) {
+    return raw;
+  }
+
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return {
+      ...raw,
+      internal: metadata,
+    };
+  }
+
+  return {
+    raw,
+    internal: metadata,
+  };
 }

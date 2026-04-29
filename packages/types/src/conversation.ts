@@ -2,6 +2,7 @@ export const conversationStates = [
   "new",
   "awaiting_mode_selection",
   "awaiting_guided_item_selection",
+  "awaiting_more_items",
   "awaiting_fulfillment_type",
   "awaiting_address",
   "awaiting_payment_method",

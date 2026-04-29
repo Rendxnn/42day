@@ -108,6 +108,8 @@ docs/
 - [Roadmap y division de tareas](./docs/planning/roadmap-and-task-split.md)
 - [Decisiones de negocio](./docs/planning/business-decisions.md)
 - [Plan de trabajo adelantable](./docs/planning/parallel-work-plan.md)
+- [Plan conversacional natural deterministico + LLM](./docs/planning/natural-conversation-implementation-plan.md)
+- [Plan de alineacion del dashboard](./docs/planning/dashboard-product-alignment-plan.md)
 - [Setup local](./docs/runbooks/local-setup.md)
 - [Configuracion externa paso a paso](./docs/runbooks/external-configuration-step-by-step.md)
 - [Cloudflare Worker setup](./docs/runbooks/cloudflare-worker-setup.md)

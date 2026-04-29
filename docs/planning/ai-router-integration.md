@@ -1,6 +1,6 @@
 # Integracion de router de IA
 
-Ultima actualizacion: 2026-04-27.
+Ultima actualizacion: 2026-04-29.
 
 ## Decision
 
@@ -60,6 +60,16 @@ Objetivo:
 2. ingestion de menu desde PDF, imagen o texto
 3. fallback cuando el flujo determinista no alcanza
 
+## Decision actual para MVP
+
+- proveedor inicial: Gemini,
+- salida de `semantic_order_parse`: textos + confianza,
+- el LLM no devuelve IDs, precios, totales ni disponibilidad,
+- el backend hace matching deterministico contra menu activo,
+- para MVP se usa `GEMINI_API_KEY` en env,
+- queda preparada la configuracion por tenant en DB,
+- secretos cifrados a nivel aplicacion en una siguiente iteracion.
+
 ## Recomendacion de integracion en 42day
 
 Agregar una tabla o configuracion equivalente por tenant:
@@ -67,8 +77,8 @@ Agregar una tabla o configuracion equivalente por tenant:
 ```txt
 control.tenant_ai_provider_configs
   tenant_id
-  provider_id
-  auth_mode
+  provider_id              -- gemini | openai | openrouter
+  auth_mode                -- api_key
   encrypted_api_key
   encrypted_access_token
   default_model
@@ -84,6 +94,14 @@ Y desde backend:
 2. cargar config del provider del tenant,
 3. construir task segun caso de uso,
 4. ejecutar contra el router generico.
+
+Seguridad:
+
+- la API key del proveedor nunca debe viajar al dashboard,
+- la DB guarda la key cifrada,
+- el backend descifra usando una clave maestra guardada como secret del Worker,
+- en MVP local/staging se usa `GEMINI_API_KEY` como secret/env var,
+- produccion debe migrar a config por tenant con key cifrada.
 
 ## Regla importante
 
