@@ -550,42 +550,45 @@ function TodayMenu(props: {
   onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
 }) {
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
+  const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
 
   return (
-    <section className="space-y-5">
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <div className="border-b border-zinc-100 bg-gradient-to-br from-white to-emerald-50/60 p-5 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200">
-                <Clock size={14} />
-                Ultima actualizacion: {props.lastUpdated}
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Menu de hoy</h2>
-                <StatusPill active={props.menuIsActive} />
-              </div>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
-                Activa, desactiva o corrige precios. El chatbot consulta `menus` y `menu_items`.
-              </p>
-            </div>
-            <button
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              onClick={() => setCatalogOpen(true)}
-              type="button"
-            >
-              <Plus size={18} />
-              Agregar desde catalogo
-            </button>
+    <section className="space-y-6">
+      <div className="flex flex-col gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+            <Clock size={14} />
+            <span>Actualizado: {props.lastUpdated}</span>
           </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950 sm:text-3xl">Menu de hoy</h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+            Define los platos visibles para WhatsApp. Manten activo solo lo que se puede vender hoy.
+          </p>
         </div>
+        <button
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-200"
+          onClick={() => setCatalogOpen(true)}
+          type="button"
+        >
+          <Plus size={17} />
+          Agregar desde catalogo
+        </button>
+      </div>
 
-        <div className="grid gap-3 p-3 sm:p-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MiniStat label="Activos hoy" value={props.activeCount} />
-            <MiniStat label="En menu_items" value={props.items.length} />
-            <MiniStat label="Estado" value={props.saveStatus === "saving" ? "Guardando" : "Listo"} />
-          </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MenuMetric label="Activos" value={props.activeCount} tone="strong" />
+        <MenuMetric label="Inactivos" value={inactiveCount} />
+        <MenuMetric label="Estado" value={statusLabel} />
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-zinc-100 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
+          <span>Plato</span>
+          <span className="hidden text-right sm:block">Precio</span>
+          <span className="text-right">Acciones</span>
+        </div>
+        <div className="divide-y divide-zinc-100">
           {props.items.map((item) => (
             <DishRow
               item={item}
@@ -594,6 +597,12 @@ function TodayMenu(props: {
               onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
             />
           ))}
+          {props.items.length === 0 && (
+            <div className="px-4 py-12 text-center">
+              <p className="text-sm font-medium text-zinc-950">Todavia no hay platos en el menu.</p>
+              <p className="mt-1 text-sm text-zinc-500">Agrega productos desde el catalogo para publicarlos hoy.</p>
+            </div>
+          )}
         </div>
       </div>
       {catalogOpen && (
@@ -603,20 +612,11 @@ function TodayMenu(props: {
   );
 }
 
-function StatusPill({ active }: { active: boolean }) {
+function MenuMetric({ label, tone = "muted", value }: { label: string; tone?: "muted" | "strong"; value: string | number }) {
   return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${active ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600"}`}>
-      <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-zinc-400"}`} />
-      {active ? "Activo hoy" : "Inactivo"}
-    </span>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg bg-zinc-50 px-4 py-3 ring-1 ring-zinc-100">
-      <p className="text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-zinc-950">{value}</p>
+    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+      <p className="text-xs font-medium text-zinc-500">{label}</p>
+      <p className={`mt-1 text-xl font-semibold ${tone === "strong" ? "text-zinc-950" : "text-zinc-700"}`}>{value}</p>
     </div>
   );
 }
@@ -626,33 +626,49 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
   const price = item.priceOverride ?? item.product?.basePrice ?? 0;
 
   return (
-    <article className={`rounded-xl border p-3 transition sm:p-4 ${item.isAvailable ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-white"}`}>
-      <div className="grid gap-3 sm:grid-cols-[72px_1fr_auto] sm:items-center">
-        <ProductImage imageUrl={item.product?.imageUrl} name={name} />
-        <div className="min-w-0">
-          <h3 className={`truncate text-base font-semibold ${item.isAvailable ? "text-zinc-950" : "text-zinc-500"}`}>{name}</h3>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="inline-flex h-10 items-center rounded-lg bg-white px-3 ring-1 ring-zinc-200 transition focus-within:ring-2 focus-within:ring-emerald-200">
-              <span className="text-sm text-zinc-500">$</span>
-              <input
-                className="ml-1 w-28 bg-transparent text-sm font-semibold text-zinc-950 outline-none"
-                min="0"
-                onChange={(event) => onUpdate({ priceOverride: Number(event.target.value) })}
-                type="number"
-                value={price}
-              />
-            </label>
-            <span className="text-sm text-zinc-500">{formatPrice(price)}</span>
+    <article className={`grid gap-3 px-4 py-3 transition hover:bg-zinc-50 sm:grid-cols-[1fr_160px_156px] sm:items-center ${item.isAvailable ? "bg-white" : "bg-zinc-50/60"}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        {item.product?.imageUrl && <ProductImage imageUrl={item.product.imageUrl} name={name} />}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className={`truncate text-sm font-semibold ${item.isAvailable ? "text-zinc-950" : "text-zinc-500"}`}>{name}</h3>
+            {!item.isAvailable && <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">Oculto</span>}
           </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 sm:justify-end">
-          <Toggle checked={item.isAvailable} onChange={() => onUpdate({ isAvailable: !item.isAvailable })} />
-          <button className="grid h-10 w-10 place-items-center rounded-lg bg-white text-zinc-400 ring-1 ring-zinc-200 transition hover:bg-red-50 hover:text-red-600" onClick={onDelete} title="Eliminar plato" type="button">
-            <Trash2 size={17} />
-          </button>
+          {item.product?.description && <p className="mt-1 line-clamp-1 text-sm text-zinc-500">{item.product.description}</p>}
         </div>
       </div>
+      <label className="inline-flex h-9 w-full items-center rounded-lg border border-zinc-200 bg-white px-3 transition focus-within:border-zinc-300 focus-within:ring-4 focus-within:ring-zinc-100 sm:w-40">
+        <span className="text-xs font-medium text-zinc-400">$</span>
+        <input
+          aria-label={`Precio de ${name}`}
+          className="ml-1 w-full bg-transparent text-right text-sm font-semibold text-zinc-950 outline-none"
+          min="0"
+          onChange={(event) => onUpdate({ priceOverride: Number(event.target.value) })}
+          type="number"
+          value={price}
+        />
+      </label>
+      <div className="flex items-center justify-between gap-2 sm:justify-end">
+        <AvailabilitySwitch checked={item.isAvailable} onChange={() => onUpdate({ isAvailable: !item.isAvailable })} />
+        <button className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 transition hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-4 focus:ring-red-100" onClick={onDelete} title="Eliminar plato" type="button">
+          <Trash2 size={16} />
+        </button>
+      </div>
     </article>
+  );
+}
+
+function AvailabilitySwitch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-medium transition focus:outline-none focus:ring-4 ${checked ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus:ring-emerald-100" : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 focus:ring-zinc-100"}`}
+      onClick={onChange}
+      type="button"
+    >
+      <span className={`h-2 w-2 rounded-full ${checked ? "bg-emerald-500" : "bg-zinc-400"}`} />
+      {checked ? "Activo" : "Inactivo"}
+    </button>
   );
 }
 
@@ -702,7 +718,10 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
 function Summary({ activeCount, totalCount, onEditMenu }: { activeCount: number; totalCount: number; onEditMenu: () => void }) {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <StatusPill active={activeCount > 0} />
+      <span className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1 text-sm font-medium ${activeCount > 0 ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-500"}`}>
+        <span className={`h-2 w-2 rounded-full ${activeCount > 0 ? "bg-emerald-500" : "bg-zinc-400"}`} />
+        {activeCount > 0 ? "Activo" : "Sin platos activos"}
+      </span>
       <h2 className="mt-3 text-2xl font-semibold tracking-normal">Listo para operar hoy</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
         {activeCount} de {totalCount} platos estan activos para el chatbot de WhatsApp.
@@ -1076,20 +1095,6 @@ function ProductImage({ imageUrl, name }: { imageUrl?: string; name: string }) {
   }
 
   return <img alt={name} className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-zinc-200" src={imageUrl} />;
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      aria-pressed={checked}
-      className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${checked ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:text-zinc-950"}`}
-      onClick={onChange}
-      type="button"
-    >
-      <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-white" : "bg-zinc-300"}`} />
-      {checked ? "Activo hoy" : "Inactivo"}
-    </button>
-  );
 }
 
 function Toast({ message }: { message: string }) {
