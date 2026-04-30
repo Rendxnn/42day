@@ -4,6 +4,7 @@ $scriptsPath = Join-Path $PSScriptRoot "*.ps1"
 
 $descriptions = @{
   "Show-Helpers.ps1" = "Lista los helpers disponibles."
+  "Install-WorkspaceDeps.ps1" = "Instala/repara dependencias del workspace desde PowerShell."
   "Set-CfWorkerSecret.ps1" = "Actualiza cualquier secret del Worker."
   "Set-MetaAccessToken.ps1" = "Actualiza META_ACCESS_TOKEN en Cloudflare."
   "Set-GeminiApiKey.ps1" = "Actualiza GEMINI_API_KEY en Cloudflare."
