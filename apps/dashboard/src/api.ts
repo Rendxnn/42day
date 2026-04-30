@@ -9,23 +9,29 @@ import type {
   Product,
   TodayMenuPayload,
 } from "@42day/types";
+import { getAccessToken } from "./auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
+  const token = await getAccessToken();
+  const headers = isFormData
+    ? { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+    : {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
   const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
     ...init,
-    headers: isFormData
-      ? init?.headers
-      : {
-          "Content-Type": "application/json",
-          ...init?.headers,
-        },
+    headers,
   });
 
   if (!response.ok) {
-    throw new Error(`dashboard_api_error:${response.status}`);
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    throw new Error(payload?.error ?? `dashboard_api_error:${response.status}`);
   }
 
   return response.json() as Promise<T>;
@@ -38,6 +44,14 @@ export type DashboardTenant = {
   schemaName: string;
 };
 
+export type DashboardMe = {
+  user: {
+    id: string;
+    email?: string;
+  };
+  tenants: DashboardTenant[];
+};
+
 export type DashboardDiagnostics = {
   tenant: string;
   schema: string;
@@ -46,8 +60,20 @@ export type DashboardDiagnostics = {
   productImagesBucket: boolean;
 };
 
+export type DetectedMenuProduct = {
+  name: string;
+  description?: string;
+  basePrice: number;
+  category?: string;
+  confidence?: number;
+};
+
 export function listTenants() {
   return request<DashboardTenant[]>("/tenants");
+}
+
+export function getMe() {
+  return request<DashboardMe>("/me");
 }
 
 export function getDiagnostics(tenantSlug: string) {
@@ -121,6 +147,17 @@ export function uploadProductImage(tenantSlug: string, file: File) {
   formData.append("file", file);
 
   return request<{ bucket: string; path: string; publicUrl: string }>(`/${tenantSlug}/uploads/product-image`, {
+    method: "POST",
+    body: formData,
+    headers: {},
+  });
+}
+
+export function analyzeMenuImage(tenantSlug: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return request<{ products: DetectedMenuProduct[] }>(`/${tenantSlug}/uploads/menu-image/analyze`, {
     method: "POST",
     body: formData,
     headers: {},

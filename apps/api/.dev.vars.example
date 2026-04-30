@@ -13,3 +13,6 @@ SUPABASE_SERVICE_ROLE_KEY=replace-me
 DATABASE_URL=postgresql://postgres:password@host:5432/postgres
 
 OPENAI_API_KEY=replace-me
+GEMINI_API_KEY=replace-me
+GEMINI_MODEL=gemini-2.5-flash
+AI_CONFIG_ENCRYPTION_KEY=replace-me

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type {
   AutomationSettings,
   HumanInterventionAlert,
@@ -19,9 +20,17 @@ import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-res
 
 type TenantRow = {
   id: string;
+  name?: string;
   slug: string;
   schema_name: string;
   timezone?: string;
+};
+
+type TenantUserRow = {
+  tenant_id: string;
+  user_id: string;
+  role: "encargado" | "trabajador";
+  status: "active" | "inactive";
 };
 
 type LocationRow = {
@@ -122,7 +131,22 @@ type AlertRow = {
 };
 
 type DashboardVariables = {
+  authUser: AuthUser;
+  authorizedTenants: TenantRow[];
   tenant: TenantRow;
+};
+
+type AuthUser = {
+  id: string;
+  email?: string;
+};
+
+type GeminiMenuProduct = {
+  name: string;
+  description?: string;
+  basePrice: number;
+  category?: string;
+  confidence?: number;
 };
 
 export const dashboardRoutes = new Hono<{
@@ -131,15 +155,9 @@ export const dashboardRoutes = new Hono<{
 }>();
 
 dashboardRoutes.get("/tenants", async (c) => {
-  const tenants = await createSupabaseRestClient(c.env).select<TenantRow & { name: string }>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,name,slug,schema_name",
-      status: "eq.active",
-      order: "name.asc",
-    },
-  });
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
 
   return c.json(
     tenants.map((tenant) => ({
@@ -151,23 +169,35 @@ dashboardRoutes.get("/tenants", async (c) => {
   );
 });
 
-dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
-  const supabase = createSupabaseRestClient(c.env);
-  const [tenant] = await supabase.select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,slug,schema_name,timezone",
-      slug: `eq.${c.req.param("tenantSlug")}`,
-      status: "eq.active",
-      limit: 1,
-    },
+dashboardRoutes.get("/me", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
+
+  return c.json({
+    user: authUser,
+    tenants: tenants.map((tenant) => ({
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      schemaName: tenant.schema_name,
+    })),
   });
+});
+
+dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+  const supabase = createSupabaseRestClient(c.env);
+  const tenants = await getAuthorizedTenants(c.env, authUser.id);
+  const tenant = tenants.find((entry) => entry.slug === c.req.param("tenantSlug"));
 
   if (!tenant) {
     return c.json({ error: "tenant_not_found" }, 404);
   }
 
+  c.set("authUser", authUser);
+  c.set("authorizedTenants", tenants);
   c.set("tenant", tenant);
   await next();
 });
@@ -614,6 +644,93 @@ dashboardRoutes.post("/:tenantSlug/products", async (c) => {
   return c.json(mapProduct(product), 201);
 });
 
+dashboardRoutes.post("/:tenantSlug/uploads/menu-image/analyze", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form.file;
+
+  if (!(file instanceof File)) {
+    return c.json({ error: "image_file_required" }, 400);
+  }
+
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return c.json({ error: "unsupported_image_type" }, 400);
+  }
+
+  const apiKey = c.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "replace-me") {
+    return c.json({ error: "gemini_not_configured" }, 500);
+  }
+
+  const imageBase64 = arrayBufferToBase64(await file.arrayBuffer());
+  const prompt = [
+    "Eres un extractor de menus de restaurante en Colombia. Tu prioridad es capturar nombre, precio, categoria y descripcion completa de cada plato.",
+    "Lee la imagen y devuelve SOLO JSON valido, sin markdown.",
+    "Extrae platos vendibles del menu con precio en COP.",
+    "Si un precio tiene puntos o separadores, conviertelo a entero.",
+    "Ignora encabezados, horarios, telefonos, redes sociales y textos decorativos.",
+    "La descripcion es obligatoria cuando exista texto debajo o al lado del nombre del plato.",
+    "Para desayunos, la descripcion suele ser la linea siguiente con ingredientes como arepa, huevos, cafe, queso, pan o frutas.",
+    "Para almuerzos, conserva acompanamientos e ingredientes: entrada, principio, seco, carne, ensalada, papas, arroz, bebida, etc.",
+    "Para adiciones, si no hay descripcion separada, usa el mismo nombre como descripcion corta.",
+    "Clasifica category usando una de estas etiquetas cuando aplique: desayuno, almuerzo, adicion. Si no aplica, usa otra categoria corta en singular.",
+    "No inventes ingredientes que no aparezcan. Si una descripcion continua en varias lineas, unelas en una sola frase.",
+    "Si el precio dice 'segun pescado', 'segun peso' o similar y no hay numero, omite ese producto.",
+    'Formato exacto: {"products":[{"name":"string","description":"string","basePrice":12345,"category":"string","confidence":0.9}]}',
+    "Usa nombres cortos y claros. No dejes description vacio si la imagen muestra ingredientes o acompanamientos.",
+    "Si no detectas platos, devuelve {\"products\":[]}.",
+  ].join("\n");
+
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: file.type,
+                data: imageBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        response_mime_type: "application/json",
+        temperature: 0.1,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    console.error("gemini_menu_analysis_failed", { status: response.status, body: errorText.slice(0, 500) });
+    if (response.status === 429) {
+      return c.json({ error: "gemini_quota_exhausted" }, 429);
+    }
+
+    return c.json({ error: "gemini_menu_analysis_failed" }, 502);
+  }
+
+  const payload = (await response.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ text?: string }>;
+      };
+    }>;
+  };
+  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  const products = parseGeminiMenuProducts(text);
+
+  return c.json({ products });
+});
+
 dashboardRoutes.post("/:tenantSlug/uploads/product-image", async (c) => {
   const tenant = c.get("tenant");
   const form = await c.req.parseBody();
@@ -858,6 +975,37 @@ async function findOrCreateTodayMenu(
   return menu;
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+function parseGeminiMenuProducts(text: string): GeminiMenuProduct[] {
+  const normalized = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+  const parsed = JSON.parse(normalized) as { products?: unknown[] };
+
+  return (parsed.products ?? [])
+    .map((entry) => {
+      const product = entry as Partial<GeminiMenuProduct>;
+      return {
+        name: String(product.name ?? "").trim(),
+        description: product.description ? String(product.description).trim() : undefined,
+        basePrice: Number(product.basePrice ?? 0),
+        category: product.category ? String(product.category).trim() : undefined,
+        confidence: product.confidence === undefined ? undefined : Number(product.confidence),
+      };
+    })
+    .filter((product) => product.name && Number.isFinite(product.basePrice) && product.basePrice > 0)
+    .slice(0, 30);
+}
+
 async function selectProducts(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
@@ -1086,4 +1234,66 @@ function resolveBusinessDate(requestedDate?: string, timezone = "America/Bogota"
   }
 
   return `${year}-${month}-${day}`;
+}
+
+async function requireAuthUser(
+  c: Context<{
+    Bindings: ApiBindings;
+    Variables: DashboardVariables;
+  }>,
+): Promise<AuthUser | Response> {
+  const anonKey = c.env.SUPABASE_ANON_KEY;
+  if (!anonKey || anonKey === "replace-me") {
+    return c.json({ error: "supabase_anon_not_configured" }, 500);
+  }
+
+  const authorization = c.req.header("Authorization");
+  const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+
+  if (!token) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const response = await fetch(`${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const user = (await response.json()) as AuthUser;
+  return user;
+}
+
+async function getAuthorizedTenants(env: ApiBindings, userId: string): Promise<TenantRow[]> {
+  const supabase = createSupabaseRestClient(env);
+  const tenantUsers = await supabase.select<TenantUserRow>({
+    schema: "control",
+    table: "tenant_users",
+    query: {
+      select: "tenant_id,user_id,role,status",
+      user_id: `eq.${userId}`,
+      status: "eq.active",
+    },
+  });
+
+  if (tenantUsers.length === 0) {
+    return [];
+  }
+
+  const tenantIds = tenantUsers.map((row) => row.tenant_id).join(",");
+  return supabase.select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name,timezone",
+      id: `in.(${tenantIds})`,
+      status: "eq.active",
+      order: "name.asc",
+    },
+  });
 }

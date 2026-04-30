@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { MenuItem, Product } from "@42day/types";
+import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
+  analyzeMenuImage,
   createProduct,
   deleteMenuItem,
   deleteProduct,
   getDiagnostics,
+  getMe,
   getTodayMenu,
-  listTenants,
   updateMenuItem,
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { DashboardTenant } from "./api";
+import type { DashboardTenant, DetectedMenuProduct } from "./api";
+import { authConfigured, getSession, onAuthStateChange, signIn, signOut } from "./auth";
 import {
   Camera,
   Check,
@@ -145,12 +148,6 @@ function getFallbackItems(tenantSlug: string): MenuItem[] {
   }));
 }
 
-const detectedProducts = [
-  { name: "Arroz con pollo", price: 18000, confidence: "98%" },
-  { name: "Carne asada", price: 26000, confidence: "94%" },
-  { name: "Jugo de mora", price: 7000, confidence: "91%" },
-];
-
 const navItems = [
   { id: "menu" as const, label: "Hoy", icon: Utensils },
   { id: "summary" as const, label: "Resumen", icon: Home },
@@ -171,8 +168,11 @@ function formatPrice(value: number | undefined) {
 export function App() {
   // The daily operation screen must always be the first screen on load.
   const [activeView, setActiveView] = useState<View>("menu");
-  const [tenantSlug, setTenantSlug] = useState(import.meta.env.VITE_TENANT_SLUG ?? "demo");
-  const [tenants, setTenants] = useState<DashboardTenant[]>(fallbackTenants);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginError, setLoginError] = useState("");
+  const [tenantSlug, setTenantSlug] = useState("");
+  const [tenants, setTenants] = useState<DashboardTenant[]>([]);
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
   const [imageColumnReady, setImageColumnReady] = useState(false);
@@ -181,16 +181,55 @@ export function App() {
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    listTenants()
-      .then((apiTenants) => {
-        if (apiTenants.length > 0) {
-          setTenants(apiTenants);
-        }
+    if (!authConfigured) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let mounted = true;
+
+    getSession()
+      .then((currentSession) => {
+        if (!mounted) return;
+        setSession(currentSession);
       })
-      .catch(() => setTenants(fallbackTenants));
+      .finally(() => {
+        if (mounted) {
+          setAuthLoading(false);
+        }
+      });
+
+    const unsubscribe = onAuthStateChange((nextSession) => {
+      setSession(nextSession);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
+    if (!session) {
+      setTenants([]);
+      setTenantSlug("");
+      return;
+    }
+
+    getMe()
+      .then((payload) => {
+        setTenants(payload.tenants);
+        setTenantSlug((current) => current || payload.tenants[0]?.slug || "");
+      })
+      .catch(() => {
+        setTenants([]);
+        setTenantSlug("");
+      });
+  }, [session]);
+
+  useEffect(() => {
+    if (!tenantSlug) return;
     setSaveStatus("loading");
     getTodayMenu(tenantSlug)
       .then((payload) => {
@@ -200,11 +239,11 @@ export function App() {
         setLastUpdated(payload.menu?.publishedAt ? "desde Supabase" : "sin menu publicado");
       })
       .catch(() => {
-        setProducts(getFallbackProducts(tenantSlug));
-        setItems(getFallbackItems(tenantSlug));
+        setProducts([]);
+        setItems([]);
         setSaveStatus("offline");
-        setLastUpdated("modo local");
-        notify(`Usando datos locales para ${tenantSlug}`);
+        setLastUpdated("sin conexion");
+        notify("No se pudo cargar el tenant desde la API");
       });
 
     getDiagnostics(tenantSlug)
@@ -214,6 +253,25 @@ export function App() {
 
   const activeItems = items.filter((item) => item.isAvailable);
   const menuIsActive = activeItems.length > 0;
+
+  async function handleLogin(email: string, password: string) {
+    setLoginError("");
+    try {
+      const { session: nextSession } = await signIn(email, password);
+      setSession(nextSession);
+    } catch {
+      setLoginError("No se pudo iniciar sesion. Revisa correo y contrasena.");
+    }
+  }
+
+  async function handleLogout() {
+    await signOut();
+    setSession(null);
+    setTenants([]);
+    setTenantSlug("");
+    setProducts(fallbackProducts);
+    setItems(fallbackItems);
+  }
 
   function notify(message: string) {
     setToast(message);
@@ -231,6 +289,7 @@ export function App() {
       setLastUpdated("ahora");
     } catch {
       setSaveStatus("offline");
+      notify("No se pudo guardar el cambio");
     }
   }
 
@@ -244,18 +303,8 @@ export function App() {
       setItems((current) => [...current, created]);
       setSaveStatus("saved");
     } catch {
-      const localItem: MenuItem = {
-        id: `local-item-${Date.now()}`,
-        menuId: "local-menu",
-        productId: product.id,
-        displayName: product.name,
-        priceOverride: product.basePrice,
-        isAvailable: true,
-        sortOrder: Date.now(),
-        product,
-      };
-      setItems((current) => [...current, localItem]);
       setSaveStatus("offline");
+      notify("No se pudo agregar el plato");
     }
   }
 
@@ -267,6 +316,7 @@ export function App() {
       setSaveStatus("saved");
     } catch {
       setSaveStatus("offline");
+      notify("No se pudo eliminar el plato");
     }
   }
 
@@ -297,6 +347,22 @@ export function App() {
     notify("Producto desactivado");
   }
 
+  if (!authConfigured) {
+    return <ConfigRequiredScreen />;
+  }
+
+  if (authLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!session) {
+    return <LoginScreen error={loginError} onLogin={handleLogin} />;
+  }
+
+  if (tenants.length === 0) {
+    return <NoTenantScreen onLogout={handleLogout} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#f8f8f5] text-zinc-950">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl">
@@ -308,6 +374,7 @@ export function App() {
             tenantSlug={tenantSlug}
             tenants={tenants}
             onTenantChange={setTenantSlug}
+          onLogout={() => void handleLogout()}
           />
 
           {activeView === "menu" && (
@@ -329,7 +396,18 @@ export function App() {
           {activeView === "catalog" && <Catalog imageColumnReady={imageColumnReady} products={products} onDelete={removeProduct} onSave={saveProduct} />}
           {activeView === "upload" && (
             <SmartUpload
-              onAddProducts={(newProducts) => setProducts((current) => [...newProducts, ...current])}
+              onAnalyze={(file) => analyzeMenuImage(tenantSlug, file)}
+              onCreateProducts={async (detectedProducts) => {
+                for (const product of detectedProducts) {
+                  await saveProduct({
+                    name: product.name,
+                    description: product.description ?? "Detectado automaticamente desde imagen del menu.",
+                    basePrice: product.basePrice,
+                    category: product.category,
+                    isActive: true,
+                  });
+                }
+              }}
               onNotify={notify}
             />
           )}
@@ -344,12 +422,14 @@ export function App() {
 function Header({
   menuIsActive,
   onTenantChange,
+  onLogout,
   saveStatus,
   tenantSlug,
   tenants,
 }: {
   menuIsActive: boolean;
   onTenantChange: (tenantSlug: string) => void;
+  onLogout: () => void;
   saveStatus: SaveStatus;
   tenantSlug: string;
   tenants: DashboardTenant[];
@@ -378,6 +458,13 @@ function Header({
           ))}
         </select>
         <SaveIndicator status={saveStatus} menuIsActive={menuIsActive} />
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
+          onClick={onLogout}
+          type="button"
+        >
+          Salir
+        </button>
       </div>
     </header>
   );
@@ -469,50 +556,71 @@ function TodayMenu(props: {
   onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
 }) {
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
+  const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
+  const groups = groupMenuItemsByOrderType(props.items);
 
   return (
-    <section className="space-y-5">
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <div className="border-b border-zinc-100 bg-gradient-to-br from-white to-emerald-50/60 p-5 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200">
-                <Clock size={14} />
-                Ultima actualizacion: {props.lastUpdated}
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Menu de hoy</h2>
-                <StatusPill active={props.menuIsActive} />
-              </div>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
-                Activa, desactiva o corrige precios. El chatbot consulta `menus` y `menu_items`.
-              </p>
-            </div>
-            <button
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              onClick={() => setCatalogOpen(true)}
-              type="button"
-            >
-              <Plus size={18} />
-              Agregar desde catalogo
-            </button>
+    <section className="space-y-6">
+      <div className="flex flex-col gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+            <Clock size={14} />
+            <span>Actualizado: {props.lastUpdated}</span>
           </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950 sm:text-3xl">Menu de hoy</h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+            Define los platos visibles para WhatsApp. Manten activo solo lo que se puede vender hoy.
+          </p>
         </div>
+        <button
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-200"
+          onClick={() => setCatalogOpen(true)}
+          type="button"
+        >
+          <Plus size={17} />
+          Agregar desde catalogo
+        </button>
+      </div>
 
-        <div className="grid gap-3 p-3 sm:p-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MiniStat label="Activos hoy" value={props.activeCount} />
-            <MiniStat label="En menu_items" value={props.items.length} />
-            <MiniStat label="Estado" value={props.saveStatus === "saving" ? "Guardando" : "Listo"} />
-          </div>
-          {props.items.map((item) => (
-            <DishRow
-              item={item}
-              key={item.id}
-              onDelete={() => props.onDeleteDish(item.id)}
-              onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
-            />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MenuMetric label="Activos" value={props.activeCount} tone="strong" />
+        <MenuMetric label="Inactivos" value={inactiveCount} />
+        <MenuMetric label="Estado" value={statusLabel} />
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-zinc-100 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
+          <span>Plato</span>
+          <span className="hidden text-right sm:block">Precio</span>
+          <span className="text-right">Acciones</span>
+        </div>
+        <div className="divide-y divide-zinc-100">
+          {groups.map((group) => (
+            <div className="divide-y divide-zinc-100" key={group.id}>
+              <div className="flex items-center justify-between bg-white px-4 py-2.5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">{group.label}</p>
+                  <p className="mt-0.5 text-xs text-zinc-400">{group.items.length} platos</p>
+                </div>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">{group.activeCount} activos</span>
+              </div>
+              {group.items.map((item) => (
+                <DishRow
+                  item={item}
+                  key={item.id}
+                  onDelete={() => props.onDeleteDish(item.id)}
+                  onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
+                />
+              ))}
+            </div>
           ))}
+          {props.items.length === 0 && (
+            <div className="px-4 py-12 text-center">
+              <p className="text-sm font-medium text-zinc-950">Todavia no hay platos en el menu.</p>
+              <p className="mt-1 text-sm text-zinc-500">Agrega productos desde el catalogo para publicarlos hoy.</p>
+            </div>
+          )}
         </div>
       </div>
       {catalogOpen && (
@@ -522,20 +630,46 @@ function TodayMenu(props: {
   );
 }
 
-function StatusPill({ active }: { active: boolean }) {
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${active ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600"}`}>
-      <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-zinc-400"}`} />
-      {active ? "Activo hoy" : "Inactivo"}
-    </span>
-  );
+function groupMenuItemsByOrderType(items: MenuItem[]) {
+  const order = [
+    { id: "desayuno", label: "Desayunos" },
+    { id: "almuerzo", label: "Almuerzos" },
+    { id: "adicion", label: "Adiciones" },
+    { id: "otros", label: "Otros" },
+  ];
+  const groups = new Map(order.map((entry) => [entry.id, { ...entry, items: [] as MenuItem[], activeCount: 0 }]));
+
+  items.forEach((item) => {
+    const category = normalizeOrderType(item.product?.category);
+    const group = groups.get(category) ?? groups.get("otros");
+    if (!group) return;
+
+    group.items.push(item);
+    if (item.isAvailable) {
+      group.activeCount += 1;
+    }
+  });
+
+  return order
+    .map((entry) => groups.get(entry.id))
+    .filter((group): group is { id: string; label: string; items: MenuItem[]; activeCount: number } => Boolean(group && group.items.length > 0));
 }
 
-function MiniStat({ label, value }: { label: string; value: string | number }) {
+function normalizeOrderType(category?: string) {
+  const value = (category ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  if (value.includes("desayuno")) return "desayuno";
+  if (value.includes("almuerzo") || value.includes("plato fuerte") || value.includes("menu")) return "almuerzo";
+  if (value.includes("adicion") || value.includes("acompanamiento") || value.includes("bebida")) return "adicion";
+
+  return "otros";
+}
+
+function MenuMetric({ label, tone = "muted", value }: { label: string; tone?: "muted" | "strong"; value: string | number }) {
   return (
-    <div className="rounded-lg bg-zinc-50 px-4 py-3 ring-1 ring-zinc-100">
-      <p className="text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-zinc-950">{value}</p>
+    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+      <p className="text-xs font-medium text-zinc-500">{label}</p>
+      <p className={`mt-1 text-xl font-semibold ${tone === "strong" ? "text-zinc-950" : "text-zinc-700"}`}>{value}</p>
     </div>
   );
 }
@@ -545,33 +679,49 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
   const price = item.priceOverride ?? item.product?.basePrice ?? 0;
 
   return (
-    <article className={`rounded-xl border p-3 transition sm:p-4 ${item.isAvailable ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-white"}`}>
-      <div className="grid gap-3 sm:grid-cols-[72px_1fr_auto] sm:items-center">
-        <ProductImage imageUrl={item.product?.imageUrl} name={name} />
-        <div className="min-w-0">
-          <h3 className={`truncate text-base font-semibold ${item.isAvailable ? "text-zinc-950" : "text-zinc-500"}`}>{name}</h3>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="inline-flex h-10 items-center rounded-lg bg-white px-3 ring-1 ring-zinc-200 transition focus-within:ring-2 focus-within:ring-emerald-200">
-              <span className="text-sm text-zinc-500">$</span>
-              <input
-                className="ml-1 w-28 bg-transparent text-sm font-semibold text-zinc-950 outline-none"
-                min="0"
-                onChange={(event) => onUpdate({ priceOverride: Number(event.target.value) })}
-                type="number"
-                value={price}
-              />
-            </label>
-            <span className="text-sm text-zinc-500">{formatPrice(price)}</span>
+    <article className={`grid gap-3 px-4 py-3 transition hover:bg-zinc-50 sm:grid-cols-[1fr_160px_156px] sm:items-center ${item.isAvailable ? "bg-white" : "bg-zinc-50/60"}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        {item.product?.imageUrl && <ProductImage imageUrl={item.product.imageUrl} name={name} />}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className={`truncate text-sm font-semibold ${item.isAvailable ? "text-zinc-950" : "text-zinc-500"}`}>{name}</h3>
+            {!item.isAvailable && <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">Oculto</span>}
           </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 sm:justify-end">
-          <Toggle checked={item.isAvailable} onChange={() => onUpdate({ isAvailable: !item.isAvailable })} />
-          <button className="grid h-10 w-10 place-items-center rounded-lg bg-white text-zinc-400 ring-1 ring-zinc-200 transition hover:bg-red-50 hover:text-red-600" onClick={onDelete} title="Eliminar plato" type="button">
-            <Trash2 size={17} />
-          </button>
+          {item.product?.description && <p className="mt-1 line-clamp-1 text-sm text-zinc-500">{item.product.description}</p>}
         </div>
       </div>
+      <label className="inline-flex h-9 w-full items-center rounded-lg border border-zinc-200 bg-white px-3 transition focus-within:border-zinc-300 focus-within:ring-4 focus-within:ring-zinc-100 sm:w-40">
+        <span className="text-xs font-medium text-zinc-400">$</span>
+        <input
+          aria-label={`Precio de ${name}`}
+          className="ml-1 w-full bg-transparent text-right text-sm font-semibold text-zinc-950 outline-none"
+          min="0"
+          onChange={(event) => onUpdate({ priceOverride: Number(event.target.value) })}
+          type="number"
+          value={price}
+        />
+      </label>
+      <div className="flex items-center justify-between gap-2 sm:justify-end">
+        <AvailabilitySwitch checked={item.isAvailable} onChange={() => onUpdate({ isAvailable: !item.isAvailable })} />
+        <button className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 transition hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-4 focus:ring-red-100" onClick={onDelete} title="Eliminar plato" type="button">
+          <Trash2 size={16} />
+        </button>
+      </div>
     </article>
+  );
+}
+
+function AvailabilitySwitch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-medium transition focus:outline-none focus:ring-4 ${checked ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus:ring-emerald-100" : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 focus:ring-zinc-100"}`}
+      onClick={onChange}
+      type="button"
+    >
+      <span className={`h-2 w-2 rounded-full ${checked ? "bg-emerald-500" : "bg-zinc-400"}`} />
+      {checked ? "Activo" : "Inactivo"}
+    </button>
   );
 }
 
@@ -621,7 +771,10 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
 function Summary({ activeCount, totalCount, onEditMenu }: { activeCount: number; totalCount: number; onEditMenu: () => void }) {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <StatusPill active={activeCount > 0} />
+      <span className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1 text-sm font-medium ${activeCount > 0 ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-500"}`}>
+        <span className={`h-2 w-2 rounded-full ${activeCount > 0 ? "bg-emerald-500" : "bg-zinc-400"}`} />
+        {activeCount > 0 ? "Activo" : "Sin platos activos"}
+      </span>
       <h2 className="mt-3 text-2xl font-semibold tracking-normal">Listo para operar hoy</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
         {activeCount} de {totalCount} platos estan activos para el chatbot de WhatsApp.
@@ -770,33 +923,64 @@ function ProductModal({
   );
 }
 
-function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Product[]) => void; onNotify: (message: string) => void }) {
+function SmartUpload({
+  onAnalyze,
+  onCreateProducts,
+  onNotify,
+}: {
+  onAnalyze: (file: File) => Promise<{ products: DetectedMenuProduct[] }>;
+  onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
+  onNotify: (message: string) => void;
+}) {
   const [preview, setPreview] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [results, setResults] = useState<typeof detectedProducts>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [results, setResults] = useState<DetectedMenuProduct[]>([]);
+  const [error, setError] = useState("");
 
   function readFile(file?: File) {
     if (!file) return;
+    setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
     setResults([]);
+    setError("");
   }
 
-  function importResults() {
-    const importedProducts: Product[] = results.map((item, index) => ({
-      id: `detected-${Date.now()}-${index}`,
-      name: item.name,
-      description: "Detectado automaticamente desde imagen del menu.",
-      basePrice: item.price,
-      isActive: true,
-    }));
+  async function analyzeSelectedFile() {
+    if (!selectedFile) return;
+    setIsAnalyzing(true);
+    setError("");
+    try {
+      const payload = await onAnalyze(selectedFile);
+      setResults(payload.products);
+      onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
+    } catch (error) {
+      setError(error instanceof Error && error.message === "gemini_quota_exhausted"
+        ? "Gemini no tiene creditos disponibles para analizar la imagen."
+        : "No se pudo analizar la imagen. Revisa la foto o la configuracion de Gemini.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
 
-    onAddProducts(importedProducts);
-    onNotify("Productos detectados agregados localmente");
+  async function importResults() {
+    setIsImporting(true);
+    setError("");
+    try {
+      await onCreateProducts(results);
+      setResults([]);
+      onNotify("Productos agregados al catalogo");
+    } catch {
+      setError("No se pudieron guardar todos los productos detectados.");
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   return (
     <section className="space-y-4">
-      <SectionTitle title="Subida inteligente" subtitle="Futura entrada para OCR/IA antes de guardar en `products`." />
+      <SectionTitle title="Subida inteligente" subtitle="Detecta platos y precios con Gemini antes de guardarlos en `products`." />
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <label className="flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-center shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/40">
           <input accept="image/*" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
@@ -815,20 +999,14 @@ function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Pr
         <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!preview || isAnalyzing}
-            onClick={() => {
-              setIsAnalyzing(true);
-              window.setTimeout(() => {
-                setResults(detectedProducts);
-                setIsAnalyzing(false);
-                onNotify("Menu analizado");
-              }, 900);
-            }}
+            disabled={!selectedFile || isAnalyzing}
+            onClick={() => void analyzeSelectedFile()}
             type="button"
           >
             {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
             {isAnalyzing ? "Analizando" : "Analizar menu"}
           </button>
+          {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>}
           <div className="mt-4 space-y-2">
             {results.length === 0 && (
               <div className="rounded-lg bg-zinc-50 p-4 text-center text-sm text-zinc-500">
@@ -837,24 +1015,115 @@ function SmartUpload({ onAddProducts, onNotify }: { onAddProducts: (products: Pr
               </div>
             )}
             {results.map((item) => (
-              <div className="flex items-center justify-between rounded-lg border border-zinc-200 p-3" key={item.name}>
-                <div>
+              <div className="rounded-lg border border-zinc-200 p-3" key={item.name}>
+                <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-semibold">{item.name}</p>
-                  <p className="text-xs text-zinc-500">Confianza {item.confidence}</p>
+                  <p className="shrink-0 text-sm font-semibold">{formatPrice(item.basePrice)}</p>
                 </div>
-                <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
+                {item.description && <p className="mt-1 text-sm leading-5 text-zinc-600">{item.description}</p>}
+                <p className="mt-2 text-xs text-zinc-500">
+                  {item.category ?? "sin categoria"}
+                  {item.confidence !== undefined ? ` · Confianza ${Math.round(item.confidence * 100)}%` : ""}
+                </p>
               </div>
             ))}
           </div>
           {results.length > 0 && (
-            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-3 text-sm font-semibold transition hover:bg-zinc-50" onClick={importResults} type="button">
-              <Plus size={17} />
-              Agregar al catalogo
+            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-3 text-sm font-semibold transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60" disabled={isImporting} onClick={() => void importResults()} type="button">
+              {isImporting ? <Loader2 className="animate-spin" size={17} /> : <Plus size={17} />}
+              {isImporting ? "Guardando" : "Agregar al catalogo"}
             </button>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+function ConfigRequiredScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">42Today</p>
+        <h1 className="mt-2 text-2xl font-semibold">Configura Supabase Auth</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Falta definir `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` para habilitar el login del dashboard.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5]">
+      <div className="inline-flex items-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-medium text-zinc-600 ring-1 ring-zinc-200">
+        <Loader2 className="animate-spin" size={18} />
+        Cargando sesion...
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <form
+        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setIsSubmitting(true);
+          try {
+            await onLogin(email, password);
+          } finally {
+            setIsSubmitting(false);
+          }
+        }}
+      >
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">42Today</p>
+        <h1 className="mt-2 text-2xl font-semibold">Ingreso empresas</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Cada empresa entra con su usuario de Supabase Auth y solo ve el tenant que tenga asignado en `control.tenant_users`.
+        </p>
+        <div className="mt-6 space-y-3">
+          <TextInput label="Correo" onChange={setEmail} placeholder="empresa@correo.com" value={email} />
+          <TextInput label="Contrasena" onChange={setPassword} placeholder="••••••••" type="password" value={password} />
+        </div>
+        {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
+        <button
+          className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70"
+          disabled={isSubmitting}
+          type="submit"
+        >
+          {isSubmitting && <Loader2 className="animate-spin" size={16} />}
+          {isSubmitting ? "Entrando" : "Iniciar sesion"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <h1 className="text-2xl font-semibold">Usuario sin tenant asignado</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          Este usuario existe en Supabase Auth, pero no tiene relacion activa en `control.tenant_users`. Asigna el tenant correspondiente para permitir el acceso.
+        </p>
+        <button
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-lg border border-zinc-200 px-4 text-sm font-semibold transition hover:bg-zinc-50"
+          onClick={() => void onLogout()}
+          type="button"
+        >
+          Salir
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -908,20 +1177,6 @@ function ProductImage({ imageUrl, name }: { imageUrl?: string; name: string }) {
   }
 
   return <img alt={name} className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-zinc-200" src={imageUrl} />;
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      aria-pressed={checked}
-      className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${checked ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:text-zinc-950"}`}
-      onClick={onChange}
-      type="button"
-    >
-      <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-white" : "bg-zinc-300"}`} />
-      {checked ? "Activo hoy" : "Inactivo"}
-    </button>
-  );
 }
 
 function Toast({ message }: { message: string }) {
