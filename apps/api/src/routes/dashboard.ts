@@ -245,13 +245,20 @@ dashboardRoutes.post("/:tenantSlug/uploads/menu-image/analyze", async (c) => {
 
   const imageBase64 = arrayBufferToBase64(await file.arrayBuffer());
   const prompt = [
-    "Eres un extractor de menus de restaurante en Colombia.",
+    "Eres un extractor de menus de restaurante en Colombia. Tu prioridad es capturar nombre, precio, categoria y descripcion completa de cada plato.",
     "Lee la imagen y devuelve SOLO JSON valido, sin markdown.",
     "Extrae platos vendibles del menu con precio en COP.",
     "Si un precio tiene puntos o separadores, conviertelo a entero.",
     "Ignora encabezados, horarios, telefonos, redes sociales y textos decorativos.",
+    "La descripcion es obligatoria cuando exista texto debajo o al lado del nombre del plato.",
+    "Para desayunos, la descripcion suele ser la linea siguiente con ingredientes como arepa, huevos, cafe, queso, pan o frutas.",
+    "Para almuerzos, conserva acompanamientos e ingredientes: entrada, principio, seco, carne, ensalada, papas, arroz, bebida, etc.",
+    "Para adiciones, si no hay descripcion separada, usa el mismo nombre como descripcion corta.",
+    "Clasifica category usando una de estas etiquetas cuando aplique: desayuno, almuerzo, adicion. Si no aplica, usa otra categoria corta en singular.",
+    "No inventes ingredientes que no aparezcan. Si una descripcion continua en varias lineas, unelas en una sola frase.",
+    "Si el precio dice 'segun pescado', 'segun peso' o similar y no hay numero, omite ese producto.",
     'Formato exacto: {"products":[{"name":"string","description":"string","basePrice":12345,"category":"string","confidence":0.9}]}',
-    "Usa nombres cortos y claros. Si no hay descripcion, genera una descripcion breve basada en el plato.",
+    "Usa nombres cortos y claros. No dejes description vacio si la imagen muestra ingredientes o acompanamientos.",
     "Si no detectas platos, devuelve {\"products\":[]}.",
   ].join("\n");
 

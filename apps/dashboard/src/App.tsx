@@ -558,6 +558,7 @@ function TodayMenu(props: {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
   const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
+  const groups = groupMenuItemsByOrderType(props.items);
 
   return (
     <section className="space-y-6">
@@ -595,13 +596,24 @@ function TodayMenu(props: {
           <span className="text-right">Acciones</span>
         </div>
         <div className="divide-y divide-zinc-100">
-          {props.items.map((item) => (
-            <DishRow
-              item={item}
-              key={item.id}
-              onDelete={() => props.onDeleteDish(item.id)}
-              onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
-            />
+          {groups.map((group) => (
+            <div className="divide-y divide-zinc-100" key={group.id}>
+              <div className="flex items-center justify-between bg-white px-4 py-2.5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">{group.label}</p>
+                  <p className="mt-0.5 text-xs text-zinc-400">{group.items.length} platos</p>
+                </div>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">{group.activeCount} activos</span>
+              </div>
+              {group.items.map((item) => (
+                <DishRow
+                  item={item}
+                  key={item.id}
+                  onDelete={() => props.onDeleteDish(item.id)}
+                  onUpdate={(patch) => props.onUpdateDish(item.id, patch)}
+                />
+              ))}
+            </div>
           ))}
           {props.items.length === 0 && (
             <div className="px-4 py-12 text-center">
@@ -616,6 +628,41 @@ function TodayMenu(props: {
       )}
     </section>
   );
+}
+
+function groupMenuItemsByOrderType(items: MenuItem[]) {
+  const order = [
+    { id: "desayuno", label: "Desayunos" },
+    { id: "almuerzo", label: "Almuerzos" },
+    { id: "adicion", label: "Adiciones" },
+    { id: "otros", label: "Otros" },
+  ];
+  const groups = new Map(order.map((entry) => [entry.id, { ...entry, items: [] as MenuItem[], activeCount: 0 }]));
+
+  items.forEach((item) => {
+    const category = normalizeOrderType(item.product?.category);
+    const group = groups.get(category) ?? groups.get("otros");
+    if (!group) return;
+
+    group.items.push(item);
+    if (item.isAvailable) {
+      group.activeCount += 1;
+    }
+  });
+
+  return order
+    .map((entry) => groups.get(entry.id))
+    .filter((group): group is { id: string; label: string; items: MenuItem[]; activeCount: number } => Boolean(group && group.items.length > 0));
+}
+
+function normalizeOrderType(category?: string) {
+  const value = (category ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  if (value.includes("desayuno")) return "desayuno";
+  if (value.includes("almuerzo") || value.includes("plato fuerte") || value.includes("menu")) return "almuerzo";
+  if (value.includes("adicion") || value.includes("acompanamiento") || value.includes("bebida")) return "adicion";
+
+  return "otros";
 }
 
 function MenuMetric({ label, tone = "muted", value }: { label: string; tone?: "muted" | "strong"; value: string | number }) {
@@ -968,15 +1015,16 @@ function SmartUpload({
               </div>
             )}
             {results.map((item) => (
-              <div className="flex items-center justify-between rounded-lg border border-zinc-200 p-3" key={item.name}>
-                <div>
+              <div className="rounded-lg border border-zinc-200 p-3" key={item.name}>
+                <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-semibold">{item.name}</p>
-                  <p className="text-xs text-zinc-500">
-                    {item.category ?? "sin categoria"}
-                    {item.confidence !== undefined ? ` · Confianza ${Math.round(item.confidence * 100)}%` : ""}
-                  </p>
+                  <p className="shrink-0 text-sm font-semibold">{formatPrice(item.basePrice)}</p>
                 </div>
-                <p className="text-sm font-semibold">{formatPrice(item.basePrice)}</p>
+                {item.description && <p className="mt-1 text-sm leading-5 text-zinc-600">{item.description}</p>}
+                <p className="mt-2 text-xs text-zinc-500">
+                  {item.category ?? "sin categoria"}
+                  {item.confidence !== undefined ? ` · Confianza ${Math.round(item.confidence * 100)}%` : ""}
+                </p>
               </div>
             ))}
           </div>
