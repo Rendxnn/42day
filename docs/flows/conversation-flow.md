@@ -45,8 +45,10 @@ Cuando llega un mensaje nuevo y no hay conversacion activa:
 10. Bot calcula total.
 11. Bot muestra resumen.
 12. Usuario confirma con boton o texto.
-13. Backend crea `order`.
-14. Bot confirma recepcion.
+13. Backend crea `order` en `pending_restaurant_confirmation`.
+14. Bot informa que el restaurante revisa el pedido.
+15. Restaurante acepta o devuelve por agotado desde dashboard.
+16. Backend notifica al cliente por WhatsApp.
 
 ## Flow B: pedido libre
 
@@ -60,7 +62,10 @@ Cuando llega un mensaje nuevo y no hay conversacion activa:
 8. Si esta listo, pricing calcula total.
 9. Bot muestra resumen.
 10. Usuario confirma.
-11. Backend crea `order`.
+11. Backend crea `order` en `pending_restaurant_confirmation`.
+12. Bot informa que el restaurante revisa el pedido.
+13. Restaurante acepta o devuelve por agotado desde dashboard.
+14. Backend notifica al cliente por WhatsApp.
 
 ## Flow C: ver menu
 
@@ -74,15 +79,16 @@ Cuando llega un mensaje nuevo y no hay conversacion activa:
 ## Flow D: transferencia
 
 1. Usuario elige transferencia.
-2. Bot muestra datos de transferencia configurados por tenant.
-3. Bot indica que envie comprobante o escriba cuando haya pagado.
-4. Cuando llega imagen/documento/texto de pago:
+2. El pedido queda pendiente de confirmacion del restaurante despues de que el cliente confirma el resumen.
+3. Cuando el restaurante acepta disponibilidad, el bot muestra datos de transferencia configurados por tenant.
+4. Bot indica que envie comprobante o escriba cuando haya pagado.
+5. Cuando llega imagen/documento/texto de pago:
    - registrar mensaje,
    - almacenar comprobante si hay archivo,
    - crear o mantener orden en `payment_pending_review`,
    - crear alerta humana,
    - poner conversacion en `manual`.
-5. Restaurante verifica y continua manualmente desde dashboard.
+6. Restaurante verifica y continua manualmente desde dashboard.
 
 Decision MVP: la transferencia no se valida automaticamente.
 
@@ -99,6 +105,8 @@ La orden final solo se crea si:
 - total fue calculado por backend,
 - usuario confirmo,
 - tenant/sede sigue activo.
+
+Despues de la confirmacion del cliente, la orden queda pendiente de confirmacion del restaurante. El bot no promete preparacion hasta que el restaurante acepte la orden desde dashboard.
 
 ## Timeout de 30 minutos
 
@@ -130,6 +138,8 @@ awaiting_address
 awaiting_payment_method
 awaiting_transfer_proof
 awaiting_confirmation
+awaiting_restaurant_confirmation
+awaiting_replacement_selection
 manual
 completed
 expired
@@ -138,6 +148,8 @@ expired
 Reglas:
 
 - `manual` detiene auto-respuestas.
+- `awaiting_restaurant_confirmation` evita crear otro pedido mientras el restaurante revisa.
+- `awaiting_replacement_selection` espera que el cliente elija reemplazo o cancele cuando hubo agotado.
 - `completed` no acepta cambios al pedido; cambios posteriores son nueva conversacion o manejo humano.
 - `expired` no se reactiva.
 - si no hay menu activo, ir a handoff o responder que el restaurante aun no publico menu.
