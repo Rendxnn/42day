@@ -1,10 +1,29 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { dashboardRoutes } from "./routes/dashboard";
 import { healthRoutes } from "./routes/health";
 import { whatsappRoutes } from "./routes/whatsapp";
 import type { ApiBindings } from "./lib/bindings";
+import { SupabaseRestError } from "./lib/supabase-rest";
 
 const app = new Hono<{ Bindings: ApiBindings }>();
+
+const dashboardOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+];
+
+app.use(
+  "/dashboard/*",
+  cors({
+    origin: (origin) => (dashboardOrigins.includes(origin) ? origin : ""),
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Authorization", "Content-Type"],
+    maxAge: 86400,
+  }),
+);
 
 app.route("/dashboard", dashboardRoutes);
 app.route("/health", healthRoutes);
@@ -30,6 +49,17 @@ app.onError((error, c) => {
         message: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in apps/api/.dev.vars",
       },
       503,
+    );
+  }
+
+  if (error instanceof SupabaseRestError) {
+    return c.json(
+      {
+        error: "supabase_rest_error",
+        operation: error.message,
+        supabaseStatus: error.status,
+      },
+      502,
     );
   }
 

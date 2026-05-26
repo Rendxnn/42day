@@ -13,6 +13,17 @@ import { getAccessToken } from "./auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
+export class DashboardApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly path: string,
+    readonly backendError?: string,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
   const token = await getAccessToken();
@@ -31,7 +42,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
-    throw new Error(payload?.error ?? `dashboard_api_error:${response.status}`);
+    const backendError = payload?.error;
+    throw new DashboardApiError(
+      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      response.status,
+      path,
+      backendError,
+    );
   }
 
   return response.json() as Promise<T>;
