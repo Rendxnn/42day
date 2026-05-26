@@ -6,15 +6,30 @@ export type SupabaseRestClient = {
     table: string;
     query?: Record<string, string | number | boolean | undefined>;
   }) => Promise<T[]>;
-  insert: (input: {
+  insert: <T = Record<string, unknown>>(input: {
     schema: string;
     table: string;
     rows: Record<string, unknown> | Array<Record<string, unknown>>;
-  }) => Promise<void>;
+    returning?: "minimal" | "representation";
+  }) => Promise<T[]>;
   insertReturning: <T = Record<string, unknown>>(input: {
     schema: string;
     table: string;
     rows: Record<string, unknown> | Array<Record<string, unknown>>;
+  }) => Promise<T[]>;
+  upsert: <T = Record<string, unknown>>(input: {
+    schema: string;
+    table: string;
+    rows: Record<string, unknown> | Array<Record<string, unknown>>;
+    onConflict: string;
+    returning?: "minimal" | "representation";
+  }) => Promise<T[]>;
+  update: <T = Record<string, unknown>>(input: {
+    schema: string;
+    table: string;
+    values: Record<string, unknown>;
+    query: Record<string, string | number | boolean | undefined>;
+    returning?: "minimal" | "representation";
   }) => Promise<T[]>;
   updateReturning: <T = Record<string, unknown>>(input: {
     schema: string;
@@ -48,52 +63,32 @@ export class SupabaseRestError extends Error {
 
 export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
   const baseUrl = env.SUPABASE_URL.replace(/\/$/, "");
-  const buildUrl = (
-    table: string,
-    query?: Record<string, string | number | boolean | undefined>,
-  ) => {
-    const url = new URL(`${baseUrl}/rest/v1/${table}`);
-
-    Object.entries(query ?? {}).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.set(key, String(value));
-      }
-    });
-
-    return url.toString();
-  };
-
-  const serviceRoleHeaders = (schema: string, prefer?: string) => ({
-    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-    "Content-Type": "application/json",
-    "Accept-Profile": schema,
-    "Content-Profile": schema,
-    ...(prefer ? { Prefer: prefer } : {}),
-  });
-
-  async function parseResponse<T>(response: Response, operation: string): Promise<T> {
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new SupabaseRestError(operation, response.status, errorText);
-    }
-
-    return response.json() as Promise<T>;
-  }
 
   return {
-    async select(input) {
-      const response = await fetch(buildUrl(input.table, input.query), {
+    async select<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      query?: Record<string, string | number | boolean | undefined>;
+    }) {
+      const response = await fetch(buildUrl(baseUrl, input.table, input.query), {
         method: "GET",
-        headers: serviceRoleHeaders(input.schema),
+        headers: buildHeaders(env, input.schema),
       });
 
-      return parseResponse(response, `supabase_select_failed:${input.schema}.${input.table}`);
+      return parseResponse<T[]>(response, `supabase_select_failed:${input.schema}.${input.table}`);
     },
-    async insert(input) {
-      const response = await fetch(buildUrl(input.table), {
+
+    async insert<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      rows: Record<string, unknown> | Array<Record<string, unknown>>;
+      returning?: "minimal" | "representation";
+    }) {
+      const response = await fetch(buildUrl(baseUrl, input.table), {
         method: "POST",
-        headers: serviceRoleHeaders(input.schema, "return=minimal"),
+        headers: buildHeaders(env, input.schema, {
+          Prefer: `return=${input.returning ?? "minimal"}`,
+        }),
         body: JSON.stringify(input.rows),
       });
 
@@ -101,29 +96,94 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         const errorText = await response.text().catch(() => "");
         throw new SupabaseRestError(`supabase_insert_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
+
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_insert_failed:${input.schema}.${input.table}`)
+        : [];
     },
-    async insertReturning(input) {
-      const response = await fetch(buildUrl(input.table), {
+
+    async insertReturning<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      rows: Record<string, unknown> | Array<Record<string, unknown>>;
+    }) {
+      return this.insert<T>({
+        ...input,
+        returning: "representation",
+      });
+    },
+
+    async upsert<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      rows: Record<string, unknown> | Array<Record<string, unknown>>;
+      onConflict: string;
+      returning?: "minimal" | "representation";
+    }) {
+      const response = await fetch(buildUrl(baseUrl, input.table, { on_conflict: input.onConflict }), {
         method: "POST",
-        headers: serviceRoleHeaders(input.schema, "return=representation"),
+        headers: buildHeaders(env, input.schema, {
+          Prefer: `resolution=merge-duplicates,return=${input.returning ?? "minimal"}`,
+        }),
         body: JSON.stringify(input.rows),
       });
 
-      return parseResponse(response, `supabase_insert_failed:${input.schema}.${input.table}`);
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new SupabaseRestError(`supabase_upsert_failed:${input.schema}.${input.table}`, response.status, errorText);
+      }
+
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_upsert_failed:${input.schema}.${input.table}`)
+        : [];
     },
-    async updateReturning(input) {
-      const response = await fetch(buildUrl(input.table, input.query), {
+
+    async update<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      values: Record<string, unknown>;
+      query: Record<string, string | number | boolean | undefined>;
+      returning?: "minimal" | "representation";
+    }) {
+      const response = await fetch(buildUrl(baseUrl, input.table, input.query), {
         method: "PATCH",
-        headers: serviceRoleHeaders(input.schema, "return=representation"),
-        body: JSON.stringify(input.patch),
+        headers: buildHeaders(env, input.schema, {
+          Prefer: `return=${input.returning ?? "minimal"}`,
+        }),
+        body: JSON.stringify(input.values),
       });
 
-      return parseResponse(response, `supabase_update_failed:${input.schema}.${input.table}`);
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new SupabaseRestError(`supabase_update_failed:${input.schema}.${input.table}`, response.status, errorText);
+      }
+
+      return input.returning === "representation"
+        ? parseResponse<T[]>(response, `supabase_update_failed:${input.schema}.${input.table}`)
+        : [];
     },
+
+    async updateReturning<T = Record<string, unknown>>(input: {
+      schema: string;
+      table: string;
+      query: Record<string, string | number | boolean | undefined>;
+      patch: Record<string, unknown>;
+    }) {
+      return this.update<T>({
+        schema: input.schema,
+        table: input.table,
+        query: input.query,
+        values: input.patch,
+        returning: "representation",
+      });
+    },
+
     async delete(input) {
-      const response = await fetch(buildUrl(input.table, input.query), {
+      const response = await fetch(buildUrl(baseUrl, input.table, input.query), {
         method: "DELETE",
-        headers: serviceRoleHeaders(input.schema, "return=minimal"),
+        headers: buildHeaders(env, input.schema, {
+          Prefer: "return=minimal",
+        }),
       });
 
       if (!response.ok) {
@@ -131,6 +191,7 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         throw new SupabaseRestError(`supabase_delete_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
     },
+
     async uploadObject(input) {
       const encodedPath = input.path
         .split("/")
@@ -158,4 +219,36 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
       };
     },
   };
+}
+
+function buildUrl(baseUrl: string, table: string, query?: Record<string, string | number | boolean | undefined>): string {
+  const url = new URL(`${baseUrl}/rest/v1/${table}`);
+
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  return url.toString();
+}
+
+function buildHeaders(env: ApiBindings, schema: string, extra?: Record<string, string>): HeadersInit {
+  return {
+    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    "Content-Type": "application/json",
+    "Accept-Profile": schema,
+    "Content-Profile": schema,
+    ...extra,
+  };
+}
+
+async function parseResponse<T>(response: Response, operation: string): Promise<T> {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new SupabaseRestError(operation, response.status, errorText);
+  }
+
+  return response.json() as Promise<T>;
 }

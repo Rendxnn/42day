@@ -1,0 +1,25 @@
+alter table control.tenants enable row level security;
+alter table control.tenant_channels enable row level security;
+alter table control.tenant_users enable row level security;
+alter table control.webhook_events enable row level security;
+
+alter table tenant_demo.locations enable row level security;
+alter table tenant_demo.products enable row level security;
+alter table tenant_demo.product_options enable row level security;
+alter table tenant_demo.product_option_values enable row level security;
+alter table tenant_demo.combos enable row level security;
+alter table tenant_demo.combo_items enable row level security;
+alter table tenant_demo.promotions enable row level security;
+alter table tenant_demo.menus enable row level security;
+alter table tenant_demo.menu_items enable row level security;
+alter table tenant_demo.customers enable row level security;
+alter table tenant_demo.customer_addresses enable row level security;
+alter table tenant_demo.conversations enable row level security;
+alter table tenant_demo.messages enable row level security;
+alter table tenant_demo.draft_orders enable row level security;
+alter table tenant_demo.draft_order_items enable row level security;
+alter table tenant_demo.orders enable row level security;
+alter table tenant_demo.order_items enable row level security;
+alter table tenant_demo.payment_proofs enable row level security;
+alter table tenant_demo.human_intervention_alerts enable row level security;
+alter table tenant_demo.app_events enable row level security;

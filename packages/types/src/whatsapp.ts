@@ -5,7 +5,15 @@ export type WhatsAppMessageType =
   | "image"
   | "document"
   | "audio"
+  | "location"
   | "unknown";
+
+export type NormalizedWhatsAppLocation = {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+};
 
 export type NormalizedInboundMessage = {
   provider: "whatsapp_cloud";
@@ -17,10 +25,16 @@ export type NormalizedInboundMessage = {
   type: WhatsAppMessageType;
   text?: string;
   mediaId?: string;
+  location?: NormalizedWhatsAppLocation;
   raw: unknown;
 };
 
 export type OutboundTextMessage = {
   to: string;
   text: string;
+};
+
+export type OutboundMessageResult = {
+  providerMessageId?: string;
+  raw: unknown;
 };

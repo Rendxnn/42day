@@ -27,7 +27,7 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 | Monorepo | Si |
 | Lenguaje | TypeScript |
 | Backend API | Cloudflare Workers + Hono |
-| Dashboard | Next.js o app Node existente dentro de `apps/dashboard` |
+| Dashboard | React + Vite dentro de `apps/dashboard` |
 | Base de datos | Supabase Postgres |
 | ORM recomendado | Drizzle |
 | Tenant isolation | Schemas separados por tenant, mas schema global/control |
@@ -45,6 +45,8 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 | Roles dashboard | `encargado`, `trabajador` |
 | Confirmacion | Botones interactivos y texto libre |
 | Timeout | 30 minutos sin respuesta cierran la sesion/draft activo |
+| Conversacion natural V1 | Deterministico primero, LLM solo para interpretar pedidos libres o frases multi-entidad ambiguas |
+| t-router | Vendorizado temporalmente como workspace `packages/t-router`; objetivo futuro: dependencia versionada desde GitHub |
 
 ## Alcance dashboard V1
 
@@ -77,6 +79,8 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 - `new`
 - `awaiting_mode_selection`
 - `awaiting_guided_item_selection`
+- `awaiting_more_items`
+- `awaiting_fulfillment_type`
 - `awaiting_address`
 - `awaiting_payment_method`
 - `awaiting_transfer_proof`

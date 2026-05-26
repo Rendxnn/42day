@@ -26,6 +26,9 @@ importers:
       '@42day/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@rendxnn/t-router':
+        specifier: workspace:*
+        version: link:../../packages/t-router
       hono:
         specifier: ^4.6.15
         version: 4.12.14
@@ -104,6 +107,12 @@ importers:
         version: 5.9.3
 
   packages/db:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/t-router:
     devDependencies:
       typescript:
         specifier: ^5.7.2

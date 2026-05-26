@@ -143,18 +143,20 @@ Updated `.gitignore` to keep local secrets and generated files out of git:
 
 ## Current known state
 
-Supabase currently exposes:
+Supabase currently exposes and uses:
 
 - `control`
 - `tenant_demo`
+- `tenant_arepas`
+- `tenant_pizza`
 
-The dashboard therefore shows only `Restaurante Demo` until the additional tenant schemas are created and exposed.
+The dashboard can list the demo tenants when the API is connected. `tenant_demo` is the operational WhatsApp tenant. `tenant_arepas` and `tenant_pizza` are demo catalog tenants.
 
-The demo products were restored with `scripts/seed_demo_data.py`.
+The frontend currently focuses on menu/catalog/upload. The API client already includes functions for orders, alerts and automation, but the visual console for those modules is not implemented yet.
 
 ## Remaining required setup
 
-Apply these SQL migrations in Supabase:
+The following older setup is already applied in the shared staging/Supabase environment. Repeat only for a new database:
 
 - `0006_dashboard_product_images.sql`
 - `0007_test_tenants_arepas_pizza.sql`
@@ -170,3 +172,7 @@ After that, run:
 ```bash
 python scripts/seed_demo_data.py
 ```
+
+Next dashboard product work is tracked in:
+
+- [dashboard-product-alignment-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/dashboard-product-alignment-plan.md)

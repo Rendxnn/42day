@@ -1,9 +1,13 @@
 import type { NormalizedInboundMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
+import { loadOrCreateActiveConversation } from "../conversation-service/conversation-service";
+import { saveCustomerAddressFromWhatsAppLocation } from "../customer-address-service/customer-address-service";
+import { findOrCreateCustomer } from "../customer-service/customer-service";
+import { logInboundMessage } from "../message-log/message-log";
 import { routeInboundMessage } from "../message-router/router";
 import { resolveTenantForInboundMessage } from "../tenant-resolver/tenant-resolver";
 import { normalizeWhatsAppPayload } from "./normalize";
-import { logRawWhatsAppWebhook } from "./webhook-event-log";
+import { logRawWhatsAppWebhook, markRawWhatsAppWebhookProcessed } from "./webhook-event-log";
 
 export type HandleWhatsAppWebhookInput = {
   env: ApiBindings;
@@ -17,7 +21,7 @@ export async function handleWhatsAppWebhook(input: HandleWhatsAppWebhookInput): 
 
   const rawLogStatus = await logRawWhatsAppWebhook(input.env, input.payload);
 
-  if (rawLogStatus === "duplicate") {
+  if (rawLogStatus.status === "duplicate") {
     console.info("whatsapp.webhook.duplicate_ignored");
     return;
   }
@@ -26,12 +30,15 @@ export async function handleWhatsAppWebhook(input: HandleWhatsAppWebhookInput): 
 
   if (messages.length === 0) {
     console.info("whatsapp.webhook.no_messages");
+    await markRawWhatsAppWebhookProcessed(input.env, rawLogStatus.webhookEventId);
     return;
   }
 
   for (const message of messages) {
     await handleInboundMessage(input.env, message);
   }
+
+  await markRawWhatsAppWebhookProcessed(input.env, rawLogStatus.webhookEventId);
 }
 
 async function handleInboundMessage(env: ApiBindings, message: NormalizedInboundMessage): Promise<void> {
@@ -51,9 +58,36 @@ async function handleInboundMessage(env: ApiBindings, message: NormalizedInbound
     return;
   }
 
+  const customer = await findOrCreateCustomer({
+    env,
+    schemaName: tenant.schemaName,
+    phone: message.from,
+  });
+
+  const conversation = await loadOrCreateActiveConversation({
+    env,
+    schemaName: tenant.schemaName,
+    customerId: customer.id,
+  });
+
+  await logInboundMessage({
+    env,
+    schemaName: tenant.schemaName,
+    conversationId: conversation.id,
+    message,
+  });
+
+  await saveCustomerAddressFromWhatsAppLocation({
+    env,
+    schemaName: tenant.schemaName,
+    customerId: customer.id,
+    message,
+  });
+
   await routeInboundMessage({
     env,
     tenant,
+    conversation,
     message,
   });
 }

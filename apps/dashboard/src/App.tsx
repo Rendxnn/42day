@@ -14,6 +14,7 @@ import {
   updateMenuItem,
   updateProduct,
   uploadProductImage,
+  DashboardApiError,
 } from "./api";
 import type { DashboardTenant, DetectedMenuProduct } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut } from "./auth";
@@ -171,6 +172,8 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState("");
+  const [tenantLoading, setTenantLoading] = useState(false);
+  const [tenantError, setTenantError] = useState("");
   const [tenantSlug, setTenantSlug] = useState("");
   const [tenants, setTenants] = useState<DashboardTenant[]>([]);
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
@@ -214,18 +217,39 @@ export function App() {
     if (!session) {
       setTenants([]);
       setTenantSlug("");
+      setTenantLoading(false);
+      setTenantError("");
       return;
     }
 
+    let active = true;
+    setTenantLoading(true);
+    setTenantError("");
+
     getMe()
       .then((payload) => {
+        if (!active) return;
         setTenants(payload.tenants);
         setTenantSlug((current) => current || payload.tenants[0]?.slug || "");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (!active) return;
+        const message = error instanceof DashboardApiError
+          ? `No se pudo consultar /dashboard/me. Backend: ${error.backendError ?? "sin_codigo"} · HTTP ${error.status}.`
+          : error instanceof Error
+            ? `No se pudo consultar /dashboard/me. ${error.message}`
+            : "No se pudo consultar /dashboard/me.";
         setTenants([]);
         setTenantSlug("");
+        setTenantError(message);
+      })
+      .finally(() => {
+        if (active) setTenantLoading(false);
       });
+
+    return () => {
+      active = false;
+    };
   }, [session]);
 
   useEffect(() => {
@@ -357,6 +381,14 @@ export function App() {
 
   if (!session) {
     return <LoginScreen error={loginError} onLogin={handleLogin} />;
+  }
+
+  if (tenantLoading) {
+    return <TenantLoadingScreen />;
+  }
+
+  if (tenantError) {
+    return <TenantErrorScreen error={tenantError} onLogout={handleLogout} />;
   }
 
   if (tenants.length === 0) {
@@ -1060,6 +1092,38 @@ function LoadingScreen() {
       <div className="inline-flex items-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-medium text-zinc-600 ring-1 ring-zinc-200">
         <Loader2 className="animate-spin" size={18} />
         Cargando sesion...
+      </div>
+    </div>
+  );
+}
+
+function TenantLoadingScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5]">
+      <div className="inline-flex items-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-medium text-zinc-600 ring-1 ring-zinc-200">
+        <Loader2 className="animate-spin" size={18} />
+        Cargando empresa...
+      </div>
+    </div>
+  );
+}
+
+function TenantErrorScreen({ error, onLogout }: { error: string; onLogout: () => Promise<void> }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f8f8f5] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <h1 className="text-2xl font-semibold">No se pudo cargar la empresa</h1>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          El usuario inicio sesion, pero el dashboard no pudo consultar el API para resolver sus tenants.
+        </p>
+        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
+        <button
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-lg border border-zinc-200 px-4 text-sm font-semibold transition hover:bg-zinc-50"
+          onClick={() => void onLogout()}
+          type="button"
+        >
+          Salir
+        </button>
       </div>
     </div>
   );

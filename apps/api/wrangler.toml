@@ -14,6 +14,8 @@ META_GRAPH_API_VERSION = "v22.0"
 # pnpm --filter @42day/api exec wrangler secret put SUPABASE_URL
 # pnpm --filter @42day/api exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 # pnpm --filter @42day/api exec wrangler secret put OPENAI_API_KEY
+# pnpm --filter @42day/api exec wrangler secret put GEMINI_API_KEY
+# pnpm --filter @42day/api exec wrangler secret put AI_CONFIG_ENCRYPTION_KEY
 
 [env.staging]
 name = "42day-api-staging"
@@ -21,6 +23,7 @@ name = "42day-api-staging"
 [env.staging.vars]
 APP_ENV = "staging"
 META_GRAPH_API_VERSION = "v22.0"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 [env.production]
 name = "42day-api-production"
@@ -28,3 +31,4 @@ name = "42day-api-production"
 [env.production.vars]
 APP_ENV = "production"
 META_GRAPH_API_VERSION = "v22.0"
+GEMINI_MODEL = "gemini-2.5-flash"

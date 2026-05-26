@@ -5,6 +5,7 @@ export type Product = {
   basePrice: number;
   category?: string;
   imageUrl?: string;
+  aliases?: string[];
   isActive: boolean;
 };
 
@@ -14,6 +15,9 @@ export type Location = {
   address?: string;
   phone?: string;
   deliveryFeeFixed: number;
+  pickupEnabled?: boolean;
+  deliveryEnabled?: boolean;
+  automationEnabled?: boolean;
   isActive: boolean;
 };
 
@@ -36,6 +40,7 @@ export type MenuItem = {
   displayName?: string;
   priceOverride?: number;
   availableQuantity?: number;
+  aliases?: string[];
   isAvailable: boolean;
   sortOrder: number;
   product?: Product;
@@ -44,6 +49,8 @@ export type MenuItem = {
 export type TodayMenuPayload = {
   tenantSlug: string;
   tenantSchema: string;
+  requestedDate?: string;
+  isFallbackMenu?: boolean;
   location?: Location;
   menu?: Menu;
   items: MenuItem[];

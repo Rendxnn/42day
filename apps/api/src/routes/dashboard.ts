@@ -1,6 +1,20 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import type { Menu, MenuItem, Product, TodayMenuPayload } from "@42day/types";
+import type {
+  AutomationSettings,
+  HumanInterventionAlert,
+  HumanInterventionStatus,
+  Menu,
+  MenuItem,
+  OrderDetail,
+  OrderLineItem,
+  OrdersBucket,
+  OrdersDashboardPayload,
+  OrderStatus,
+  OrderSummary,
+  Product,
+  TodayMenuPayload,
+} from "@42day/types";
 import type { ApiBindings } from "../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-rest";
 
@@ -9,6 +23,7 @@ type TenantRow = {
   name?: string;
   slug: string;
   schema_name: string;
+  timezone?: string;
 };
 
 type TenantUserRow = {
@@ -24,6 +39,7 @@ type LocationRow = {
   address?: string;
   phone?: string;
   delivery_fee_fixed: number;
+  automation_enabled?: boolean;
   is_active: boolean;
 };
 
@@ -56,6 +72,62 @@ type MenuItemRow = {
   available_quantity?: number;
   is_available: boolean;
   sort_order: number;
+};
+
+type CustomerRow = {
+  id: string;
+  phone: string;
+  name?: string;
+};
+
+type OrderRow = {
+  id: string;
+  draft_order_id?: string | null;
+  customer_id: string;
+  location_id?: string | null;
+  status: OrderStatus;
+  fulfillment_type: "delivery" | "pickup";
+  service_timing?: "asap" | "scheduled" | null;
+  scheduled_for?: string | null;
+  delivery_address?: string | null;
+  delivery_address_id?: string | null;
+  payment_method: "cash" | "transfer";
+  payment_proof_file_id?: string | null;
+  subtotal: number;
+  delivery_fee: number;
+  discount_total: number;
+  total: number;
+  restaurant_confirmed_at?: string | null;
+  payment_confirmed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type OrderItemRow = {
+  id: string;
+  order_id: string;
+  product_id?: string | null;
+  combo_id?: string | null;
+  name_snapshot: string;
+  quantity: number;
+  unit_price: number;
+  options_snapshot?: Record<string, unknown> | null;
+  notes?: string | null;
+  line_total: number;
+};
+
+type AlertRow = {
+  id: string;
+  conversation_id?: string | null;
+  draft_order_id?: string | null;
+  order_id?: string | null;
+  type: string;
+  status: HumanInterventionStatus;
+  title: string;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  resolved_at?: string | null;
 };
 
 type DashboardVariables = {
@@ -133,7 +205,7 @@ dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
 dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
   const tenant = c.get("tenant");
   const supabase = createSupabaseRestClient(c.env);
-  const date = c.req.query("date") ?? new Date().toISOString().slice(0, 10);
+  const date = resolveBusinessDate(c.req.query("date"), tenant.timezone);
   const [location] = await supabase.select<LocationRow>({
     schema: tenant.schema_name,
     table: "locations",
@@ -182,6 +254,352 @@ dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
   };
 
   return c.json(payload);
+});
+
+dashboardRoutes.get("/:tenantSlug/orders", async (c) => {
+  const tenant = c.get("tenant");
+  const supabase = createSupabaseRestClient(c.env);
+  const bucket = parseOrdersBucket(c.req.query("bucket"));
+  let orders: OrderRow[] = [];
+  let customers: CustomerRow[] = [];
+  let alerts: AlertRow[] = [];
+
+  try {
+    [orders, customers, alerts] = await Promise.all([
+      supabase.select<OrderRow>({
+        schema: tenant.schema_name,
+        table: "orders",
+        query: {
+          select:
+            "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_confirmed_at,payment_confirmed_at,created_at,updated_at",
+          order: "created_at.desc",
+          limit: 200,
+        },
+      }),
+      supabase.select<CustomerRow>({
+        schema: tenant.schema_name,
+        table: "customers",
+        query: {
+          select: "id,phone,name",
+          limit: 500,
+        },
+      }),
+      selectAlerts(supabase, tenant.schema_name, {
+        limit: 200,
+      }),
+    ]);
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+  }
+
+  const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+  const summaries = orders.map((order) => mapOrderSummary(order, customerById.get(order.customer_id)));
+  const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
+  const openAlerts = alerts.filter((alert) => alert.status === "open");
+  const payload: OrdersDashboardPayload = {
+    bucket,
+    counts: {
+      pendingConfirmation: summaries.filter((order) => matchesOrdersBucket(order, "pending_confirmation")).length,
+      active: summaries.filter((order) => matchesOrdersBucket(order, "active")).length,
+      history: summaries.filter((order) => matchesOrdersBucket(order, "history")).length,
+      transferPendingReview: summaries.filter(
+        (order) => order.paymentMethod === "transfer" && !order.paymentConfirmedAt,
+      ).length,
+      openAlerts: openAlerts.length,
+    },
+    orders: filteredOrders,
+  };
+
+  return c.json(payload);
+});
+
+dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
+  const tenant = c.get("tenant");
+  const supabase = createSupabaseRestClient(c.env);
+  let order: OrderRow | undefined;
+
+  try {
+    [order] = await supabase.select<OrderRow>({
+      schema: tenant.schema_name,
+      table: "orders",
+      query: {
+        select:
+          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_confirmed_at,payment_confirmed_at,created_at,updated_at",
+        id: `eq.${c.req.param("orderId")}`,
+        limit: 1,
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return c.json({ error: "order_module_unavailable" }, 404);
+    }
+
+    throw error;
+  }
+
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  const [customer, items] = await Promise.all([
+    supabase.select<CustomerRow>({
+      schema: tenant.schema_name,
+      table: "customers",
+      query: {
+        select: "id,phone,name",
+        id: `eq.${order.customer_id}`,
+        limit: 1,
+      },
+    }),
+    supabase.select<OrderItemRow>({
+      schema: tenant.schema_name,
+      table: "order_items",
+      query: {
+        select: "id,order_id,product_id,combo_id,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total",
+        order_id: `eq.${order.id}`,
+      },
+    }),
+  ]);
+
+  const detail: OrderDetail = {
+    ...mapOrderSummary(order, customer[0]),
+    locationId: order.location_id ?? undefined,
+    deliveryAddress: order.delivery_address ?? undefined,
+    deliveryAddressId: order.delivery_address_id ?? undefined,
+    items: items.map(mapOrderLineItem),
+  };
+
+  return c.json(detail);
+});
+
+dashboardRoutes.patch("/:tenantSlug/orders/:orderId/status", async (c) => {
+  const tenant = c.get("tenant");
+  const body = await c.req.json<{
+    status?: OrderStatus;
+    restaurantConfirmed?: boolean;
+    paymentConfirmed?: boolean;
+  }>();
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    updated_at: now,
+  };
+
+  if (body.status !== undefined) {
+    patch.status = body.status;
+  }
+
+  if (body.restaurantConfirmed === true) {
+    patch.restaurant_confirmed_at = now;
+  }
+
+  if (body.restaurantConfirmed === false) {
+    patch.restaurant_confirmed_at = null;
+  }
+
+  if (body.paymentConfirmed === true) {
+    patch.payment_confirmed_at = now;
+  }
+
+  if (body.paymentConfirmed === false) {
+    patch.payment_confirmed_at = null;
+  }
+
+  let order: OrderRow | undefined;
+
+  try {
+    [order] = await createSupabaseRestClient(c.env).updateReturning<OrderRow>({
+      schema: tenant.schema_name,
+      table: "orders",
+      query: { id: `eq.${c.req.param("orderId")}` },
+      patch,
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return c.json({ error: "order_module_unavailable" }, 404);
+    }
+
+    throw error;
+  }
+
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  const [customer] = await createSupabaseRestClient(c.env).select<CustomerRow>({
+    schema: tenant.schema_name,
+    table: "customers",
+    query: {
+      select: "id,phone,name",
+      id: `eq.${order.customer_id}`,
+      limit: 1,
+    },
+  });
+
+  return c.json(mapOrderSummary(order, customer));
+});
+
+dashboardRoutes.get("/:tenantSlug/alerts", async (c) => {
+  const tenant = c.get("tenant");
+  let alerts: AlertRow[] = [];
+
+  try {
+    alerts = await selectAlerts(createSupabaseRestClient(c.env), tenant.schema_name, {
+      status: c.req.query("status") as HumanInterventionStatus | undefined,
+      limit: 200,
+    });
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+  }
+
+  return c.json(alerts.map(mapAlert));
+});
+
+dashboardRoutes.patch("/:tenantSlug/alerts/:alertId/acknowledge", async (c) => {
+  const tenant = c.get("tenant");
+  let alert: AlertRow | undefined;
+
+  try {
+    [alert] = await createSupabaseRestClient(c.env).updateReturning<AlertRow>({
+      schema: tenant.schema_name,
+      table: "human_intervention_alerts",
+      query: {
+        id: `eq.${c.req.param("alertId")}`,
+      },
+      patch: {
+        status: "acknowledged",
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return c.json({ error: "order_module_unavailable" }, 404);
+    }
+
+    throw error;
+  }
+
+  if (!alert) {
+    return c.json({ error: "alert_not_found" }, 404);
+  }
+
+  return c.json(mapAlert(alert));
+});
+
+dashboardRoutes.patch("/:tenantSlug/alerts/:alertId/resolve", async (c) => {
+  const tenant = c.get("tenant");
+  let alert: AlertRow | undefined;
+
+  try {
+    [alert] = await createSupabaseRestClient(c.env).updateReturning<AlertRow>({
+      schema: tenant.schema_name,
+      table: "human_intervention_alerts",
+      query: {
+        id: `eq.${c.req.param("alertId")}`,
+      },
+      patch: {
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return c.json({ error: "order_module_unavailable" }, 404);
+    }
+
+    throw error;
+  }
+
+  if (!alert) {
+    return c.json({ error: "alert_not_found" }, 404);
+  }
+
+  return c.json(mapAlert(alert));
+});
+
+dashboardRoutes.get("/:tenantSlug/settings/automation", async (c) => {
+  const tenant = c.get("tenant");
+  const [location] = await createSupabaseRestClient(c.env).select<LocationRow>({
+    schema: tenant.schema_name,
+    table: "locations",
+    query: {
+      select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
+      is_active: "eq.true",
+      limit: 1,
+    },
+  });
+
+  const payload: AutomationSettings = {
+    tenantId: tenant.id,
+    tenantSlug: tenant.slug,
+    tenantAutomationEnabled: true,
+    locationAutomationEnabled: location?.automation_enabled,
+  };
+
+  const [tenantRow] = await createSupabaseRestClient(c.env).select<TenantRow & { automation_enabled: boolean }>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,slug,schema_name,timezone,automation_enabled",
+      id: `eq.${tenant.id}`,
+      limit: 1,
+    },
+  });
+
+  payload.tenantAutomationEnabled = tenantRow?.automation_enabled ?? true;
+
+  return c.json(payload);
+});
+
+dashboardRoutes.patch("/:tenantSlug/settings/automation", async (c) => {
+  const tenant = c.get("tenant");
+  const body = await c.req.json<{ enabled: boolean }>();
+  const supabase = createSupabaseRestClient(c.env);
+  const [location] = await supabase.select<LocationRow>({
+    schema: tenant.schema_name,
+    table: "locations",
+    query: {
+      select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
+      is_active: "eq.true",
+      limit: 1,
+    },
+  });
+
+  await Promise.all([
+    supabase.update({
+      schema: "control",
+      table: "tenants",
+      values: {
+        automation_enabled: body.enabled,
+        updated_at: new Date().toISOString(),
+      },
+      query: {
+        id: `eq.${tenant.id}`,
+      },
+    }),
+    location
+      ? supabase.update({
+          schema: tenant.schema_name,
+          table: "locations",
+          values: {
+            automation_enabled: body.enabled,
+            updated_at: new Date().toISOString(),
+          },
+          query: {
+            id: `eq.${location.id}`,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return c.json({
+    tenantId: tenant.id,
+    tenantSlug: tenant.slug,
+    tenantAutomationEnabled: body.enabled,
+    locationAutomationEnabled: location ? body.enabled : undefined,
+  } satisfies AutomationSettings);
 });
 
 dashboardRoutes.post("/:tenantSlug/products", async (c) => {
@@ -436,7 +854,8 @@ dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
   const tenant = c.get("tenant");
   const supabase = createSupabaseRestClient(c.env);
   const body = await c.req.json<{ productId: string; date?: string }>();
-  const menu = await findOrCreateTodayMenu(supabase, tenant.schema_name, body.date);
+  const menu = await findOrCreateTodayMenu(supabase, tenant.schema_name, tenant.timezone, body.date);
+  const nextSortOrder = await getNextMenuSortOrder(supabase, tenant.schema_name, menu.id);
   const [product] = await selectProducts(supabase, tenant.schema_name, {
       id: `eq.${body.productId}`,
       is_active: "eq.true",
@@ -456,7 +875,7 @@ dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
       display_name: product.name,
       price_override: product.base_price,
       is_available: true,
-      sort_order: await getNextMenuItemSortOrder(supabase, tenant.schema_name, menu.id),
+      sort_order: nextSortOrder,
     },
   });
 
@@ -504,9 +923,10 @@ dashboardRoutes.delete("/:tenantSlug/menu/today/items/:itemId", async (c) => {
 async function findOrCreateTodayMenu(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
+  timezone?: string,
   requestedDate?: string,
 ): Promise<MenuRow> {
-  const date = requestedDate ?? new Date().toISOString().slice(0, 10);
+  const date = resolveBusinessDate(requestedDate, timezone);
   const [location] = await supabase.select<LocationRow>({
     schema,
     table: "locations",
@@ -555,25 +975,6 @@ async function findOrCreateTodayMenu(
   return menu;
 }
 
-async function getNextMenuItemSortOrder(
-  supabase: ReturnType<typeof createSupabaseRestClient>,
-  schema: string,
-  menuId: string,
-): Promise<number> {
-  const [lastItem] = await supabase.select<MenuItemRow>({
-    schema,
-    table: "menu_items",
-    query: {
-      select: "id,menu_id,sort_order",
-      menu_id: `eq.${menuId}`,
-      order: "sort_order.desc",
-      limit: 1,
-    },
-  });
-
-  return (lastItem?.sort_order ?? 0) + 10;
-}
-
 function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -615,10 +1016,10 @@ async function selectProducts(
       schema,
       table: "products",
       query: {
-          select: "id,name,description,base_price,category,image_url,is_active",
-          order: "name.asc",
-          is_active: "eq.true",
-          ...query,
+        select: "id,name,description,base_price,category,image_url,is_active",
+        order: "name.asc",
+        is_active: "eq.true",
+        ...query,
       },
     });
   } catch (error) {
@@ -637,6 +1038,130 @@ async function selectProducts(
 
     throw error;
   }
+}
+
+async function getNextMenuSortOrder(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  menuId: string,
+): Promise<number> {
+  const [lastItem] = await supabase.select<Pick<MenuItemRow, "sort_order">>({
+    schema,
+    table: "menu_items",
+    query: {
+      select: "sort_order",
+      menu_id: `eq.${menuId}`,
+      order: "sort_order.desc",
+      limit: 1,
+    },
+  });
+
+  return (lastItem?.sort_order ?? 0) + 10;
+}
+
+async function selectAlerts(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  options: {
+    status?: HumanInterventionStatus;
+    limit?: number;
+  } = {},
+): Promise<AlertRow[]> {
+  return supabase.select<AlertRow>({
+    schema,
+    table: "human_intervention_alerts",
+    query: {
+      select: "id,conversation_id,draft_order_id,order_id,type,status,title,description,metadata,created_at,resolved_at",
+      ...(options.status ? { status: `eq.${options.status}` } : {}),
+      order: "created_at.desc",
+      limit: options.limit ?? 100,
+    },
+  });
+}
+
+function parseOrdersBucket(rawBucket?: string): OrdersBucket {
+  if (rawBucket === "pending_confirmation" || rawBucket === "active" || rawBucket === "history" || rawBucket === "all") {
+    return rawBucket;
+  }
+
+  return "pending_confirmation";
+}
+
+function matchesOrdersBucket(order: OrderSummary, bucket: OrdersBucket): boolean {
+  if (bucket === "all") {
+    return true;
+  }
+
+  if (bucket === "pending_confirmation") {
+    return !order.restaurantConfirmedAt;
+  }
+
+  if (bucket === "active") {
+    return Boolean(order.restaurantConfirmedAt) && !["delivered", "cancelled"].includes(order.status);
+  }
+
+  return ["delivered", "cancelled"].includes(order.status);
+}
+
+function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
+  return {
+    id: row.id,
+    draftOrderId: row.draft_order_id ?? undefined,
+    customerId: row.customer_id,
+    customerPhone: customer?.phone,
+    customerName: customer?.name,
+    status: row.status,
+    fulfillmentType: row.fulfillment_type,
+    serviceTiming: row.service_timing ?? "asap",
+    scheduledFor: row.scheduled_for ?? undefined,
+    paymentMethod: row.payment_method,
+    subtotal: row.subtotal,
+    deliveryFee: row.delivery_fee,
+    discountTotal: row.discount_total,
+    total: row.total,
+    restaurantConfirmedAt: row.restaurant_confirmed_at ?? undefined,
+    paymentConfirmedAt: row.payment_confirmed_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
+  return {
+    productId: row.product_id ?? undefined,
+    comboId: row.combo_id ?? undefined,
+    name: row.name_snapshot,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    options: row.options_snapshot ?? undefined,
+    notes: row.notes ?? undefined,
+    lineTotal: row.line_total,
+  };
+}
+
+function mapAlert(row: AlertRow): HumanInterventionAlert {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id ?? undefined,
+    draftOrderId: row.draft_order_id ?? undefined,
+    orderId: row.order_id ?? undefined,
+    type: row.type as HumanInterventionAlert["type"],
+    status: row.status,
+    title: row.title,
+    description: row.description ?? undefined,
+    metadata: row.metadata ?? undefined,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at ?? undefined,
+  };
+}
+
+function isMissingTableError(error: unknown): error is SupabaseRestError {
+  return (
+    error instanceof SupabaseRestError &&
+    (error.body.includes("Could not find the table") ||
+      error.body.includes("relation") ||
+      error.body.includes("does not exist"))
+  );
 }
 
 function mapLocation(row: LocationRow) {
@@ -686,6 +1211,29 @@ function mapMenuItem(row: MenuItemRow, product?: Product): MenuItem {
     sortOrder: row.sort_order,
     product,
   };
+}
+
+function resolveBusinessDate(requestedDate?: string, timezone = "America/Bogota"): string {
+  if (requestedDate) {
+    return requestedDate;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 async function requireAuthUser(
@@ -742,7 +1290,7 @@ async function getAuthorizedTenants(env: ApiBindings, userId: string): Promise<T
     schema: "control",
     table: "tenants",
     query: {
-      select: "id,name,slug,schema_name",
+      select: "id,name,slug,schema_name,timezone",
       id: `in.(${tenantIds})`,
       status: "eq.active",
       order: "name.asc",

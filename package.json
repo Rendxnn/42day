@@ -7,7 +7,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
-    "typecheck:direct": "tsc -p packages/types/tsconfig.json && tsc -p packages/config/tsconfig.json && tsc -p packages/core/tsconfig.json && tsc -p packages/db/tsconfig.json && tsc -p apps/api/tsconfig.json",
+    "typecheck:direct": "tsc -p packages/types/tsconfig.json && tsc -p packages/config/tsconfig.json && tsc -p packages/core/tsconfig.json && tsc -p packages/db/tsconfig.json && tsc -p packages/t-router/tsconfig.json && tsc -p apps/api/tsconfig.json",
     "test": "turbo test"
   },
   "devDependencies": {

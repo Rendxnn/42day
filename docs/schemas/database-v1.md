@@ -69,6 +69,28 @@ Eventos raw recibidos desde proveedores.
 - `status`
 - `error_message`
 
+### `control.tenant_ai_provider_configs`
+
+Configuracion de proveedor LLM por tenant.
+
+- `id`
+- `tenant_id`
+- `provider_id` = `gemini | openai | openrouter | anthropic | custom`
+- `auth_mode` = `api_key | oauth | custom`
+- `encrypted_api_key`
+- `encrypted_access_token`
+- `default_model`
+- `provider_extra` jsonb
+- `status` = `active | inactive`
+- `created_at`
+- `updated_at`
+
+MVP:
+
+- se usa `GEMINI_API_KEY` desde env,
+- la tabla queda lista para configuracion por tenant,
+- antes de produccion se debe cifrar la API key y descifrarla solo en backend.
+
 ## Schema por tenant
 
 ### `locations`
@@ -82,6 +104,14 @@ Decision MVP: una sola sede por restaurante. Se mantiene la tabla para no bloque
 - `address`
 - `phone`
 - `delivery_fee_fixed`
+- `pickup_enabled`
+- `delivery_enabled`
+- `automation_enabled`
+- `latitude`
+- `longitude`
+- `opening_hours`
+- `coverage_config`
+- `transfer_payment_instructions`
 - `is_active`
 - `created_at`
 - `updated_at`
@@ -96,6 +126,7 @@ Catalogo base.
 - `base_price`
 - `category`
 - `image_url`
+- `aliases` jsonb
 - `is_active`
 - `created_at`
 - `updated_at`
@@ -106,11 +137,22 @@ Opciones o variantes.
 
 - `id`
 - `product_id`
+- `code`
 - `name`
+- `description`
 - `type`
 - `is_required`
 - `min_select`
 - `max_select`
+- `aliases` jsonb
+- `sort_order`
+- `display_mode`
+
+Uso esperado en V1:
+
+- soportar productos configurables tipo "arma tu plato",
+- definir grupos como `proteina`, `sopa`, `bebida`,
+- manejar aliases por grupo desde dashboard para matching determinista.
 
 ### `product_option_values`
 
@@ -118,9 +160,13 @@ Valores posibles.
 
 - `id`
 - `option_id`
+- `code`
 - `name`
+- `description`
 - `price_delta`
 - `is_active`
+- `aliases` jsonb
+- `sort_order`
 
 ### `combos`
 
@@ -185,6 +231,7 @@ Productos disponibles en un menu del dia.
 - `display_name`
 - `price_override`
 - `available_quantity`
+- `aliases` jsonb
 - `is_available`
 - `sort_order`
 
@@ -199,6 +246,22 @@ Clientes conocidos.
 - `created_at`
 - `updated_at`
 
+### `customer_addresses`
+
+Direcciones conocidas del cliente.
+
+- `id`
+- `customer_id`
+- `label`
+- `address_text`
+- `latitude`
+- `longitude`
+- `raw_location_payload`
+- `source` = `text | whatsapp_location | dashboard`
+- `is_default`
+- `created_at`
+- `updated_at`
+
 ### `conversations`
 
 Hilo conversacional.
@@ -207,6 +270,8 @@ Hilo conversacional.
 - `customer_id`
 - `channel`
 - `state`
+- `context` jsonb
+- `clarification_attempts`
 - `current_draft_order_id`
 - `manual_reason`
 - `last_inbound_at`
@@ -245,7 +310,10 @@ Pedido mutable.
 - `location_id`
 - `status`
 - `fulfillment_type` = `delivery | pickup`
+- `service_timing` = `asap | scheduled`
+- `scheduled_for`
 - `delivery_address`
+- `delivery_address_id`
 - `payment_method`
 - `subtotal`
 - `delivery_fee`
@@ -281,9 +349,14 @@ Pedido final confirmado.
 - `location_id`
 - `status`
 - `fulfillment_type` = `delivery | pickup`
+- `service_timing` = `asap | scheduled`
+- `scheduled_for`
 - `delivery_address`
+- `delivery_address_id`
 - `payment_method`
 - `payment_proof_file_id`
+- `restaurant_confirmed_at`
+- `payment_confirmed_at`
 - `subtotal`
 - `delivery_fee`
 - `discount_total`
@@ -346,6 +419,22 @@ Decision V1:
 - guardar metadata en Postgres,
 - crear alerta `transfer_payment_review`,
 - dejar la orden en `payment_pending_review` hasta revision humana.
+
+## Modelado recomendado para pedidos programados
+
+Propuesta V1:
+
+- `service_timing = asap` cuando el pedido es para lo antes posible,
+- `service_timing = scheduled` cuando el pedido queda programado,
+- `scheduled_for` guarda la fecha y hora objetivo.
+
+Esto aplica tanto a `draft_orders` como a `orders`.
+
+Ventajas:
+
+- sirve para pedidos fuera de horario sin crear una tabla aparte,
+- deja claro si el pedido es inmediato o programado,
+- simplifica filtros del dashboard.
 
 ### `app_events`
 

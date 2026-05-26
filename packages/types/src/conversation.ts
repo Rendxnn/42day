@@ -2,6 +2,7 @@ export const conversationStates = [
   "new",
   "awaiting_mode_selection",
   "awaiting_guided_item_selection",
+  "awaiting_more_items",
   "awaiting_fulfillment_type",
   "awaiting_address",
   "awaiting_payment_method",
@@ -13,12 +14,15 @@ export const conversationStates = [
 ] as const;
 
 export type ConversationState = (typeof conversationStates)[number];
+export type ConversationContext = Record<string, unknown>;
 
 export type Conversation = {
   id: string;
   customerId: string;
   channel: "whatsapp";
   state: ConversationState;
+  context: ConversationContext;
+  clarificationAttempts: number;
   currentDraftOrderId?: string;
   manualReason?: string;
   lastInboundAt?: string;

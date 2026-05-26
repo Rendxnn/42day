@@ -2,7 +2,7 @@
 
 ## Estado actual
 
-El repo tiene estructura y documentacion base, pero todavia no tiene implementacion instalada.
+El repo ya tiene implementacion inicial de API, dashboard, persistencia conversacional y flujo guiado.
 
 ## Requisitos recomendados
 
@@ -53,6 +53,9 @@ SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
 OPENAI_API_KEY
+GEMINI_API_KEY
+GEMINI_MODEL
+AI_CONFIG_ENCRYPTION_KEY
 ```
 
 ## Supabase
