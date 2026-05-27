@@ -23,7 +23,12 @@ import {
   resolveMenuSelectionsFromText,
 } from "../menu-service/menu-service";
 import { logOutboundTextMessage } from "../message-log/message-log";
-import { persistConfirmedOrder } from "../order-service/order-service";
+import {
+  applyCustomerReplacementSelection,
+  cancelPendingCustomerReplacementOrder,
+  getPendingCustomerReplacementOrder,
+  persistConfirmedOrder,
+} from "../order-service/order-service";
 import { parseFreeFormOrder, type SemanticOrderEditAction, type SemanticParserResult } from "../semantic-parser/semantic-parser";
 import { sendWhatsAppTextMessage } from "../whatsapp-webhook/whatsapp-client";
 import { persistHumanInterventionAlert } from "../handoff-service/handoff-service";
@@ -112,6 +117,24 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
       description: "El cliente envio un comprobante o aviso de pago por transferencia.",
       responseText: "Recibi el comprobante. Ya se lo dejo al restaurante para que lo revise.",
     });
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_restaurant_confirmation") {
+    await sendAndLogText(
+      input,
+      "Tu pedido sigue en revision por el restaurante. Apenas lo confirmen te avisamos por aqui.",
+    );
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_replacement_selection") {
+    const handledReplacementSelection = await tryHandleReplacementSelection(input, signals);
+    if (handledReplacementSelection) {
+      return;
+    }
+
+    await handleReplacementSelectionClarification(input);
     return;
   }
 
@@ -1072,29 +1095,156 @@ async function tryHandleConfirmation(input: RouteInboundMessageInput, signals: D
     env: input.env,
     schemaName: input.tenant.schemaName,
     conversationId: input.conversation.id,
-    state: draft.paymentMethod === "transfer" ? "awaiting_transfer_proof" : "completed",
+    state: "awaiting_restaurant_confirmation",
     resetClarificationAttempts: true,
   }).catch(() => undefined);
-
-  if (draft.paymentMethod === "transfer") {
-    await sendAndLogText(
-      input,
-      [
-        `Listo, deje tu pedido ${order.id.slice(0, 8)} pendiente de revision.`,
-        "Cuando puedas, enviame el comprobante de la transferencia y el restaurante lo revisa por aqui.",
-      ].join("\n"),
-    );
-    return true;
-  }
 
   await sendAndLogText(
     input,
     [
-      `Listo, deje tu pedido ${order.id.slice(0, 8)} registrado.`,
-      "El restaurante lo revisa y te confirma por aqui en un momento.",
+      `Listo, deje tu pedido ${order.id.slice(0, 8)} pendiente de revision.`,
+      draft.paymentMethod === "transfer"
+        ? "El restaurante revisa disponibilidad primero y, si todo esta bien, te compartimos los datos para la transferencia por aqui."
+        : "El restaurante lo revisa y te confirma por aqui en un momento.",
     ].join("\n"),
   );
   return true;
+}
+
+async function tryHandleReplacementSelection(
+  input: RouteInboundMessageInput,
+  signals: DetectedSignals,
+): Promise<boolean> {
+  const pendingReplacement = await getPendingCustomerReplacementOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    currentDraftOrderId: input.conversation.currentDraftOrderId,
+  });
+
+  if (!pendingReplacement) {
+    await moveToManual(input, {
+      type: "technical_error",
+      manualReason: "replacement_order_not_found",
+      title: "No se encontro el pedido para reemplazo",
+      description: "La conversacion estaba esperando reemplazo, pero no se encontro una orden en ese estado.",
+      responseText: "No pude ubicar el pedido que estaba pendiente por ajustar. Te comunico con alguien del restaurante.",
+    });
+    return true;
+  }
+
+  if (signals.confirmation === "no") {
+    await cancelPendingCustomerReplacementOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      currentDraftOrderId: input.conversation.currentDraftOrderId,
+    });
+
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "completed",
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(input, "Listo, cancelamos el pedido. Gracias por avisarnos.");
+    return true;
+  }
+
+  const selectedReplacement = resolveReplacementOptionSelection({
+    normalizedText: signals.normalizedText,
+    numericSelection: signals.numericSelection,
+    replacementOptions: pendingReplacement.replacementOptions,
+  });
+
+  if (!selectedReplacement) {
+    return false;
+  }
+
+  try {
+    const result = await applyCustomerReplacementSelection({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      currentDraftOrderId: input.conversation.currentDraftOrderId,
+      selectedReplacementMenuItemId: selectedReplacement.menuItemId,
+    });
+
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_restaurant_confirmation",
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(
+      input,
+      `Listo, cambiamos ${result.unavailableItemName} por ${result.selectedReplacement.name}. El restaurante confirma el ajuste en un momento.`,
+    );
+    return true;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const replacementBecameUnavailable =
+      reason === "order.customer_replacement_menu_item_unavailable" ||
+      reason === "order.customer_replacement_product_inactive";
+
+    await moveToManual(input, {
+      type: replacementBecameUnavailable ? "order_change_requested" : "technical_error",
+      manualReason: replacementBecameUnavailable ? "replacement_option_no_longer_available" : "replacement_selection_failed",
+      title: replacementBecameUnavailable
+        ? "Reemplazo ya no disponible"
+        : "No fue posible aplicar el reemplazo",
+      description: replacementBecameUnavailable
+        ? "La opcion elegida por el cliente ya no estaba disponible al procesar la respuesta."
+        : "El sistema no pudo actualizar la orden despues de la seleccion del cliente.",
+      responseText: replacementBecameUnavailable
+        ? "La opcion que elegiste ya no esta disponible. Te comunico con alguien del restaurante para resolverlo."
+        : "No pude actualizar el pedido con ese reemplazo. Te comunico con alguien del restaurante.",
+    });
+    return true;
+  }
+}
+
+async function handleReplacementSelectionClarification(input: RouteInboundMessageInput): Promise<void> {
+  const pendingReplacement = await getPendingCustomerReplacementOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    currentDraftOrderId: input.conversation.currentDraftOrderId,
+  });
+
+  if (!pendingReplacement) {
+    await moveToManual(input, {
+      type: "technical_error",
+      manualReason: "replacement_order_not_found",
+      title: "No se encontro el pedido para reemplazo",
+      description: "La conversacion estaba esperando reemplazo, pero no se encontro una orden en ese estado.",
+      responseText: "No pude ubicar el pedido que estaba pendiente por ajustar. Te comunico con alguien del restaurante.",
+    });
+    return;
+  }
+
+  if (input.conversation.clarificationAttempts >= 2) {
+    await moveToManual(input, {
+      type: "order_change_requested",
+      manualReason: "replacement_selection_unresolved",
+      title: "Cliente no eligio reemplazo claro",
+      description: "El cliente no eligio un reemplazo interpretable despues de varios intentos.",
+      responseText: "No logre identificar el reemplazo que prefieres. Te comunico con alguien del restaurante para resolverlo.",
+    });
+    return;
+  }
+
+  await incrementClarificationAttempts({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+  }).catch(() => undefined);
+
+  await sendAndLogText(input, buildReplacementSelectionPrompt(pendingReplacement.replacementOptions));
 }
 
 async function handleClarification(
@@ -1257,6 +1407,76 @@ function buildGuidedContext(menu: TodayMenuPayload, selectedItem: MenuItem): Rec
     activeLocationId: menu.location?.id,
     lastSelectedMenuItemId: selectedItem.id,
   };
+}
+
+function resolveReplacementOptionSelection(input: {
+  normalizedText: string;
+  numericSelection: number | null;
+  replacementOptions: Array<{
+    menuItemId: string;
+    name: string;
+    price?: number;
+  }>;
+}): {
+  menuItemId: string;
+  name: string;
+  price?: number;
+} | null {
+  if (input.numericSelection !== null) {
+    const option = input.replacementOptions[input.numericSelection - 1];
+    return option ?? null;
+  }
+
+  if (!input.normalizedText) {
+    return null;
+  }
+
+  const exactMatch = input.replacementOptions.find(
+    (option) => normalizeReplacementSelectionText(option.name) === input.normalizedText,
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const partialMatches = input.replacementOptions.filter((option) => {
+    const normalizedName = normalizeReplacementSelectionText(option.name);
+    return normalizedName.includes(input.normalizedText) || input.normalizedText.includes(normalizedName);
+  });
+
+  return partialMatches.length === 1 ? (partialMatches[0] ?? null) : null;
+}
+
+function buildReplacementSelectionPrompt(replacementOptions: Array<{
+  name: string;
+  price?: number;
+}>): string {
+  const lines = replacementOptions
+    .slice(0, 3)
+    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` - ${formatCop(option.price)}` : ""}`);
+
+  return [
+    "No te entendi bien.",
+    'Responde con el numero de la opcion que prefieras o escribe "cancelar":',
+    lines.join("\n"),
+  ].join("\n\n");
+}
+
+function normalizeReplacementSelectionText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatCop(value: number): string {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function mergeSemanticSignals(signals: DetectedSignals, parsed: SemanticParserResult): DetectedSignals {

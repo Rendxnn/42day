@@ -9,6 +9,8 @@ export const draftOrderStatuses = [
 
 export const orderStatuses = [
   "new",
+  "pending_restaurant_confirmation",
+  "needs_customer_replacement",
   "payment_pending_review",
   "accepted",
   "preparing",
@@ -23,11 +25,57 @@ export type FulfillmentType = "delivery" | "pickup";
 export type PaymentMethod = "cash" | "transfer";
 export type ServiceTiming = "asap" | "scheduled";
 export type OrdersBucket = "pending_confirmation" | "active" | "history" | "all";
+export type CustomerNotificationStatus = "pending" | "sent" | "failed";
+export type OrderCustomerNotificationType = "accepted" | "out_of_stock";
+
+export type OutOfStockReplacementOption = {
+  menuItemId: string;
+  productId?: string;
+  comboId?: string;
+  category?: string;
+  name: string;
+  price?: number;
+};
+
+export type RestaurantReviewMetadata = {
+  reason?: "out_of_stock";
+  unavailableOrderItemIds?: string[];
+  unavailableItems?: Array<{
+    orderItemId: string;
+    menuItemId?: string;
+    productId?: string;
+    comboId?: string;
+    name: string;
+    quantity: number;
+    category?: string;
+  }>;
+  replacementMenuItems?: OutOfStockReplacementOption[];
+  markMenuItemsUnavailable?: boolean;
+};
+
+export type AcceptOrderRequest = {
+  note?: string;
+};
+
+export type RejectOutOfStockOrderRequest = {
+  items: Array<{
+    orderItemId: string;
+    markMenuItemUnavailable?: boolean;
+    replacementMenuItemIds?: string[];
+  }>;
+  note?: string;
+};
+
+export type RetryOrderCustomerNotificationRequest = {
+  type: OrderCustomerNotificationType;
+};
 
 export type OrderLineItem = {
+  id?: string;
   productId?: string;
   comboId?: string;
   menuItemId?: string;
+  categorySnapshot?: string;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -72,7 +120,15 @@ export type Order = {
   deliveryFee: number;
   discountTotal: number;
   total: number;
+  restaurantReviewedAt?: string;
+  restaurantReviewedBy?: string;
   restaurantConfirmedAt?: string;
+  restaurantConfirmedBy?: string;
+  restaurantReviewNote?: string;
+  restaurantReviewMetadata?: RestaurantReviewMetadata;
+  customerNotifiedAt?: string;
+  customerNotificationStatus?: CustomerNotificationStatus;
+  customerNotificationError?: string;
   paymentConfirmedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -93,7 +149,15 @@ export type OrderSummary = {
   deliveryFee: number;
   discountTotal: number;
   total: number;
+  restaurantReviewedAt?: string;
+  restaurantReviewedBy?: string;
   restaurantConfirmedAt?: string;
+  restaurantConfirmedBy?: string;
+  restaurantReviewNote?: string;
+  restaurantReviewMetadata?: RestaurantReviewMetadata;
+  customerNotifiedAt?: string;
+  customerNotificationStatus?: CustomerNotificationStatus;
+  customerNotificationError?: string;
   paymentConfirmedAt?: string;
   createdAt: string;
   updatedAt: string;

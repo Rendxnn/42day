@@ -8,6 +8,8 @@ export const conversationStates = [
   "awaiting_payment_method",
   "awaiting_transfer_proof",
   "awaiting_confirmation",
+  "awaiting_restaurant_confirmation",
+  "awaiting_replacement_selection",
   "manual",
   "completed",
   "expired",

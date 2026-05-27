@@ -1,12 +1,16 @@
 import type {
+  AcceptOrderRequest,
   AutomationSettings,
   HumanInterventionAlert,
   MenuItem,
+  OrderCustomerNotificationType,
   OrderDetail,
   OrdersBucket,
   OrdersDashboardPayload,
   OrderStatus,
   Product,
+  RejectOutOfStockOrderRequest,
+  RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
@@ -121,6 +125,35 @@ export function updateOrderStatus(
   return request(`/${tenantSlug}/orders/${orderId}/status`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export function acceptOrder(tenantSlug: string, orderId: string, payload: AcceptOrderRequest = {}) {
+  return request(`/${tenantSlug}/orders/${orderId}/accept`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectOrderOutOfStock(
+  tenantSlug: string,
+  orderId: string,
+  payload: RejectOutOfStockOrderRequest,
+) {
+  return request(`/${tenantSlug}/orders/${orderId}/reject-out-of-stock`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function retryOrderCustomerNotification(
+  tenantSlug: string,
+  orderId: string,
+  type: OrderCustomerNotificationType | RetryOrderCustomerNotificationRequest["type"],
+) {
+  return request(`/${tenantSlug}/orders/${orderId}/customer-notification/retry`, {
+    method: "POST",
+    body: JSON.stringify({ type }),
   });
 }
 
