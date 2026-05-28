@@ -22,6 +22,7 @@ import {
   Camera,
   Check,
   ChefHat,
+  ClipboardList,
   Clock,
   Edit3,
   Home,
@@ -36,8 +37,9 @@ import {
   Utensils,
   X,
 } from "lucide-react";
+import { OrdersView } from "./orders";
 
-type View = "menu" | "summary" | "catalog" | "upload";
+type View = "menu" | "orders" | "summary" | "catalog" | "upload";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
 type ProductFormValue = Partial<Product> & { imageFile?: File };
 
@@ -151,6 +153,7 @@ function getFallbackItems(tenantSlug: string): MenuItem[] {
 
 const navItems = [
   { id: "menu" as const, label: "Hoy", icon: Utensils },
+  { id: "orders" as const, label: "Pedidos", icon: ClipboardList },
   { id: "summary" as const, label: "Resumen", icon: Home },
   { id: "catalog" as const, label: "Catalogo", icon: ChefHat },
   { id: "upload" as const, label: "Subida", icon: UploadCloud },
@@ -425,6 +428,7 @@ export function App() {
           {activeView === "summary" && (
             <Summary activeCount={activeItems.length} totalCount={items.length} onEditMenu={() => setActiveView("menu")} />
           )}
+          {activeView === "orders" && <OrdersView menuItems={items} onNotify={notify} tenantSlug={tenantSlug} />}
           {activeView === "catalog" && <Catalog imageColumnReady={imageColumnReady} products={products} onDelete={removeProduct} onSave={saveProduct} />}
           {activeView === "upload" && (
             <SmartUpload
@@ -555,7 +559,10 @@ function Sidebar({ activeView, onNavigate }: { activeView: View; onNavigate: (vi
 function BottomNav({ activeView, onNavigate }: { activeView: View; onNavigate: (view: View) => void }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 px-2 py-2 shadow-[0_-8px_24px_rgba(24,24,27,0.08)] backdrop-blur lg:hidden">
-      <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+      <div
+        className="mx-auto grid max-w-xl gap-1"
+        style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = activeView === item.id;

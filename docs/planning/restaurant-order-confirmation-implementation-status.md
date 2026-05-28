@@ -50,7 +50,7 @@ Incluye:
 
 ### Fase 4: modulo de pedidos en dashboard
 
-Estado: pendiente
+Estado: completada
 
 Incluye:
 
@@ -63,7 +63,7 @@ Incluye:
 
 ### Fase 5: prueba end-to-end
 
-Estado: pendiente
+Estado: en progreso
 
 Incluye:
 
@@ -187,5 +187,111 @@ Nota de prueba:
 
 ## Falta despues de Fase 3
 
-- UI del modulo de pedidos en dashboard,
 - pruebas end-to-end del flujo completo con numeros reales de sandbox o staging controlado.
+
+## Hecho en Fase 4
+
+- Se agrego la vista `Pedidos` al dashboard principal.
+- La navegacion ahora incluye una entrada dedicada para pedidos en sidebar y bottom nav.
+- La bandeja muestra filtros para:
+  - pendientes del restaurante,
+  - esperando respuesta del cliente,
+  - aceptados/activos,
+  - historial.
+- La lista de pedidos consume `GET /dashboard/:tenantSlug/orders` con `bucket=all` y filtra en frontend por estado.
+- El detalle de pedido consume `GET /dashboard/:tenantSlug/orders/:orderId`.
+- Desde el detalle ya se puede:
+  - aceptar el pedido,
+  - marcar agotado,
+  - reintentar la notificacion de WhatsApp cuando falla.
+- El modal de agotado obliga a seleccionar:
+  - el item agotado,
+  - las alternativas activas y disponibles de la misma categoria,
+  - si el item original debe marcarse como no disponible en el menu.
+- La UI usa el menu del dia cargado en el dashboard para construir la lista de reemplazos por categoria.
+- Cuando no existen alternativas activas de esa categoria, la UI bloquea el envio y lo hace visible al operador.
+
+## Verificacion de Fase 4
+
+Estado: validada
+
+Validaciones ejecutadas:
+
+- `corepack pnpm --filter @42day/dashboard typecheck`
+- `corepack pnpm --filter @42day/dashboard build`
+- servicios locales levantados:
+  - dashboard en `http://localhost:5173`
+  - api en `http://127.0.0.1:8787`
+
+Resultado observado:
+
+- el frontend compila sin errores de tipos,
+- el bundle de produccion se construye correctamente,
+- el dashboard queda listo para probar el flujo de pedidos sobre los endpoints ya implementados en Fase 2.
+
+## Falta despues de Fase 4
+
+- pruebas end-to-end del flujo completo con numeros reales de sandbox o staging controlado.
+
+## Hecho en Fase 5
+
+- Se agrego el script reproducible [scripts/e2e_order_confirmation_phase5.py](</c:/Users/Usuario/OneDrive/Documentos/trabajo/gamechanger/automatizacion whatsapp/4-2day/scripts/e2e_order_confirmation_phase5.py>).
+- El script crea un usuario temporal de dashboard en Supabase Auth y lo asocia al tenant `demo`.
+- El script genera productos/menu items temporales para:
+  - pedido normal,
+  - producto agotado con reemplazos de la misma categoria (`bebidas`),
+  - cancelacion por parte del cliente despues del agotado.
+- El script ejecuta el flujo completo usando:
+  - `POST /webhooks/whatsapp` para la conversacion del cliente,
+  - `POST /dashboard/:tenantSlug/orders/:orderId/accept`,
+  - `POST /dashboard/:tenantSlug/orders/:orderId/reject-out-of-stock`,
+  - `POST /dashboard/:tenantSlug/orders/:orderId/customer-notification/retry`.
+- El script valida estados, ordenes, items, conversacion y persistencia en Supabase.
+- El script limpia sus productos/menu items temporales al terminar y elimina el usuario temporal de dashboard.
+
+## Verificacion de Fase 5
+
+Estado: automatizada y validada sobre API local + Supabase real
+
+Comando validado:
+
+```bash
+python scripts/e2e_order_confirmation_phase5.py
+```
+
+Escenarios validados el 2026-05-27:
+
+- pedido normal:
+  - cliente confirma,
+  - orden queda `pending_restaurant_confirmation`,
+  - restaurante acepta,
+  - orden pasa a `accepted`,
+  - retry de notificacion mantiene estado y registra nuevo outbound.
+- agotado con reemplazo:
+  - restaurante marca agotado,
+  - orden pasa a `needs_customer_replacement`,
+  - cliente responde `1`,
+  - item se reemplaza,
+  - orden vuelve a `pending_restaurant_confirmation`.
+- agotado con cancelacion:
+  - restaurante marca agotado,
+  - cliente responde `cancelar`,
+  - orden pasa a `cancelled`.
+
+Resultado observado:
+
+- el flujo de negocio completo funciona de punta a punta con API local y Supabase real,
+- el dashboard backend responde correctamente a los comandos operativos,
+- la continuidad conversacional posterior al agotado queda validada,
+- la limpieza automatica de fixtures temporales queda validada.
+
+Bloqueo actual para la pasada live de WhatsApp:
+
+- el `META_ACCESS_TOKEN` local usado por el Worker responde `401 Authentication Error` en outbound,
+- por eso la validacion live con numero tester real no se puede cerrar desde local hasta refrescar el token o usar staging con credenciales vigentes.
+
+## Falta despues de Fase 5
+
+- refrescar `META_ACCESS_TOKEN` o validar credenciales vigentes en staging,
+- ejecutar pasada manual con telefono tester autorizado en Meta,
+- confirmar recepcion real de mensajes WhatsApp en el numero tester.
