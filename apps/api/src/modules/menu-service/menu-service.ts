@@ -29,6 +29,8 @@ type ProductRow = {
   description?: string | null;
   base_price: number;
   category?: string | null;
+  emoji?: string | null;
+  product_type?: "simple" | "composite" | null;
   image_url?: string | null;
   aliases?: unknown;
   is_active: boolean;
@@ -99,7 +101,7 @@ export async function loadTodayPublishedMenu(input: {
     schema: input.schemaName,
     table: "products",
     query: {
-      select: "id,name,description,base_price,category,image_url,aliases,is_active",
+      select: "id,name,description,base_price,category,emoji,product_type,image_url,aliases,is_active",
       is_active: "eq.true",
       order: "name.asc",
     },
@@ -294,6 +296,8 @@ function mapProduct(row: ProductRow): Product {
     description: row.description ?? undefined,
     basePrice: row.base_price,
     category: row.category ?? undefined,
+    emoji: row.emoji ?? undefined,
+    productType: row.product_type ?? "simple",
     imageUrl: row.image_url ?? undefined,
     aliases: parseAliases(row.aliases),
     isActive: row.is_active,

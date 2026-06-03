@@ -1,0 +1,116 @@
+# Notificaciones en tiempo real de pedidos
+
+## Que se implemento
+
+Se agrego una campanita global en el dashboard para avisar cuando llegan pedidos nuevos o cuando un pedido queda esperando decision del restaurante/cliente. La notificacion incluye:
+
+- Contador visual de pedidos nuevos.
+- Panel desplegable con las ultimas alertas.
+- Sonido corto usando Web Audio API.
+- Notificacion del navegador si el usuario concede permiso.
+- Conexion WebSocket con Supabase Realtime.
+- Refresco de respaldo cada 30 segundos.
+
+## Como funciona
+
+El dashboard escucha cambios sobre la tabla `orders` del schema del tenant activo. Para el tenant demo, por ejemplo, escucha:
+
+```txt
+tenant_demo.orders
+```
+
+Cuando Supabase Realtime emite un evento `INSERT` o `UPDATE`, el frontend vuelve a consultar la lista de pedidos con:
+
+```txt
+GET /dashboard/:tenantSlug/orders?bucket=all
+```
+
+Luego filtra pedidos con estados notificables:
+
+```txt
+new
+pending_restaurant_confirmation
+needs_customer_replacement
+```
+
+La primera carga solo establece una linea base para no sonar por pedidos antiguos. Despues de eso, si aparece un pedido notificable que el dashboard no habia visto, se agrega al panel, aumenta el contador, muestra toast, reproduce sonido y dispara notificacion del navegador si esta autorizada.
+
+## Realtime usado
+
+Se usa Supabase Realtime con `postgres_changes`:
+
+```ts
+supabase
+  .channel(`dashboard-orders:${tenantSlug}`)
+  .on("postgres_changes", { event: "INSERT", schema: tenantSchema, table: "orders" }, handler)
+  .on("postgres_changes", { event: "UPDATE", schema: tenantSchema, table: "orders" }, handler)
+  .subscribe();
+```
+
+Para que esto funcione, las tablas `orders` deben estar en la publication `supabase_realtime`. Se agrego una migracion:
+
+```txt
+packages/db/migrations/0018_realtime_order_notifications.sql
+```
+
+Esa migracion:
+
+- Habilita RLS en `orders`.
+- Crea una policy de lectura para usuarios autenticados miembros del tenant.
+- Agrega cada tabla `orders` existente a `supabase_realtime`.
+
+## Refresco y fallback
+
+Aunque Realtime es el canal principal, se mantiene un refresco de respaldo cada 30 segundos:
+
+```txt
+30000 ms
+```
+
+Esto evita perder alertas si:
+
+- El WebSocket cae temporalmente.
+- Realtime no alcanza a reconectar.
+- El navegador suspende la pestana.
+- Una tabla nueva aun no fue agregada a `supabase_realtime`.
+
+Antes, la bandeja de pedidos hacia polling propio cada 20 segundos. Ahora la campana usa Realtime mas fallback de 30 segundos.
+
+## Servicios usados
+
+- Supabase Auth: identifica al usuario y permite saber a que tenant pertenece.
+- Supabase Realtime: abre el WebSocket y emite cambios de Postgres.
+- Postgres publication `supabase_realtime`: habilita que `orders` pueda emitir eventos.
+- RLS de Postgres: limita lectura de eventos a usuarios asociados al tenant.
+- Dashboard API: recarga la lista completa de pedidos despues de cada evento.
+- Web Audio API: reproduce el sonido de alerta.
+- Browser Notification API: muestra notificaciones nativas si el usuario concede permiso.
+
+## Cambios que trae
+
+- El restaurante ya no depende solo de mirar la bandeja manualmente.
+- La campana funciona en cualquier seccion del dashboard.
+- El usuario distingue pedidos nuevos por contador y panel.
+- El sonido ayuda a detectar pedidos aunque el operador no este mirando la pantalla.
+- Realtime acelera la llegada de alertas frente a polling tradicional.
+
+## Limitantes actuales
+
+- El sonido puede estar bloqueado hasta que el usuario interactue con la pagina, por reglas del navegador.
+- Las notificaciones nativas solo funcionan si el usuario concede permiso.
+- Realtime solo funciona en tablas agregadas a `supabase_realtime`.
+- Si se crea un nuevo tenant con schema propio, su tabla `orders` debe quedar incluida en la publication.
+- El frontend recibe el evento y despues consulta la API; no usa directamente el payload completo de Realtime.
+- Si la pestana esta suspendida por el navegador, el fallback puede tardar mas.
+- Los schemas que no tienen tabla `orders` no reciben notificaciones hasta que exista la estructura completa.
+
+## Mejoras futuras
+
+- Crear automaticamente la policy y publication de Realtime al crear un tenant nuevo.
+- Usar Realtime Broadcast con triggers server-side para mayor escalabilidad y control.
+- Agregar preferencias de sonido por usuario.
+- Permitir silenciar notificaciones por horario o por tipo de pedido.
+- Mostrar una notificacion mas rica con nombre del cliente, total y tipo de entrega.
+- Sincronizar el panel de notificaciones con una tabla persistente de eventos.
+- Agregar pruebas end-to-end simulando llegada de pedido por webhook de WhatsApp.
+- Separar el monitor de notificaciones en un hook dedicado, por ejemplo `useOrderNotifications`.

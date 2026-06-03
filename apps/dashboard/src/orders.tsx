@@ -31,6 +31,7 @@ type OrdersViewProps = {
 
 type OrdersFilter = "pending" | "confirmed" | "closed";
 type PendingLane = "restaurant" | "customer";
+type ReplacementScope = "same" | "other";
 
 type OrdersFilterConfig = {
   id: OrdersFilter;
@@ -796,6 +797,7 @@ function OutOfStockModal({
   const [selectedOrderItemId, setSelectedOrderItemId] = useState(order.items.find((item) => item.id)?.id ?? "");
   const [markMenuItemUnavailable, setMarkMenuItemUnavailable] = useState(true);
   const [selectedReplacementIds, setSelectedReplacementIds] = useState<string[]>([]);
+  const [replacementScope, setReplacementScope] = useState<ReplacementScope>("same");
   const [note, setNote] = useState("");
 
   const selectedOrderItem = useMemo(
@@ -803,26 +805,36 @@ function OutOfStockModal({
     [order.items, selectedOrderItemId],
   );
 
-  const replacementSuggestions = useMemo(() => {
+  const replacementPools = useMemo(() => {
     if (!selectedOrderItem) {
-      return [];
+      return { same: [] as MenuItem[], other: [] as MenuItem[] };
     }
 
     const category = selectedOrderItem.categorySnapshot || resolveCategoryFromMenuItem(menuItems, selectedOrderItem.menuItemId);
     const normalizedCategory = normalizeText(category);
 
-    return menuItems
+    const activeCandidates = menuItems
       .filter((item) => item.isAvailable)
       .filter((item) => item.product?.isActive !== false)
       .filter((item) => item.id !== selectedOrderItem.menuItemId)
-      .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) === normalizedCategory)
-      .sort((left, right) => left.sortOrder - right.sortOrder)
-      .slice(0, 4);
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+
+    return {
+      same: activeCandidates
+        .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) === normalizedCategory)
+        .slice(0, 8),
+      other: activeCandidates
+        .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) !== normalizedCategory)
+        .slice(0, 16),
+    };
   }, [menuItems, selectedOrderItem]);
 
+  const replacementSuggestions = replacementScope === "same" ? replacementPools.same : replacementPools.other;
+
   useEffect(() => {
-    setSelectedReplacementIds(replacementSuggestions.map((item) => item.id));
-  }, [replacementSuggestions]);
+    setReplacementScope("same");
+    setSelectedReplacementIds(replacementPools.same.map((item) => item.id));
+  }, [replacementPools.same]);
 
   const categoryLabel = selectedOrderItem?.categorySnapshot
     || resolveCategoryFromMenuItem(menuItems, selectedOrderItem?.menuItemId)
@@ -832,13 +844,13 @@ function OutOfStockModal({
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.55)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="app-panel reveal-up max-h-[92vh] w-full overflow-hidden rounded-t-[28px] sm:max-w-3xl sm:rounded-[30px]">
+      <div className="app-panel reveal-up flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[28px] sm:max-w-3xl sm:rounded-[30px]">
         <div className="flex items-start justify-between border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:px-6">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Agotados</p>
             <h3 className="app-display mt-2 text-[2.2rem] leading-none text-[var(--text-strong)]">Reportar agotado</h3>
             <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
-              El cliente recibira solo alternativas activas de la misma categoria por WhatsApp.
+              El cliente recibira alternativas activas. Priorizamos la misma categoria y puedes abrir otras categorias si hace falta.
             </p>
           </div>
           <button
@@ -850,7 +862,7 @@ function OutOfStockModal({
           </button>
         </div>
 
-        <div className="app-scrollbar space-y-5 overflow-y-auto p-5 sm:p-6">
+        <div className="app-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
           <section className="rounded-[24px] bg-[rgba(248,241,232,0.58)] p-4">
             <StepLabel step={1} title="Item agotado" />
             <div className="mt-4 space-y-2">
@@ -899,12 +911,29 @@ function OutOfStockModal({
               </label>
             </div>
 
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-[20px] bg-[var(--surface-base)] p-2">
+              <ReplacementScopeTab
+                active={replacementScope === "same"}
+                count={replacementPools.same.length}
+                label="Misma categoria"
+                onClick={() => setReplacementScope("same")}
+              />
+              <ReplacementScopeTab
+                active={replacementScope === "other"}
+                count={replacementPools.other.length}
+                label="Otras categorias"
+                onClick={() => setReplacementScope("other")}
+              />
+            </div>
+
             {replacementSuggestions.length === 0 ? (
               <div className="mt-4 rounded-[20px] border border-[rgba(197,123,87,0.18)] bg-[rgba(197,123,87,0.08)] px-4 py-3 text-sm leading-6 text-[var(--warning)]">
-                No hay productos activos en esta categoria. Se enviara un aviso para que el cliente cambie o cancele.
+                {replacementScope === "same"
+                  ? "No hay productos activos en esta categoria. Abre otras categorias para recomendar otra opcion del menu."
+                  : "No hay otros productos activos disponibles para recomendar."}
               </div>
             ) : (
-              <div className="mt-4 space-y-2">
+              <div className="app-scrollbar mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
                 {replacementSuggestions.map((item) => {
                   const checked = selectedReplacementIds.includes(item.id);
                   return (
@@ -1005,6 +1034,33 @@ function StepLabel({ step, title }: { step: number; title: string }) {
       <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--text-strong)] text-xs font-semibold text-white">{step}</span>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{title}</p>
     </div>
+  );
+}
+
+function ReplacementScopeTab({
+  active,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`rounded-[16px] px-3 py-2 text-left text-sm font-semibold transition ${
+        active
+          ? "border border-[rgba(197,123,87,0.22)] bg-[rgba(197,123,87,0.1)] text-[var(--text-strong)]"
+          : "border border-transparent text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span>{label}</span>
+      <span className="ml-2 rounded-full bg-[rgba(118,93,71,0.12)] px-2 py-0.5 text-xs">{count}</span>
+    </button>
   );
 }
 

@@ -9,6 +9,7 @@ import type {
   OrdersDashboardPayload,
   OrderStatus,
   Product,
+  PublicCartaPayload,
   RejectOutOfStockOrderRequest,
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
@@ -58,6 +59,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const backendError = payload?.error;
+    throw new DashboardApiError(
+      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      response.status,
+      path,
+      backendError,
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export type DashboardTenant = {
   id: string;
   name: string;
@@ -69,8 +93,16 @@ export type DashboardMe = {
   user: {
     id: string;
     email?: string;
+    app_metadata?: {
+      role?: string;
+      system_admin?: boolean;
+    };
   };
   tenants: DashboardTenant[];
+};
+
+export type AdminOverview = {
+  activeRestaurantCount: number;
 };
 
 export type DashboardDiagnostics = {
@@ -86,6 +118,7 @@ export type DetectedMenuProduct = {
   description?: string;
   basePrice: number;
   category?: string;
+  emoji?: string;
   confidence?: number;
 };
 
@@ -97,12 +130,20 @@ export function getMe() {
   return request<DashboardMe>("/me");
 }
 
+export function getAdminOverview() {
+  return request<AdminOverview>("/admin/overview");
+}
+
 export function getDiagnostics(tenantSlug: string) {
   return request<DashboardDiagnostics>(`/${tenantSlug}/diagnostics`);
 }
 
 export function getTodayMenu(tenantSlug: string) {
   return request<TodayMenuPayload>(`/${tenantSlug}/menu/today`);
+}
+
+export function getPublicCarta(tenantSlug: string) {
+  return publicRequest<PublicCartaPayload>(`/public/${tenantSlug}/carta`);
 }
 
 export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {

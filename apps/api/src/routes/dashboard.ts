@@ -15,6 +15,7 @@ import type {
   OrderStatus,
   OrderSummary,
   Product,
+  PublicCartaPayload,
   RejectOutOfStockOrderRequest,
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
@@ -57,8 +58,33 @@ type ProductRow = {
   description?: string;
   base_price: number;
   category?: string;
+  emoji?: string | null;
+  product_type?: "simple" | "composite" | null;
   image_url?: string;
   is_active: boolean;
+};
+
+type ProductOptionRow = {
+  id: string;
+  product_id: string;
+  name: string;
+  description?: string | null;
+  type: "single" | "multiple" | "text";
+  is_required: boolean;
+  min_select: number;
+  max_select: number;
+  sort_order?: number | null;
+  display_mode?: "list" | "buttons" | "swatches" | "text" | null;
+};
+
+type ProductOptionValueRow = {
+  id: string;
+  option_id: string;
+  name: string;
+  description?: string | null;
+  price_delta: number;
+  is_active: boolean;
+  sort_order?: number | null;
 };
 
 type MenuRow = {
@@ -169,6 +195,10 @@ type DashboardVariables = {
 type AuthUser = {
   id: string;
   email?: string;
+  app_metadata?: {
+    role?: string;
+    system_admin?: boolean;
+  };
 };
 
 type GeminiMenuProduct = {
@@ -213,6 +243,112 @@ dashboardRoutes.get("/me", async (c) => {
       schemaName: tenant.schema_name,
     })),
   });
+});
+
+dashboardRoutes.get("/admin/overview", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenants = await createSupabaseRestClient(c.env).select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name,timezone",
+      status: "eq.active",
+    },
+  });
+
+  return c.json({
+    activeRestaurantCount: tenants.filter((tenant) => tenant.slug !== "thaledon").length,
+  });
+});
+
+dashboardRoutes.get("/public/:tenantSlug/carta", async (c) => {
+  const supabase = createSupabaseRestClient(c.env);
+  const [tenant] = await supabase.select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name,timezone",
+      slug: `eq.${c.req.param("tenantSlug")}`,
+      status: "eq.active",
+      limit: 1,
+    },
+  });
+
+  if (!tenant) {
+    return c.json({ error: "tenant_not_found" }, 404);
+  }
+
+  const date = resolveBusinessDate(c.req.query("date"), tenant.timezone);
+  const [location] = await supabase.select<LocationRow>({
+    schema: tenant.schema_name,
+    table: "locations",
+    query: {
+      select: "id,name,address,phone,delivery_fee_fixed,is_active",
+      is_active: "eq.true",
+      limit: 1,
+    },
+  });
+
+  const [menu] = location
+    ? await supabase.select<MenuRow>({
+        schema: tenant.schema_name,
+        table: "menus",
+        query: {
+          select: "id,location_id,date,name,status,published_at",
+          location_id: `eq.${location.id}`,
+          date: `eq.${date}`,
+          status: "eq.published",
+          limit: 1,
+        },
+      })
+    : [];
+
+  const itemRows = menu
+    ? await supabase.select<MenuItemRow>({
+        schema: tenant.schema_name,
+        table: "menu_items",
+        query: {
+          select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
+          menu_id: `eq.${menu.id}`,
+          is_available: "eq.true",
+          order: "sort_order.asc",
+        },
+      })
+    : [];
+
+  const productIds = itemRows
+    .map((item) => item.product_id)
+    .filter((productId): productId is string => Boolean(productId));
+  const products = productIds.length > 0
+    ? await selectProducts(supabase, tenant.schema_name, {
+        id: `in.(${productIds.join(",")})`,
+        is_active: "eq.true",
+      })
+    : [];
+  const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
+  const productById = new Map(products.map((product) => [product.id, mapProduct(product, productOptions.get(product.id))]));
+
+  const payload: PublicCartaPayload = {
+    tenant: {
+      name: tenant.name ?? tenant.slug,
+      slug: tenant.slug,
+    },
+    requestedDate: date,
+    generatedAt: new Date().toISOString(),
+    location: location ? mapLocation(location) : undefined,
+    menu: menu ? mapMenu(menu) : undefined,
+    items: itemRows
+      .map((item) => mapMenuItem(item, productById.get(item.product_id ?? "")))
+      .filter((item) => item.product?.isActive !== false),
+  };
+
+  return c.json(payload);
 });
 
 dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
@@ -260,6 +396,7 @@ dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
     : [];
 
   const products = await selectProducts(supabase, tenant.schema_name);
+  const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
 
   const itemRows = menu
     ? await supabase.select<MenuItemRow>({
@@ -273,14 +410,14 @@ dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
       })
     : [];
 
-  const productById = new Map(products.map((product) => [product.id, mapProduct(product)]));
+  const productById = new Map(products.map((product) => [product.id, mapProduct(product, productOptions.get(product.id))]));
   const payload: TodayMenuPayload = {
     tenantSlug: tenant.slug,
     tenantSchema: tenant.schema_name,
     location: location ? mapLocation(location) : undefined,
     menu: menu ? mapMenu(menu) : undefined,
     items: itemRows.map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
-    products: products.map(mapProduct),
+    products: products.map((product) => mapProduct(product, productOptions.get(product.id))),
   };
 
   return c.json(payload);
@@ -930,6 +1067,8 @@ dashboardRoutes.post("/:tenantSlug/products", async (c) => {
     description: body.description ?? null,
     base_price: body.basePrice ?? 0,
     category: body.category ?? null,
+    emoji: body.emoji ?? null,
+    product_type: body.productType ?? "simple",
     ...(body.imageUrl !== undefined ? { image_url: body.imageUrl } : {}),
     is_active: body.isActive ?? true,
   };
@@ -942,12 +1081,12 @@ dashboardRoutes.post("/:tenantSlug/products", async (c) => {
       rows,
     });
   } catch (error) {
-    if (error instanceof SupabaseRestError && error.status === 400 && error.body.includes("image_url")) {
-      const { image_url: _imageUrl, ...rowsWithoutImage } = rows;
+    if (error instanceof SupabaseRestError && error.status === 400 && (error.body.includes("image_url") || error.body.includes("emoji"))) {
+      const { emoji: _emoji, image_url: _imageUrl, ...rowsWithoutOptionalVisuals } = rows;
       productRows = await supabase.insertReturning<ProductRow>({
         schema: tenant.schema_name,
         table: "products",
-        rows: rowsWithoutImage,
+        rows: rowsWithoutOptionalVisuals,
       });
     } else {
       throw error;
@@ -960,7 +1099,10 @@ dashboardRoutes.post("/:tenantSlug/products", async (c) => {
     return c.json({ error: "product_create_failed" }, 500);
   }
 
-  return c.json(mapProduct(product), 201);
+  await replaceProductOptions(supabase, tenant.schema_name, product.id, body.productType === "composite" ? body.options ?? [] : []);
+  const options = await selectProductOptions(supabase, tenant.schema_name, [product.id]);
+
+  return c.json(mapProduct(product, options.get(product.id)), 201);
 });
 
 dashboardRoutes.post("/:tenantSlug/uploads/menu-image/analyze", async (c) => {
@@ -1091,6 +1233,8 @@ dashboardRoutes.patch("/:tenantSlug/products/:productId", async (c) => {
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.basePrice !== undefined ? { base_price: body.basePrice } : {}),
       ...(body.category !== undefined ? { category: body.category } : {}),
+      ...(body.emoji !== undefined ? { emoji: body.emoji } : {}),
+      ...(body.productType !== undefined ? { product_type: body.productType } : {}),
       ...(body.imageUrl !== undefined ? { image_url: body.imageUrl } : {}),
       ...(body.isActive !== undefined ? { is_active: body.isActive } : {}),
       updated_at: new Date().toISOString(),
@@ -1101,7 +1245,13 @@ dashboardRoutes.patch("/:tenantSlug/products/:productId", async (c) => {
     return c.json({ error: "product_not_found" }, 404);
   }
 
-  return c.json(mapProduct(product));
+  if (body.productType !== undefined || body.options !== undefined) {
+    await replaceProductOptions(createSupabaseRestClient(c.env), tenant.schema_name, product.id, body.productType === "composite" ? body.options ?? [] : []);
+  }
+
+  const options = await selectProductOptions(createSupabaseRestClient(c.env), tenant.schema_name, [product.id]);
+
+  return c.json(mapProduct(product, options.get(product.id)));
 });
 
 dashboardRoutes.get("/:tenantSlug/diagnostics", async (c) => {
@@ -1335,14 +1485,14 @@ async function selectProducts(
       schema,
       table: "products",
       query: {
-        select: "id,name,description,base_price,category,image_url,is_active",
+        select: "id,name,description,base_price,category,emoji,product_type,image_url,is_active",
         order: "name.asc",
         is_active: "eq.true",
         ...query,
       },
     });
   } catch (error) {
-    if (error instanceof SupabaseRestError && error.status === 400 && error.body.includes("image_url")) {
+    if (error instanceof SupabaseRestError && error.status === 400 && (error.body.includes("image_url") || error.body.includes("emoji"))) {
       return supabase.select<ProductRow>({
         schema,
         table: "products",
@@ -1376,6 +1526,154 @@ async function getNextMenuSortOrder(
   });
 
   return (lastItem?.sort_order ?? 0) + 10;
+}
+
+async function selectProductOptions(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  productIds: string[],
+): Promise<Map<string, Product["options"]>> {
+  const optionsByProductId = new Map<string, Product["options"]>();
+  if (productIds.length === 0) return optionsByProductId;
+
+  let optionRows: ProductOptionRow[] = [];
+
+  try {
+    optionRows = await supabase.select<ProductOptionRow>({
+      schema,
+      table: "product_options",
+      query: {
+        select: "id,product_id,name,description,type,is_required,min_select,max_select,sort_order,display_mode",
+        product_id: `in.(${productIds.join(",")})`,
+        order: "sort_order.asc",
+      },
+    });
+  } catch (error) {
+    if (error instanceof SupabaseRestError && error.status === 404) return optionsByProductId;
+    throw error;
+  }
+
+  const optionIds = optionRows.map((option) => option.id);
+  const valuesByOptionId = new Map<string, ProductOptionValueRow[]>();
+
+  if (optionIds.length > 0) {
+    const valueRows = await supabase.select<ProductOptionValueRow>({
+      schema,
+      table: "product_option_values",
+      query: {
+        select: "id,option_id,name,description,price_delta,is_active,sort_order",
+        option_id: `in.(${optionIds.join(",")})`,
+        order: "sort_order.asc",
+      },
+    });
+
+    valueRows.forEach((value) => {
+      const values = valuesByOptionId.get(value.option_id) ?? [];
+      values.push(value);
+      valuesByOptionId.set(value.option_id, values);
+    });
+  }
+
+  optionRows.forEach((option) => {
+    const values = valuesByOptionId.get(option.id) ?? [];
+    const mappedOptions = optionsByProductId.get(option.product_id) ?? [];
+    mappedOptions.push({
+      id: option.id,
+      name: option.name,
+      description: option.description ?? undefined,
+      type: option.type,
+      isRequired: option.is_required,
+      minSelect: option.min_select,
+      maxSelect: option.max_select,
+      sortOrder: option.sort_order ?? 0,
+      displayMode: option.display_mode ?? "list",
+      values: values.map((value) => ({
+        id: value.id,
+        name: value.name,
+        description: value.description ?? undefined,
+        priceDelta: value.price_delta,
+        isActive: value.is_active,
+        sortOrder: value.sort_order ?? 0,
+      })),
+    });
+    optionsByProductId.set(option.product_id, mappedOptions);
+  });
+
+  return optionsByProductId;
+}
+
+async function replaceProductOptions(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+  productId: string,
+  options: Product["options"] = [],
+) {
+  const existingOptions = await supabase.select<ProductOptionRow>({
+    schema,
+    table: "product_options",
+    query: {
+      select: "id,product_id,name,type,is_required,min_select,max_select",
+      product_id: `eq.${productId}`,
+    },
+  });
+
+  for (const option of existingOptions) {
+    await supabase.delete({
+      schema,
+      table: "product_option_values",
+      query: { option_id: `eq.${option.id}` },
+    });
+  }
+
+  await supabase.delete({
+    schema,
+    table: "product_options",
+    query: { product_id: `eq.${productId}` },
+  });
+
+  const optionRows = (options ?? [])
+    .filter((option) => option.name.trim())
+    .map((option, index) => ({
+      product_id: productId,
+      name: option.name.trim(),
+      description: option.description?.trim() || null,
+      type: option.type,
+      is_required: option.isRequired,
+      min_select: option.minSelect,
+      max_select: option.maxSelect,
+      sort_order: option.sortOrder ?? index * 10,
+      display_mode: option.displayMode ?? "list",
+    }));
+
+  if (optionRows.length === 0) return;
+
+  const insertedOptions = await supabase.insertReturning<ProductOptionRow>({
+    schema,
+    table: "product_options",
+    rows: optionRows,
+  });
+
+  const valueRows = insertedOptions.flatMap((insertedOption, optionIndex) => {
+    const sourceOption = options[optionIndex];
+    return (sourceOption?.values ?? [])
+      .filter((value) => value.name.trim())
+      .map((value, valueIndex) => ({
+        option_id: insertedOption.id,
+        name: value.name.trim(),
+        description: value.description?.trim() || null,
+        price_delta: value.priceDelta ?? 0,
+        is_active: value.isActive ?? true,
+        sort_order: value.sortOrder ?? valueIndex * 10,
+      }));
+  });
+
+  if (valueRows.length > 0) {
+    await supabase.insert({
+      schema,
+      table: "product_option_values",
+      rows: valueRows,
+    });
+  }
 }
 
 async function selectAlerts(
@@ -1530,14 +1828,17 @@ function mapLocation(row: LocationRow) {
   };
 }
 
-function mapProduct(row: ProductRow): Product {
+function mapProduct(row: ProductRow, options?: Product["options"]): Product {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     basePrice: row.base_price,
     category: row.category,
+    emoji: row.emoji ?? undefined,
     imageUrl: row.image_url,
+    productType: row.product_type ?? "simple",
+    options: options ?? [],
     isActive: row.is_active,
   };
 }
@@ -1859,7 +2160,7 @@ async function resolveReplacementOptions(input: {
       schema: input.schemaName,
       table: "products",
       query: {
-        select: "id,name,description,base_price,category,image_url,is_active",
+        select: "id,name,description,base_price,category,emoji,image_url,is_active",
         id: `in.(${productIds.join(",")})`,
         is_active: "eq.true",
         limit: productIds.length,
@@ -2001,6 +2302,10 @@ async function requireAuthUser(
 
   const user = (await response.json()) as AuthUser;
   return user;
+}
+
+function isSystemAdmin(user: AuthUser) {
+  return user.app_metadata?.system_admin === true || user.app_metadata?.role === "system_admin";
 }
 
 async function getAuthorizedTenants(env: ApiBindings, userId: string): Promise<TenantRow[]> {
