@@ -35,15 +35,33 @@ import { persistHumanInterventionAlert } from "../handoff-service/handoff-servic
 import { detectSignals, parseFulfillmentSelection, parsePaymentMethod, type DetectedSignals } from "./signal-detector";
 import {
   buildAddMorePrompt,
+  buildAddressSaveFailedPrompt,
+  buildAddressSavedPrompt,
   buildClarificationPrompt,
+  buildContinueWithMenuAndDraftPrompt,
   buildCurrentDraftText,
   buildDeliveryAddressPrompt,
+  buildEditableSummaryAdjustmentPrompt,
+  buildEmptyDraftPrompt,
   buildFulfillmentPrompt,
+  buildLocationCapturedForLaterMessage,
   buildManualHandoffMessage,
   buildMaxClarificationMessage,
   buildOrderAdjustedPrompt,
+  buildOrderSubmittedForReviewMessage,
   buildOrderSummaryText,
   buildPaymentPrompt,
+  buildPickupPaymentPrompt,
+  buildReplacementAppliedMessage,
+  buildReplacementCancelledMessage,
+  buildReplacementOptionUnavailableMessage,
+  buildReplacementOrderNotFoundMessage,
+  buildReplacementSelectionPrompt,
+  buildReplacementUnresolvedMessage,
+  buildReplacementUpdateFailedMessage,
+  buildRestaurantReviewPendingMessage,
+  buildResumeExistingOrderPrompt,
+  buildTransferProofReceivedMessage,
 } from "./response-composer";
 
 export type RouteInboundMessageInput = {
@@ -115,7 +133,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
       manualReason: "transfer_payment_review",
       title: "Comprobante pendiente por revisar",
       description: "El cliente envio un comprobante o aviso de pago por transferencia.",
-      responseText: "Recibi el comprobante. Ya se lo dejo al restaurante para que lo revise.",
+      responseText: buildTransferProofReceivedMessage(),
     });
     return;
   }
@@ -123,7 +141,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.conversation.state === "awaiting_restaurant_confirmation") {
     await sendAndLogText(
       input,
-      "Tu pedido sigue en revision por el restaurante. Apenas lo confirmen te avisamos por aqui.",
+      buildRestaurantReviewPendingMessage(),
     );
     return;
   }
@@ -204,7 +222,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.message.type === "location" && input.message.location) {
     await sendAndLogText(
       input,
-      "Recibi tu ubicacion. La uso como direccion de entrega cuando sigamos con el pedido.",
+      buildLocationCapturedForLaterMessage(),
     );
     return;
   }
@@ -254,11 +272,11 @@ async function handleGreetingOrMenu(input: RouteInboundMessageInput, isGreeting:
           resetClarificationAttempts: true,
         }).catch(() => undefined);
 
-        await sendAndLogText(input, [buildMenuText(menu), "", buildCurrentDraftText(draft), "Puedes pedirme otro producto por nombre o numero."].join("\n"));
+        await sendAndLogText(input, buildContinueWithMenuAndDraftPrompt(buildMenuText(menu), draft));
         return;
       }
 
-      await sendAndLogText(input, ["Aqui seguimos con tu pedido.", buildCurrentDraftText(draft), buildClarificationPrompt(input.conversation.state)].join("\n\n"));
+      await sendAndLogText(input, buildResumeExistingOrderPrompt(draft, buildClarificationPrompt(input.conversation.state)));
       return;
     }
   }
@@ -665,7 +683,7 @@ async function continueAfterSemanticEdit(input: RouteInboundMessageInput, payloa
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
-    await sendAndLogText(input, ["Listo, lo ajuste.", "", buildOrderSummaryText(payload.draft, payload.draft.paymentMethod)].join("\n"));
+    await sendAndLogText(input, buildOrderAdjustedPrompt(payload.draft));
     return;
   }
 
@@ -798,7 +816,7 @@ async function proceedToNextOrderStep(input: RouteInboundMessageInput, payload?:
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
-    await sendAndLogText(input, "Todavia no tengo productos en el pedido. Que quieres pedir?");
+    await sendAndLogText(input, buildEmptyDraftPrompt());
     return;
   }
 
@@ -923,7 +941,7 @@ async function tryHandleFulfillmentSelection(input: RouteInboundMessageInput, si
     resetClarificationAttempts: true,
   }).catch(() => undefined);
 
-  await sendAndLogText(input, ["Perfecto, queda para recoger.", buildPaymentPrompt(updatedDraft, menu)].join("\n\n"));
+  await sendAndLogText(input, buildPickupPaymentPrompt(menu, updatedDraft));
   return true;
 }
 
@@ -959,7 +977,7 @@ async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, signals
   if (!address) {
     await handleClarification(
       input,
-      "No pude guardar bien la direccion. Enviamela otra vez o comparte tu ubicacion de WhatsApp.",
+      buildAddressSaveFailedPrompt(),
       "validation_failed_repeatedly",
     );
     return true;
@@ -997,7 +1015,7 @@ async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, signals
 
     await sendAndLogText(
       input,
-      [`Listo, uso esta direccion: ${address.addressText}.`, "", buildOrderSummaryText(draftWithPayment, paymentMethod)].join("\n"),
+      buildAddressSavedPrompt(address.addressText, buildOrderSummaryText(draftWithPayment, paymentMethod)),
     );
     return true;
   }
@@ -1012,7 +1030,7 @@ async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, signals
 
   await sendAndLogText(
     input,
-    [`Listo, uso esta direccion: ${address.addressText}.`, "", buildPaymentPrompt(updatedDraft, menu)].join("\n"),
+    buildAddressSavedPrompt(address.addressText, buildPaymentPrompt(updatedDraft, menu)),
   );
   return true;
 }
@@ -1068,7 +1086,7 @@ async function tryHandleConfirmation(input: RouteInboundMessageInput, signals: D
 
     await sendAndLogText(
       input,
-      "Dale, lo ajustamos. Dime que cambiamos: puedes pedirme que agregue, quite o cambie productos.",
+      buildEditableSummaryAdjustmentPrompt(),
     );
     return true;
   }
@@ -1101,12 +1119,7 @@ async function tryHandleConfirmation(input: RouteInboundMessageInput, signals: D
 
   await sendAndLogText(
     input,
-    [
-      `Listo, deje tu pedido ${order.id.slice(0, 8)} pendiente de revision.`,
-      draft.paymentMethod === "transfer"
-        ? "El restaurante revisa disponibilidad primero y, si todo esta bien, te compartimos los datos para la transferencia por aqui."
-        : "El restaurante lo revisa y te confirma por aqui en un momento.",
-    ].join("\n"),
+    buildOrderSubmittedForReviewMessage(order.id, draft.paymentMethod),
   );
   return true;
 }
@@ -1128,7 +1141,7 @@ async function tryHandleReplacementSelection(
       manualReason: "replacement_order_not_found",
       title: "No se encontro el pedido para reemplazo",
       description: "La conversacion estaba esperando reemplazo, pero no se encontro una orden en ese estado.",
-      responseText: "No pude ubicar el pedido que estaba pendiente por ajustar. Te comunico con alguien del restaurante.",
+      responseText: buildReplacementOrderNotFoundMessage(),
     });
     return true;
   }
@@ -1149,7 +1162,7 @@ async function tryHandleReplacementSelection(
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
-    await sendAndLogText(input, "Listo, cancelamos el pedido. Gracias por avisarnos.");
+    await sendAndLogText(input, buildReplacementCancelledMessage());
     return true;
   }
 
@@ -1182,7 +1195,7 @@ async function tryHandleReplacementSelection(
 
     await sendAndLogText(
       input,
-      `Listo, cambiamos ${result.unavailableItemName} por ${result.selectedReplacement.name}. El restaurante confirma el ajuste en un momento.`,
+      buildReplacementAppliedMessage(result.unavailableItemName, result.selectedReplacement.name),
     );
     return true;
   } catch (error) {
@@ -1201,8 +1214,8 @@ async function tryHandleReplacementSelection(
         ? "La opcion elegida por el cliente ya no estaba disponible al procesar la respuesta."
         : "El sistema no pudo actualizar la orden despues de la seleccion del cliente.",
       responseText: replacementBecameUnavailable
-        ? "La opcion que elegiste ya no esta disponible. Te comunico con alguien del restaurante para resolverlo."
-        : "No pude actualizar el pedido con ese reemplazo. Te comunico con alguien del restaurante.",
+        ? buildReplacementOptionUnavailableMessage()
+        : buildReplacementUpdateFailedMessage(),
     });
     return true;
   }
@@ -1222,7 +1235,7 @@ async function handleReplacementSelectionClarification(input: RouteInboundMessag
       manualReason: "replacement_order_not_found",
       title: "No se encontro el pedido para reemplazo",
       description: "La conversacion estaba esperando reemplazo, pero no se encontro una orden en ese estado.",
-      responseText: "No pude ubicar el pedido que estaba pendiente por ajustar. Te comunico con alguien del restaurante.",
+      responseText: buildReplacementOrderNotFoundMessage(),
     });
     return;
   }
@@ -1233,7 +1246,7 @@ async function handleReplacementSelectionClarification(input: RouteInboundMessag
       manualReason: "replacement_selection_unresolved",
       title: "Cliente no eligio reemplazo claro",
       description: "El cliente no eligio un reemplazo interpretable despues de varios intentos.",
-      responseText: "No logre identificar el reemplazo que prefieres. Te comunico con alguien del restaurante para resolverlo.",
+      responseText: buildReplacementUnresolvedMessage(),
     });
     return;
   }
@@ -1446,21 +1459,6 @@ function resolveReplacementOptionSelection(input: {
   return partialMatches.length === 1 ? (partialMatches[0] ?? null) : null;
 }
 
-function buildReplacementSelectionPrompt(replacementOptions: Array<{
-  name: string;
-  price?: number;
-}>): string {
-  const lines = replacementOptions
-    .slice(0, 3)
-    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` - ${formatCop(option.price)}` : ""}`);
-
-  return [
-    "No te entendi bien.",
-    'Responde con el numero de la opcion que prefieras o escribe "cancelar":',
-    lines.join("\n"),
-  ].join("\n\n");
-}
-
 function normalizeReplacementSelectionText(value: string): string {
   return value
     .toLowerCase()
@@ -1469,14 +1467,6 @@ function normalizeReplacementSelectionText(value: string): string {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function formatCop(value: number): string {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(value);
 }
 
 function mergeSemanticSignals(signals: DetectedSignals, parsed: SemanticParserResult): DetectedSignals {

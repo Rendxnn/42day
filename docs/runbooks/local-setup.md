@@ -35,13 +35,37 @@ corepack pnpm install
 
 ## Variables de entorno
 
+El repo tiene tres capas de configuracion local:
+
+- `.env` en la raiz como referencia general del proyecto,
+- `apps/api/.dev.vars` para `wrangler dev`,
+- `apps/dashboard/.env` o `apps/dashboard/.env.local` para Vite.
+
 Copiar:
 
 ```bash
 cp .env.example .env
+cp apps/api/.dev.vars.example apps/api/.dev.vars
+cp apps/dashboard/.env.example apps/dashboard/.env
 ```
 
-Completar:
+Completar al menos estas variables en `apps/api/.dev.vars`:
+
+```txt
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+Completar al menos estas variables en `apps/dashboard/.env`:
+
+```txt
+VITE_API_BASE_URL
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+Variables del proyecto raiz (`.env`):
 
 ```txt
 META_VERIFY_TOKEN

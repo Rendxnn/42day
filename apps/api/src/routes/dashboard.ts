@@ -1979,16 +1979,16 @@ function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): str
   if (order.payment_method === "transfer") {
     const instructions = location?.transfer_payment_instructions?.trim();
     return [
-      `Listo, tu pedido ${order.id.slice(0, 8)} fue confirmado por el restaurante.`,
+      `¡Gracias! Tu pedido ${order.id.slice(0, 8)} ya fue confirmado por el restaurante. 🙌`,
       instructions
-        ? `Puedes hacer la transferencia con estos datos:\n${instructions}\n\nCuando la hagas, enviame el comprobante por aqui.`
-        : "Puedes hacer la transferencia y enviarnos el comprobante por aqui.",
+        ? `Puedes hacer la transferencia con estos datos:\n${instructions}\n\nCuando la realices, envíame el comprobante por aquí y con gusto continuamos.`
+        : "Puedes hacer la transferencia y, cuando la realices, envíame el comprobante por aquí para continuar con tu pedido.",
     ].join("\n\n");
   }
 
   return [
-    `Listo, tu pedido ${order.id.slice(0, 8)} fue confirmado por el restaurante.`,
-    "Ya lo estamos preparando y cualquier novedad te avisamos por aqui.",
+    `¡Gracias! Tu pedido ${order.id.slice(0, 8)} ya fue confirmado por el restaurante. 🙌`,
+    "Ya lo estamos preparando. Si surge alguna novedad, te escribiré por aquí.",
   ].join("\n\n");
 }
 
@@ -1998,13 +1998,13 @@ function buildOutOfStockMessage(itemName: string, replacementOptions: Array<{
 }>): string {
   const replacementLines = replacementOptions
     .slice(0, 3)
-    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` - ${formatCop(option.price)}` : ""}`);
+    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` — ${formatCop(option.price)}` : ""}`);
 
   return [
-    `No tenemos ${itemName} en este momento.`,
-    "Te ofrecemos estas opciones de la misma categoria:",
+    `Lo siento mucho, en este momento no tenemos ${itemName}.`,
+    "Si quieres, puedes elegir una de estas opciones similares:",
     replacementLines.join("\n"),
-    'Responde con el numero de la opcion que prefieras o escribe "cancelar".',
+    'Respóndeme con el número de la opción que prefieras o escribe "cancelar" si prefieres no continuar con ese pedido.',
   ].join("\n\n");
 }
 
@@ -2279,7 +2279,15 @@ async function requireAuthUser(
 ): Promise<AuthUser | Response> {
   const anonKey = c.env.SUPABASE_ANON_KEY;
   if (!anonKey || anonKey === "replace-me") {
-    return c.json({ error: "supabase_anon_not_configured" }, 500);
+    return c.json(
+      {
+        error: "supabase_anon_not_configured",
+        message: c.env.APP_ENV === "local"
+          ? "Set SUPABASE_ANON_KEY in apps/api/.dev.vars and restart wrangler dev."
+          : "Set SUPABASE_ANON_KEY in the Worker environment.",
+      },
+      503,
+    );
   }
 
   const authorization = c.req.header("Authorization");

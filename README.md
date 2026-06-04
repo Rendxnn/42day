@@ -68,6 +68,12 @@ Logs:
 .dev-logs/dashboard.err.log
 ```
 
+Importante para login/dashboard:
+
+- el Worker local lee secretos desde `apps/api/.dev.vars`,
+- Vite lee variables desde `apps/dashboard/.env` o `apps/dashboard/.env.local`,
+- el archivo raiz `.env` no reemplaza esos archivos en runtime local.
+
 ## Estructura
 
 ```txt
