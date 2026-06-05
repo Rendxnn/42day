@@ -5,8 +5,12 @@ import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
   analyzeMenuImage,
+  createAdminRestaurant,
+  createAdminRestaurantMember,
   createProduct,
   DashboardApiError,
+  deleteAdminRestaurant,
+  deleteAdminRestaurantMember,
   deleteMenuItem,
   deleteProduct,
   getAdminOverview,
@@ -15,11 +19,15 @@ import {
   getPublicCarta,
   getTodayMenu,
   listOrders,
+  listAdminRestaurants,
+  resetAdminRestaurantMemberPassword,
   updateMenuItem,
+  updateAdminRestaurant,
+  updateAdminRestaurantMember,
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { AdminOverview, DashboardTenant, DetectedMenuProduct } from "./api";
+import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
   Camera,
@@ -36,14 +44,18 @@ import {
   List,
   Loader2,
   MapPin,
+  Power,
   Plus,
   QrCode,
   Search,
   SearchCheck,
   Sparkles,
+  Store,
   Trash2,
   UploadCloud,
   Utensils,
+  UserPlus,
+  Users,
   X,
 } from "lucide-react";
 import { OrdersView } from "./orders";
@@ -3433,17 +3445,422 @@ function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
   );
 }
 
+type AdminRestaurantCreateForm = {
+  name: string;
+  slug: string;
+  ownerEmail: string;
+  ownerName: string;
+  ownerPassword: string;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: string;
+};
+
+type AdminRestaurantEditForm = {
+  name: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: string;
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  locationAutomationEnabled: boolean;
+  transferPaymentInstructions: string;
+};
+
+type AdminMemberForm = {
+  email: string;
+  name: string;
+  role: AdminRestaurantMember["role"];
+  password: string;
+};
+
+type AdminSection = "overview" | "settings" | "users";
+
+const emptyAdminRestaurantCreateForm: AdminRestaurantCreateForm = {
+  name: "",
+  slug: "",
+  ownerEmail: "",
+  ownerName: "",
+  ownerPassword: "",
+  locationName: "Sede principal",
+  locationAddress: "",
+  locationPhone: "",
+  deliveryFeeFixed: "0",
+};
+
+const emptyAdminMemberForm: AdminMemberForm = {
+  email: "",
+  name: "",
+  role: "encargado",
+  password: "",
+};
+
+const adminStatusCopy: Record<AdminRestaurantStatus, { label: string; description: string; className: string }> = {
+  active: {
+    label: "Activo",
+    description: "Opera normalmente y aparece en accesos publicos.",
+    className: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
+  },
+  suspended: {
+    label: "Pausado",
+    description: "Acceso conservado, operacion y automatizacion detenidas.",
+    className: "bg-[rgba(158,108,72,0.14)] text-[var(--warning)]",
+  },
+  inactive: {
+    label: "Inactivo",
+    description: "Retirado de operacion diaria sin borrar datos historicos.",
+    className: "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]",
+  },
+};
+
+function buildAdminRestaurantEditForm(restaurant: AdminRestaurant): AdminRestaurantEditForm {
+  return {
+    name: restaurant.name,
+    status: restaurant.status,
+    timezone: restaurant.timezone,
+    currency: restaurant.currency,
+    automationEnabled: restaurant.automationEnabled,
+    locationName: restaurant.location?.name ?? "Sede principal",
+    locationAddress: restaurant.location?.address ?? "",
+    locationPhone: restaurant.location?.phone ?? "",
+    deliveryFeeFixed: String(restaurant.location?.deliveryFeeFixed ?? 0),
+    pickupEnabled: restaurant.location?.pickupEnabled ?? true,
+    deliveryEnabled: restaurant.location?.deliveryEnabled ?? true,
+    locationAutomationEnabled: restaurant.location?.automationEnabled ?? true,
+    transferPaymentInstructions: restaurant.location?.transferPaymentInstructions ?? "",
+  };
+}
+
+function getAdminErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof DashboardApiError) return error.backendError ?? error.message;
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
+
 function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; onLogout: () => Promise<void> }) {
+  const [restaurants, setRestaurants] = useState<AdminRestaurant[]>([]);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
+  const [restaurantSearch, setRestaurantSearch] = useState("");
+  const [adminSection, setAdminSection] = useState<AdminSection>("overview");
+  const [createForm, setCreateForm] = useState<AdminRestaurantCreateForm>(emptyAdminRestaurantCreateForm);
+  const [editForm, setEditForm] = useState<AdminRestaurantEditForm | null>(null);
+  const [memberForm, setMemberForm] = useState<AdminMemberForm>(emptyAdminMemberForm);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState<{ label: string; password: string } | null>(null);
+
+  const selectedRestaurant = useMemo(
+    () => restaurants.find((restaurant) => restaurant.id === selectedRestaurantId) ?? restaurants[0],
+    [restaurants, selectedRestaurantId],
+  );
+  const activeRestaurantCount = restaurants.length > 0
+    ? restaurants.filter((restaurant) => restaurant.status === "active").length
+    : overview.activeRestaurantCount;
+  const suspendedRestaurantCount = restaurants.filter((restaurant) => restaurant.status === "suspended").length;
+  const inactiveRestaurantCount = restaurants.filter((restaurant) => restaurant.status === "inactive").length;
+  const totalMemberCount = restaurants.reduce((sum, restaurant) => sum + restaurant.members.length, 0);
+  const totalOrdersToday = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.ordersTodayCount, 0);
+  const totalPendingOrders = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.pendingOrderCount, 0);
+  const totalRevenueToday = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.revenueToday, 0);
+  const filteredRestaurants = useMemo(() => {
+    const query = restaurantSearch.trim().toLowerCase();
+    if (!query) return restaurants;
+    return restaurants.filter((restaurant) => (
+      restaurant.name.toLowerCase().includes(query)
+      || restaurant.slug.toLowerCase().includes(query)
+      || restaurant.schemaName.toLowerCase().includes(query)
+      || restaurant.members.some((member) => (
+        (member.email ?? "").toLowerCase().includes(query)
+        || (member.name ?? "").toLowerCase().includes(query)
+      ))
+    ));
+  }, [restaurantSearch, restaurants]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRestaurants() {
+      setIsLoading(true);
+      try {
+        const payload = await listAdminRestaurants();
+        if (!mounted) return;
+        setRestaurants(payload.restaurants);
+        setSelectedRestaurantId((current) => (
+          current && payload.restaurants.some((restaurant) => restaurant.id === current)
+            ? current
+            : payload.restaurants[0]?.id ?? ""
+        ));
+        setError("");
+      } catch (loadError) {
+        if (!mounted) return;
+        setError(getAdminErrorMessage(loadError, "No se pudieron cargar los restaurantes."));
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    }
+
+    void loadRestaurants();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedRestaurant) {
+      setEditForm(buildAdminRestaurantEditForm(selectedRestaurant));
+    }
+  }, [selectedRestaurant]);
+
+  async function reloadRestaurants(nextSelectedId?: string) {
+    const payload = await listAdminRestaurants();
+    setRestaurants(payload.restaurants);
+    setSelectedRestaurantId((current) => {
+      const preferred = nextSelectedId ?? current;
+      if (preferred && payload.restaurants.some((restaurant) => restaurant.id === preferred)) return preferred;
+      return payload.restaurants[0]?.id ?? "";
+    });
+    return payload.restaurants;
+  }
+
+  async function handleCreateRestaurant(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!createForm.name.trim()) {
+      setError("El nombre del restaurante es obligatorio.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await createAdminRestaurant({
+        name: createForm.name.trim(),
+        slug: createForm.slug.trim() || undefined,
+        ownerEmail: createForm.ownerEmail.trim() || undefined,
+        ownerName: createForm.ownerName.trim() || undefined,
+        ownerPassword: createForm.ownerPassword || undefined,
+        locationName: createForm.locationName.trim() || "Sede principal",
+        locationAddress: createForm.locationAddress.trim() || undefined,
+        locationPhone: createForm.locationPhone.trim() || undefined,
+        deliveryFeeFixed: Number(createForm.deliveryFeeFixed || 0),
+      });
+      await reloadRestaurants(payload.restaurant.id);
+      setCreateForm(emptyAdminRestaurantCreateForm);
+      setNotice(`Restaurante creado: ${payload.restaurant.name}`);
+      if (payload.temporaryPassword) {
+        setPasswordNotice({
+          label: payload.owner?.email ? `Owner ${payload.owner.email}` : "Owner inicial",
+          password: payload.temporaryPassword,
+        });
+      }
+    } catch (createError) {
+      setError(getAdminErrorMessage(createError, "No se pudo crear el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSaveRestaurant() {
+    if (!selectedRestaurant || !editForm) return;
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await updateAdminRestaurant(selectedRestaurant.id, {
+        name: editForm.name.trim(),
+        status: editForm.status,
+        timezone: editForm.timezone.trim() || "America/Bogota",
+        currency: editForm.currency.trim() || "COP",
+        automationEnabled: editForm.automationEnabled,
+        locationName: editForm.locationName.trim() || "Sede principal",
+        locationAddress: editForm.locationAddress.trim(),
+        locationPhone: editForm.locationPhone.trim(),
+        deliveryFeeFixed: Number(editForm.deliveryFeeFixed || 0),
+        pickupEnabled: editForm.pickupEnabled,
+        deliveryEnabled: editForm.deliveryEnabled,
+        locationAutomationEnabled: editForm.locationAutomationEnabled,
+        transferPaymentInstructions: editForm.transferPaymentInstructions.trim(),
+      });
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice("Restaurante actualizado.");
+    } catch (saveError) {
+      setError(getAdminErrorMessage(saveError, "No se pudo actualizar el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRestaurantStatus(status: AdminRestaurantStatus) {
+    if (!selectedRestaurant) return;
+    setEditForm((current) => current ? { ...current, status, automationEnabled: status === "active" ? current.automationEnabled : false } : current);
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await updateAdminRestaurant(selectedRestaurant.id, {
+        status,
+        automationEnabled: status === "active" ? selectedRestaurant.automationEnabled : false,
+      });
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice(status === "active" ? "Restaurante reactivado." : "Restaurante pausado.");
+    } catch (statusError) {
+      setError(getAdminErrorMessage(statusError, "No se pudo cambiar el estado del restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteRestaurant() {
+    if (!selectedRestaurant) return;
+    const confirmed = window.confirm(`Esto inactiva ${selectedRestaurant.name}, sus usuarios y canales. Los datos historicos se conservan. Continuar?`);
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      await deleteAdminRestaurant(selectedRestaurant.id);
+      await reloadRestaurants();
+      setNotice("Restaurante inactivado.");
+    } catch (deleteError) {
+      setError(getAdminErrorMessage(deleteError, "No se pudo inactivar el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleCreateMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedRestaurant || !memberForm.email.trim()) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await createAdminRestaurantMember(selectedRestaurant.id, {
+        email: memberForm.email.trim(),
+        name: memberForm.name.trim() || undefined,
+        role: memberForm.role,
+        password: memberForm.password || undefined,
+      });
+      await reloadRestaurants(selectedRestaurant.id);
+      setMemberForm(emptyAdminMemberForm);
+      setPasswordNotice({
+        label: payload.member.email ?? memberForm.email,
+        password: payload.temporaryPassword,
+      });
+      setNotice("Miembro agregado al restaurante.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo agregar el miembro."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleUpdateMember(member: AdminRestaurantMember, patch: Partial<Pick<AdminRestaurantMember, "role" | "status" | "name">>) {
+    if (!selectedRestaurant) return;
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await updateAdminRestaurantMember(selectedRestaurant.id, member.userId, patch);
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice("Usuario actualizado.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo actualizar el usuario."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRemoveMember(member: AdminRestaurantMember) {
+    if (!selectedRestaurant) return;
+    const confirmed = window.confirm(`Quitar acceso a ${member.email ?? member.userId}?`);
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      await deleteAdminRestaurantMember(selectedRestaurant.id, member.userId);
+      await reloadRestaurants(selectedRestaurant.id);
+      setNotice("Usuario inactivado.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo inactivar el usuario."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleResetMemberPassword(member: AdminRestaurantMember) {
+    if (!selectedRestaurant) return;
+    const requestedPassword = window.prompt(
+      `Nueva contrasena para ${member.email ?? member.userId}`,
+      selectedRestaurant.defaultPassword,
+    );
+    if (requestedPassword === null) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await resetAdminRestaurantMemberPassword(
+        selectedRestaurant.id,
+        member.userId,
+        requestedPassword.trim() || undefined,
+      );
+      setPasswordNotice({
+        label: member.email ?? member.userId,
+        password: payload.temporaryPassword,
+      });
+      setNotice("Contrasena restablecida.");
+    } catch (passwordError) {
+      setError(getAdminErrorMessage(passwordError, "No se pudo restablecer la contrasena."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function copyToClipboard(value: string) {
+    await navigator.clipboard?.writeText(value).catch(() => undefined);
+    setNotice("Copiado al portapapeles.");
+  }
+
   return (
-    <div className="min-h-screen px-4 py-4">
-      <main className="mx-auto min-h-[calc(100vh-2rem)] w-full max-w-5xl rounded-[30px] border border-[var(--shell-border)] bg-[rgba(32,28,25,0.96)] p-6 text-[var(--text-on-dark)] shadow-[0_28px_90px_rgba(0,0,0,0.28)] sm:p-8">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--shell-border)] pb-6">
+    <div className="min-h-screen px-3 py-3 sm:px-4">
+      <main className="mx-auto min-h-[calc(100vh-1.5rem)] w-full max-w-[1480px] rounded-[26px] border border-[var(--shell-border)] bg-[rgba(32,28,25,0.96)] p-4 text-[var(--text-on-dark)] shadow-[0_28px_90px_rgba(0,0,0,0.28)] sm:p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--shell-border)] pb-5">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Administrador</p>
-            <h1 className="app-display mt-3 text-[2.8rem] leading-none sm:text-[3.4rem]">Thaledon</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Administrador 42day</p>
+            <h1 className="mt-2 text-2xl font-extrabold text-[var(--text-on-dark)] sm:text-3xl">Gestion de restaurantes</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[rgba(246,236,223,0.68)]">
+              Consola central para alta, usuarios, estado operativo, metricas y configuracion de cada restaurante.
+            </p>
           </div>
           <button
-            className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+            className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
             onClick={() => void onLogout()}
             type="button"
           >
@@ -3451,14 +3868,680 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
           </button>
         </header>
 
-        <section className="pt-8">
-          <div className="app-panel max-w-md rounded-[28px] p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Restaurantes activos</p>
-            <p className="app-display mt-5 text-[5rem] leading-none text-[var(--text-strong)]">{overview.activeRestaurantCount}</p>
-          </div>
+        <section className="grid gap-3 py-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <AdminMetricCard icon={<Store size={18} />} label="Restaurantes activos" value={String(activeRestaurantCount)} />
+          <AdminMetricCard icon={<Power size={18} />} label="Pausados" value={String(suspendedRestaurantCount)} />
+          <AdminMetricCard icon={<Users size={18} />} label="Usuarios vinculados" value={String(totalMemberCount)} />
+          <AdminMetricCard icon={<ClipboardList size={18} />} label="Pedidos hoy" value={String(totalOrdersToday)} />
+          <AdminMetricCard icon={<Bell size={18} />} label="Pendientes hoy" value={String(totalPendingOrders)} />
+          <AdminMetricCard icon={<Utensils size={18} />} label="Ingresos hoy" value={formatPrice(totalRevenueToday)} />
+          <AdminMetricCard icon={<Trash2 size={18} />} label="Inactivos" value={String(inactiveRestaurantCount)} />
+        </section>
+
+        {(error || notice || passwordNotice) && (
+          <section className="mb-6 grid gap-3">
+            {error && (
+              <div className="rounded-[22px] border border-[rgba(180,94,84,0.2)] bg-[rgba(190,110,95,0.12)] px-4 py-3 text-sm font-semibold text-[#f3b7aa]">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="rounded-[22px] border border-[rgba(119,162,126,0.2)] bg-[rgba(79,122,97,0.13)] px-4 py-3 text-sm font-semibold text-[#cbe5d2]">
+                {notice}
+              </div>
+            )}
+            {passwordNotice && (
+              <div className="rounded-[24px] border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Contrasena temporal</p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--text-on-dark)]">{passwordNotice.label}</p>
+                    <p className="mt-1 rounded-2xl bg-[rgba(14,11,9,0.32)] px-3 py-2 font-mono text-sm text-[rgba(246,236,223,0.9)]">
+                      {passwordNotice.password}
+                    </p>
+                  </div>
+                  <button
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-4 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
+                    onClick={() => void copyToClipboard(passwordNotice.password)}
+                    type="button"
+                  >
+                    <Copy size={16} />
+                    Copiar
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+          <aside className="app-panel overflow-hidden rounded-[24px]">
+            <div className="border-b border-[rgba(118,93,71,0.12)] p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Restaurantes</p>
+                  <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{restaurants.length} clientes</h2>
+                </div>
+                {isLoading && <Loader2 className="animate-spin text-[var(--text-soft)]" size={18} />}
+              </div>
+              <label className="mt-4 flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3">
+                <Search size={16} className="text-[var(--text-faint)]" />
+                <input
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-strong)] outline-none placeholder:text-[var(--text-faint)]"
+                  onChange={(event) => setRestaurantSearch(event.target.value)}
+                  placeholder="Buscar por nombre, slug, schema o usuario"
+                  value={restaurantSearch}
+                />
+              </label>
+            </div>
+
+            <div className="app-scrollbar max-h-[calc(100vh-390px)] min-h-[260px] overflow-y-auto p-3">
+              {filteredRestaurants.length === 0 && !isLoading ? (
+                <div className="rounded-[18px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
+                  No hay restaurantes para ese filtro.
+                </div>
+              ) : filteredRestaurants.map((restaurant) => (
+                <button
+                  className={`w-full rounded-[18px] border p-3 text-left transition ${
+                    selectedRestaurant?.id === restaurant.id
+                      ? "border-[rgba(197,123,87,0.38)] bg-[rgba(236,222,205,0.92)] shadow-[inset_4px_0_0_rgba(197,123,87,0.72)]"
+                      : "border-transparent bg-transparent hover:border-[rgba(118,93,71,0.1)] hover:bg-[rgba(255,251,246,0.7)]"
+                  }`}
+                  key={restaurant.id}
+                  onClick={() => setSelectedRestaurantId(restaurant.id)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[var(--text-strong)]">{restaurant.name}</p>
+                      <p className="mt-1 truncate text-xs font-semibold text-[var(--text-faint)]">{restaurant.slug}</p>
+                    </div>
+                    <AdminStatusBadge status={restaurant.status} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-bold text-[var(--text-soft)]">
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.members.length} usuarios</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.metrics.ordersTodayCount} pedidos</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.automationEnabled ? "Auto ON" : "Auto OFF"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <details className="border-t border-[rgba(118,93,71,0.12)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-sm font-bold text-[var(--text-strong)] sm:px-5">
+                <span className="inline-flex items-center gap-2">
+                  <UserPlus size={16} />
+                  Crear restaurante
+                </span>
+                <Plus size={16} className="text-[var(--text-faint)]" />
+              </summary>
+              <form className="grid gap-4 border-t border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.42)] p-4 sm:p-5" onSubmit={(event) => void handleCreateRestaurant(event)}>
+                <AdminTextInput
+                  label="Nombre restaurante"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, name: value }))}
+                  placeholder="Ej. Arepas del Parque"
+                  value={createForm.name}
+                />
+                <AdminTextInput
+                  label="Slug publico"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, slug: value }))}
+                  placeholder="arepas-del-parque"
+                  value={createForm.slug}
+                />
+                <AdminTextInput
+                  label="Owner email"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerEmail: value }))}
+                  placeholder="admin@restaurante.com"
+                  value={createForm.ownerEmail}
+                />
+                <AdminTextInput
+                  label="Owner nombre"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerName: value }))}
+                  placeholder="Encargado"
+                  value={createForm.ownerName}
+                />
+                <AdminTextInput
+                  label="Contrasena inicial"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerPassword: value }))}
+                  placeholder="vacio usa slug_42*password"
+                  type="password"
+                  value={createForm.ownerPassword}
+                />
+                <AdminTextInput
+                  label="Sede"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationName: value }))}
+                  placeholder="Sede principal"
+                  value={createForm.locationName}
+                />
+                <AdminTextInput
+                  label="Direccion"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationAddress: value }))}
+                  placeholder="Direccion comercial"
+                  value={createForm.locationAddress}
+                />
+                <AdminTextInput
+                  label="Telefono sede"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationPhone: value }))}
+                  placeholder="+57..."
+                  value={createForm.locationPhone}
+                />
+                <AdminTextInput
+                  label="Domicilio fijo"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, deliveryFeeFixed: value }))}
+                  placeholder="0"
+                  type="number"
+                  value={createForm.deliveryFeeFixed}
+                />
+              <button
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSaving}
+                type="submit"
+              >
+                {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                Crear restaurante
+              </button>
+            </form>
+            </details>
+          </aside>
+
+          <section className="app-panel min-h-[720px] overflow-hidden rounded-[24px]">
+            {!selectedRestaurant || !editForm ? (
+              <div className="grid min-h-[720px] place-items-center p-8 text-center">
+                <div>
+                  <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--surface-base)] text-[var(--text-soft)]">
+                    <Store size={20} />
+                  </span>
+                  <h2 className="mt-5 text-2xl font-extrabold text-[var(--text-strong)]">Sin restaurante seleccionado</h2>
+                  <p className="mt-3 max-w-md text-sm leading-7 text-[var(--text-soft)]">
+                    Crea o selecciona un restaurante para editar informacion, usuarios y comportamiento operativo.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 sm:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <AdminStatusBadge status={selectedRestaurant.status} />
+                        <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
+                          {selectedRestaurant.slug}
+                        </span>
+                        <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
+                          {selectedRestaurant.automationEnabled ? "Automatizacion ON" : "Automatizacion OFF"}
+                        </span>
+                      </div>
+                      <h2 className="mt-3 truncate text-3xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.name}</h2>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-soft)]">
+                        {adminStatusCopy[selectedRestaurant.status].description}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        href={selectedRestaurant.cartaUrlPath}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <ExternalLink size={16} />
+                        Carta publica
+                      </a>
+                      <button
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        onClick={() => void copyToClipboard(selectedRestaurant.defaultPassword)}
+                        type="button"
+                      >
+                        <Copy size={16} />
+                        Password default
+                      </button>
+                    </div>
+                  </div>
+
+                  <nav className="mt-5 flex flex-wrap gap-2 rounded-[18px] bg-[var(--surface-base)] p-2">
+                    {[
+                      { id: "overview" as const, label: "Resumen", icon: ClipboardList },
+                      { id: "settings" as const, label: "Ajustes", icon: Power },
+                      { id: "users" as const, label: "Usuarios", icon: Users },
+                    ].map((tab) => {
+                      const Icon = tab.icon;
+                      const active = adminSection === tab.id;
+                      return (
+                        <button
+                          className={`inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-bold transition sm:flex-none ${
+                            active
+                              ? "bg-[var(--panel-strong)] text-[var(--text-strong)] shadow-sm"
+                              : "text-[var(--text-soft)] hover:bg-[rgba(255,251,246,0.55)]"
+                          }`}
+                          key={tab.id}
+                          onClick={() => setAdminSection(tab.id)}
+                          type="button"
+                        >
+                          <Icon size={16} />
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </div>
+
+                {adminSection === "overview" && (
+                  <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_330px]">
+                    <div className="p-5 sm:p-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Comportamiento de hoy</p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <AdminBehaviorMetric label="Productos activos" value={String(selectedRestaurant.metrics.activeProductCount)} />
+                        <AdminBehaviorMetric label="Platos en menu" value={String(selectedRestaurant.metrics.todayMenuItemCount)} />
+                        <AdminBehaviorMetric label="Pedidos hoy" value={String(selectedRestaurant.metrics.ordersTodayCount)} />
+                        <AdminBehaviorMetric label="Pendientes" value={String(selectedRestaurant.metrics.pendingOrderCount)} />
+                        <AdminBehaviorMetric label="Completados" value={String(selectedRestaurant.metrics.completedTodayCount)} />
+                        <AdminBehaviorMetric label="Ingresos hoy" value={formatPrice(selectedRestaurant.metrics.revenueToday)} />
+                      </div>
+
+                      <div className="mt-6 grid gap-4 md:grid-cols-3">
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Canales</p>
+                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">
+                            {selectedRestaurant.location?.pickupEnabled ? "Pickup activo" : "Pickup apagado"}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--text-strong)]">
+                            {selectedRestaurant.location?.deliveryEnabled ? "Domicilio activo" : "Domicilio apagado"}
+                          </p>
+                        </div>
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Sede</p>
+                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">{selectedRestaurant.location?.name ?? "Sede principal"}</p>
+                          <p className="mt-1 text-sm text-[var(--text-soft)]">{selectedRestaurant.location?.phone || "Sin telefono"}</p>
+                        </div>
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Usuarios</p>
+                          <p className="mt-3 text-2xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.members.length}</p>
+                          <p className="text-sm text-[var(--text-soft)]">vinculados al restaurante</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <aside className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Resumen tecnico</p>
+                      <div className="mt-4 space-y-3 text-sm text-[var(--text-soft)]">
+                        <AdminInfoLine label="Tenant ID" value={selectedRestaurant.id} />
+                        <AdminInfoLine label="Schema" value={selectedRestaurant.schemaName} />
+                        <AdminInfoLine label="Carta" value={selectedRestaurant.cartaUrlPath} />
+                        <AdminInfoLine label="Ultimo pedido" value={formatDateTime(selectedRestaurant.metrics.lastOrderAt)} />
+                        <AdminInfoLine label="Creado" value={formatDateTime(selectedRestaurant.createdAt)} />
+                        <AdminInfoLine label="Actualizado" value={formatDateTime(selectedRestaurant.updatedAt)} />
+                      </div>
+                    </aside>
+                  </div>
+                )}
+
+                {adminSection === "settings" && (
+                  <div className="p-5 sm:p-6">
+                    <div className="max-w-5xl">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Configuracion operativa</p>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <AdminTextInput
+                          label="Nombre"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, name: value } : current)}
+                          placeholder="Nombre comercial"
+                          value={editForm.name}
+                        />
+                        <AdminSelect
+                          label="Estado"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, status: value as AdminRestaurantStatus } : current)}
+                          value={editForm.status}
+                        >
+                          <option value="active">Activo</option>
+                          <option value="suspended">Pausado</option>
+                          <option value="inactive">Inactivo</option>
+                        </AdminSelect>
+                        <AdminTextInput
+                          label="Zona horaria"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, timezone: value } : current)}
+                          placeholder="America/Bogota"
+                          value={editForm.timezone}
+                        />
+                        <AdminTextInput
+                          label="Moneda"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, currency: value } : current)}
+                          placeholder="COP"
+                          value={editForm.currency}
+                        />
+                      </div>
+
+                      <div className="mt-5 grid gap-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] p-4 md:grid-cols-3">
+                        <AdminToggle
+                          checked={editForm.automationEnabled}
+                          label="Automatizacion tenant"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, automationEnabled: checked } : current)}
+                        />
+                        <AdminToggle
+                          checked={editForm.pickupEnabled}
+                          label="Recoger en local"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, pickupEnabled: checked } : current)}
+                        />
+                        <AdminToggle
+                          checked={editForm.deliveryEnabled}
+                          label="Domicilio"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, deliveryEnabled: checked } : current)}
+                        />
+                      </div>
+
+                      <div className="mt-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Informacion del restaurante</p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <AdminTextInput
+                            label="Nombre sede"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationName: value } : current)}
+                            placeholder="Sede principal"
+                            value={editForm.locationName}
+                          />
+                          <AdminTextInput
+                            label="Telefono"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationPhone: value } : current)}
+                            placeholder="+57..."
+                            value={editForm.locationPhone}
+                          />
+                          <AdminTextInput
+                            label="Direccion"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationAddress: value } : current)}
+                            placeholder="Direccion comercial"
+                            value={editForm.locationAddress}
+                          />
+                          <AdminTextInput
+                            label="Domicilio fijo"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, deliveryFeeFixed: value } : current)}
+                            placeholder="0"
+                            type="number"
+                            value={editForm.deliveryFeeFixed}
+                          />
+                        </div>
+                        <label className="mt-4 block">
+                          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Instrucciones transferencia</span>
+                          <textarea
+                            className="min-h-24 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 py-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                            onChange={(event) => setEditForm((current) => current ? { ...current, transferPaymentInstructions: event.target.value } : current)}
+                            placeholder="Cuenta, banco o instrucciones de pago..."
+                            value={editForm.transferPaymentInstructions}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap gap-3">
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={isSaving}
+                          onClick={() => void handleSaveRestaurant()}
+                          type="button"
+                        >
+                          {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                          Guardar cambios
+                        </button>
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(158,108,72,0.24)] px-5 text-sm font-semibold text-[var(--warning)] transition hover:bg-[rgba(158,108,72,0.08)]"
+                          onClick={() => void handleRestaurantStatus(selectedRestaurant.status === "active" ? "suspended" : "active")}
+                          type="button"
+                        >
+                          <Power size={16} />
+                          {selectedRestaurant.status === "active" ? "Pausar" : "Reactivar"}
+                        </button>
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.24)] px-5 text-sm font-semibold text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+                          onClick={() => void handleDeleteRestaurant()}
+                          type="button"
+                        >
+                          <Trash2 size={16} />
+                          Borrar acceso
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === "users" && (
+                  <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="p-5 sm:p-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Usuarios</p>
+                          <h3 className="mt-2 text-lg font-semibold text-[var(--text-strong)]">{selectedRestaurant.members.length} miembros</h3>
+                        </div>
+                        <Users className="text-[var(--text-faint)]" size={18} />
+                      </div>
+                    <div className="mt-4 space-y-3">
+                      {selectedRestaurant.members.length === 0 ? (
+                        <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
+                          Este restaurante aun no tiene usuarios.
+                        </div>
+                      ) : selectedRestaurant.members.map((member) => (
+                        <AdminMemberRow
+                          isSaving={isSaving}
+                          key={member.userId}
+                          member={member}
+                          onRemove={() => void handleRemoveMember(member)}
+                          onResetPassword={() => void handleResetMemberPassword(member)}
+                          onUpdate={(patch) => void handleUpdateMember(member, patch)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <form className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0 sm:p-6" onSubmit={(event) => void handleCreateMember(event)}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Nuevo miembro</p>
+                    <h3 className="mt-2 text-lg font-bold text-[var(--text-strong)]">Agregar usuario</h3>
+                    <div className="mt-5 space-y-4">
+                      <AdminTextInput
+                        label="Correo"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, email: value }))}
+                        placeholder="usuario@restaurante.com"
+                        value={memberForm.email}
+                      />
+                      <AdminTextInput
+                        label="Nombre"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, name: value }))}
+                        placeholder="Nombre visible"
+                        value={memberForm.name}
+                      />
+                      <AdminSelect
+                        label="Rol"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, role: value as AdminRestaurantMember["role"] }))}
+                        value={memberForm.role}
+                      >
+                        <option value="encargado">Encargado</option>
+                        <option value="trabajador">Trabajador</option>
+                      </AdminSelect>
+                      <AdminTextInput
+                        label="Contrasena"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, password: value }))}
+                        placeholder={selectedRestaurant.defaultPassword}
+                        type="password"
+                        value={memberForm.password}
+                      />
+                    </div>
+                    <button
+                      className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isSaving}
+                      type="submit"
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
+                      Agregar miembro
+                    </button>
+                  </form>
+                </div>
+                )}
+              </>
+            )}
+          </section>
         </section>
       </main>
     </div>
+  );
+}
+
+function AdminMetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-[18px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.045)] px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgba(246,236,223,0.48)]">{label}</p>
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-[rgba(255,248,240,0.08)] text-[rgba(246,236,223,0.72)]">{icon}</span>
+      </div>
+      <p className="mt-2 truncate text-2xl font-extrabold text-[var(--text-on-dark)]">{value}</p>
+    </div>
+  );
+}
+
+function AdminBehaviorMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-2 truncate text-lg font-bold text-[var(--text-strong)]">{value}</p>
+    </div>
+  );
+}
+
+function AdminTextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{props.label}</span>
+      <input
+        className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+        onChange={(event) => props.onChange(event.target.value)}
+        placeholder={props.placeholder}
+        type={props.type ?? "text"}
+        value={props.value}
+      />
+    </label>
+  );
+}
+
+function AdminSelect({
+  children,
+  label,
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{label}</span>
+      <select
+        className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
+function AdminToggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`flex min-h-14 items-center justify-between gap-3 rounded-2xl border px-4 text-left text-sm font-semibold transition ${
+        checked
+          ? "border-[rgba(79,122,97,0.18)] bg-[rgba(79,122,97,0.1)] text-[var(--success)]"
+          : "border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.56)] text-[var(--text-soft)]"
+      }`}
+      onClick={() => onChange(!checked)}
+      type="button"
+    >
+      {label}
+      <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-[var(--success)]" : "bg-[var(--text-faint)]"}`} />
+    </button>
+  );
+}
+
+function AdminStatusBadge({ status }: { status: AdminRestaurantStatus }) {
+  return (
+    <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${adminStatusCopy[status].className}`}>
+      {adminStatusCopy[status].label}
+    </span>
+  );
+}
+
+function AdminInfoLine({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="rounded-2xl bg-[rgba(255,251,246,0.62)] px-3 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-1 break-all text-xs font-semibold text-[var(--text-strong)]">{value || "sin dato"}</p>
+    </div>
+  );
+}
+
+function AdminMemberRow({
+  isSaving,
+  member,
+  onRemove,
+  onResetPassword,
+  onUpdate,
+}: {
+  isSaving: boolean;
+  member: AdminRestaurantMember;
+  onRemove: () => void;
+  onResetPassword: () => void;
+  onUpdate: (patch: Partial<Pick<AdminRestaurantMember, "role" | "status" | "name">>) => void;
+}) {
+  return (
+    <article className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.72)] p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-bold text-[var(--text-strong)]">{member.email ?? member.userId}</p>
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+              member.status === "active"
+                ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
+                : "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]"
+            }`}>
+              {member.status === "active" ? "Activo" : "Inactivo"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
+            {member.name || "Sin nombre"} · Ultimo ingreso {formatDateTime(member.lastSignInAt)}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-10 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none"
+            disabled={isSaving}
+            onChange={(event) => onUpdate({ role: event.target.value as AdminRestaurantMember["role"] })}
+            value={member.role}
+          >
+            <option value="encargado">Encargado</option>
+            <option value="trabajador">Trabajador</option>
+          </select>
+          <button
+            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            disabled={isSaving}
+            onClick={() => onUpdate({ status: member.status === "active" ? "inactive" : "active" })}
+            type="button"
+          >
+            {member.status === "active" ? "Pausar" : "Activar"}
+          </button>
+          <button
+            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            disabled={isSaving}
+            onClick={onResetPassword}
+            type="button"
+          >
+            Reset password
+          </button>
+          <button
+            className="grid h-10 w-10 place-items-center rounded-2xl border border-[rgba(180,94,84,0.2)] text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+            disabled={isSaving}
+            onClick={onRemove}
+            title="Quitar acceso"
+            type="button"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 

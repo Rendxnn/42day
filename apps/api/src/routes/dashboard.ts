@@ -31,7 +31,12 @@ type TenantRow = {
   name?: string;
   slug: string;
   schema_name: string;
+  status?: TenantStatus;
   timezone?: string;
+  currency?: string;
+  automation_enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type TenantUserRow = {
@@ -39,6 +44,22 @@ type TenantUserRow = {
   user_id: string;
   role: "encargado" | "trabajador";
   status: "active" | "inactive";
+  created_at?: string;
+};
+
+type TenantStatus = "active" | "inactive" | "suspended";
+
+type AdminAuthUser = {
+  id: string;
+  email?: string;
+  created_at?: string;
+  last_sign_in_at?: string | null;
+  user_metadata?: {
+    name?: string;
+    username?: string;
+    source?: string;
+  };
+  app_metadata?: Record<string, unknown>;
 };
 
 type LocationRow = {
@@ -48,6 +69,8 @@ type LocationRow = {
   phone?: string;
   delivery_fee_fixed: number;
   transfer_payment_instructions?: string | null;
+  pickup_enabled?: boolean;
+  delivery_enabled?: boolean;
   automation_enabled?: boolean;
   is_active: boolean;
 };
@@ -265,6 +288,363 @@ dashboardRoutes.get("/admin/overview", async (c) => {
   return c.json({
     activeRestaurantCount: tenants.filter((tenant) => tenant.slug !== "thaledon").length,
   });
+});
+
+dashboardRoutes.get("/admin/restaurants", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const restaurants = await listAdminRestaurants(c.env);
+  return c.json({ restaurants });
+});
+
+dashboardRoutes.post("/admin/restaurants", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    name?: string;
+    slug?: string;
+    timezone?: string;
+    currency?: string;
+    status?: TenantStatus;
+    automationEnabled?: boolean;
+    locationName?: string;
+    locationAddress?: string;
+    locationPhone?: string;
+    deliveryFeeFixed?: number;
+    ownerEmail?: string;
+    ownerName?: string;
+    ownerPassword?: string;
+  };
+  const name = String(body.name ?? "").trim();
+  const slug = normalizeTenantSlug(body.slug || name);
+
+  if (!name || !slug) {
+    return c.json({ error: "restaurant_name_required" }, 400);
+  }
+
+  const schemaName = `tenant_${slug.replace(/-/g, "_")}`;
+  const supabase = createSupabaseRestClient(c.env);
+  const [existing] = await supabase.select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,slug,schema_name",
+      slug: `eq.${slug}`,
+      limit: 1,
+    },
+  });
+
+  if (existing) {
+    return c.json({ error: "restaurant_slug_already_exists" }, 409);
+  }
+
+  const provisioned = await supabase.rpc<TenantRow[]>({
+    schema: "control",
+    functionName: "provision_restaurant_tenant",
+    args: {
+      p_name: name,
+      p_slug: slug,
+      p_schema_name: schemaName,
+      p_timezone: body.timezone || "America/Bogota",
+      p_currency: body.currency || "COP",
+      p_status: body.status || "active",
+      p_automation_enabled: body.automationEnabled ?? true,
+      p_location_name: body.locationName || "Sede principal",
+      p_location_address: body.locationAddress || null,
+      p_location_phone: body.locationPhone || null,
+      p_delivery_fee_fixed: Number(body.deliveryFeeFixed ?? 0),
+    },
+  });
+  const tenant = provisioned[0];
+
+  if (!tenant) {
+    return c.json({ error: "restaurant_provision_failed" }, 500);
+  }
+
+  let ownerPassword: string | undefined;
+  let ownerMember: Awaited<ReturnType<typeof createOrLinkRestaurantMember>> | undefined;
+  if (body.ownerEmail) {
+    ownerPassword = body.ownerPassword || buildDefaultRestaurantPassword(slug);
+    ownerMember = await createOrLinkRestaurantMember(c.env, tenant, {
+      email: body.ownerEmail,
+      name: body.ownerName || name,
+      password: ownerPassword,
+      role: "encargado",
+      resetPasswordIfUserExists: Boolean(body.ownerPassword),
+    });
+  }
+
+  const restaurants = await listAdminRestaurants(c.env);
+  const restaurant = restaurants.find((entry) => entry.id === tenant.id) ?? mapAdminRestaurant(tenant);
+
+  return c.json({
+    restaurant,
+    owner: ownerMember?.member,
+    temporaryPassword: ownerMember ? ownerPassword : undefined,
+  }, 201);
+});
+
+dashboardRoutes.patch("/admin/restaurants/:tenantId", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    name?: string;
+    status?: TenantStatus;
+    timezone?: string;
+    currency?: string;
+    automationEnabled?: boolean;
+    locationName?: string;
+    locationAddress?: string;
+    locationPhone?: string;
+    deliveryFeeFixed?: number;
+    pickupEnabled?: boolean;
+    deliveryEnabled?: boolean;
+    locationAutomationEnabled?: boolean;
+    transferPaymentInstructions?: string;
+  };
+  const tenantPatch: Record<string, unknown> = {};
+
+  if (body.name !== undefined) tenantPatch.name = String(body.name).trim();
+  if (body.status !== undefined) tenantPatch.status = body.status;
+  if (body.timezone !== undefined) tenantPatch.timezone = String(body.timezone).trim() || "America/Bogota";
+  if (body.currency !== undefined) tenantPatch.currency = String(body.currency).trim() || "COP";
+  if (body.automationEnabled !== undefined) tenantPatch.automation_enabled = body.automationEnabled;
+  if (Object.keys(tenantPatch).length > 0) tenantPatch.updated_at = new Date().toISOString();
+
+  if (tenantPatch.status && !["active", "inactive", "suspended"].includes(String(tenantPatch.status))) {
+    return c.json({ error: "invalid_restaurant_status" }, 400);
+  }
+
+  const supabase = createSupabaseRestClient(c.env);
+  if (Object.keys(tenantPatch).length > 0) {
+    await supabase.update({
+      schema: "control",
+      table: "tenants",
+      query: { id: `eq.${tenant.id}` },
+      values: tenantPatch,
+    });
+  }
+
+  await updatePrimaryLocation(c.env, tenant.schema_name, {
+    name: body.locationName,
+    address: body.locationAddress,
+    phone: body.locationPhone,
+    deliveryFeeFixed: body.deliveryFeeFixed,
+    pickupEnabled: body.pickupEnabled,
+    deliveryEnabled: body.deliveryEnabled,
+    automationEnabled: body.locationAutomationEnabled,
+    transferPaymentInstructions: body.transferPaymentInstructions,
+  });
+
+  const restaurants = await listAdminRestaurants(c.env);
+  return c.json({ restaurant: restaurants.find((entry) => entry.id === tenant.id) });
+});
+
+dashboardRoutes.delete("/admin/restaurants/:tenantId", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  const supabase = createSupabaseRestClient(c.env);
+  await Promise.all([
+    supabase.update({
+      schema: "control",
+      table: "tenants",
+      query: { id: `eq.${tenant.id}` },
+      values: { status: "inactive", automation_enabled: false, updated_at: new Date().toISOString() },
+    }),
+    supabase.update({
+      schema: "control",
+      table: "tenant_users",
+      query: { tenant_id: `eq.${tenant.id}` },
+      values: { status: "inactive" },
+    }),
+    supabase.update({
+      schema: "control",
+      table: "tenant_channels",
+      query: { tenant_id: `eq.${tenant.id}` },
+      values: { status: "inactive" },
+    }).catch((error) => {
+      if (isMissingTableError(error)) return [];
+      throw error;
+    }),
+  ]);
+
+  return c.json({ ok: true });
+});
+
+dashboardRoutes.post("/admin/restaurants/:tenantId/members", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    email?: string;
+    name?: string;
+    role?: TenantUserRow["role"];
+    password?: string;
+  };
+  const email = String(body.email ?? "").trim().toLowerCase();
+
+  if (!email || !email.includes("@")) {
+    return c.json({ error: "member_email_required" }, 400);
+  }
+
+  const role = body.role === "trabajador" ? "trabajador" : "encargado";
+  const temporaryPassword = body.password || buildDefaultRestaurantPassword(tenant.slug);
+  const result = await createOrLinkRestaurantMember(c.env, tenant, {
+    email,
+    name: body.name || email.split("@")[0] || "Usuario",
+    password: temporaryPassword,
+    role,
+    resetPasswordIfUserExists: Boolean(body.password),
+  });
+
+  return c.json({
+    member: result.member,
+    temporaryPassword,
+  }, 201);
+});
+
+dashboardRoutes.patch("/admin/restaurants/:tenantId/members/:userId", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    role?: TenantUserRow["role"];
+    status?: TenantUserRow["status"];
+    name?: string;
+  };
+  const patch: Record<string, unknown> = {};
+  if (body.role !== undefined) patch.role = body.role;
+  if (body.status !== undefined) patch.status = body.status;
+
+  if (patch.role && !["encargado", "trabajador"].includes(String(patch.role))) {
+    return c.json({ error: "invalid_member_role" }, 400);
+  }
+
+  if (patch.status && !["active", "inactive"].includes(String(patch.status))) {
+    return c.json({ error: "invalid_member_status" }, 400);
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await createSupabaseRestClient(c.env).update({
+      schema: "control",
+      table: "tenant_users",
+      query: {
+        tenant_id: `eq.${tenant.id}`,
+        user_id: `eq.${c.req.param("userId")}`,
+      },
+      values: patch,
+    });
+  }
+
+  if (body.name !== undefined) {
+    await updateAuthAdminUser(c.env, c.req.param("userId"), {
+      user_metadata: {
+        name: String(body.name).trim(),
+        source: "admin_console",
+      },
+    });
+  }
+
+  const restaurants = await listAdminRestaurants(c.env);
+  const restaurant = restaurants.find((entry) => entry.id === tenant.id);
+  return c.json({ restaurant });
+});
+
+dashboardRoutes.delete("/admin/restaurants/:tenantId/members/:userId", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  await createSupabaseRestClient(c.env).update({
+    schema: "control",
+    table: "tenant_users",
+    query: {
+      tenant_id: `eq.${tenant.id}`,
+      user_id: `eq.${c.req.param("userId")}`,
+    },
+    values: { status: "inactive" },
+  });
+
+  return c.json({ ok: true });
+});
+
+dashboardRoutes.post("/admin/restaurants/:tenantId/members/:userId/reset-password", async (c) => {
+  const authUser = await requireAuthUser(c);
+  if (authUser instanceof Response) return authUser;
+
+  if (!isSystemAdmin(authUser)) {
+    return c.json({ error: "admin_forbidden" }, 403);
+  }
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) {
+    return c.json({ error: "restaurant_not_found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as { password?: string };
+  const temporaryPassword = body.password || buildDefaultRestaurantPassword(tenant.slug);
+
+  await updateAuthAdminUser(c.env, c.req.param("userId"), {
+    password: temporaryPassword,
+  });
+
+  return c.json({ temporaryPassword });
 });
 
 dashboardRoutes.get("/public/:tenantSlug/carta", async (c) => {
@@ -2269,6 +2649,335 @@ function formatCop(value: number): string {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function normalizeTenantSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+}
+
+function buildDefaultRestaurantPassword(slug: string): string {
+  const base = slug.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "restaurante";
+  return `${base}_42*password`;
+}
+
+type AdminRestaurantMetrics = {
+  activeProductCount: number;
+  todayMenuItemCount: number;
+  ordersTodayCount: number;
+  pendingOrderCount: number;
+  completedTodayCount: number;
+  revenueToday: number;
+  lastOrderAt?: string;
+};
+
+type AdminTenantSnapshot = {
+  location?: LocationRow | null;
+  metrics?: AdminRestaurantMetrics | null;
+};
+
+function mapAdminRestaurant(
+  tenant: TenantRow,
+  location?: LocationRow,
+  members: ReturnType<typeof mapAdminMember>[] = [],
+  metrics?: AdminRestaurantMetrics,
+) {
+  return {
+    id: tenant.id,
+    name: tenant.name ?? tenant.slug,
+    slug: tenant.slug,
+    schemaName: tenant.schema_name,
+    status: tenant.status ?? "active",
+    timezone: tenant.timezone ?? "America/Bogota",
+    currency: tenant.currency ?? "COP",
+    automationEnabled: tenant.automation_enabled ?? true,
+    createdAt: tenant.created_at,
+    updatedAt: tenant.updated_at,
+    cartaUrlPath: `/carta?tenant=${tenant.slug}`,
+    defaultPassword: buildDefaultRestaurantPassword(tenant.slug),
+    location: location ? {
+      id: location.id,
+      name: location.name,
+      address: location.address,
+      phone: location.phone,
+      deliveryFeeFixed: location.delivery_fee_fixed,
+      pickupEnabled: location.pickup_enabled ?? true,
+      deliveryEnabled: location.delivery_enabled ?? true,
+      automationEnabled: location.automation_enabled ?? true,
+      transferPaymentInstructions: location.transfer_payment_instructions ?? undefined,
+      isActive: location.is_active,
+    } : undefined,
+    members,
+    metrics: metrics ?? {
+      activeProductCount: 0,
+      todayMenuItemCount: 0,
+      ordersTodayCount: 0,
+      pendingOrderCount: 0,
+      completedTodayCount: 0,
+      revenueToday: 0,
+    },
+  };
+}
+
+function mapAdminMember(row: TenantUserRow, user?: AdminAuthUser) {
+  return {
+    userId: row.user_id,
+    email: user?.email,
+    name: user?.user_metadata?.name ?? user?.user_metadata?.username,
+    role: row.role,
+    status: row.status,
+    createdAt: row.created_at,
+    lastSignInAt: user?.last_sign_in_at ?? undefined,
+  };
+}
+
+async function listAdminRestaurants(env: ApiBindings) {
+  const supabase = createSupabaseRestClient(env);
+  const tenants = await supabase.select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name,status,timezone,currency,automation_enabled,created_at,updated_at",
+      slug: "neq.thaledon",
+      order: "created_at.desc",
+    },
+  });
+  const tenantIds = tenants.map((tenant) => tenant.id);
+  const tenantUsers = tenantIds.length > 0
+    ? await supabase.select<TenantUserRow>({
+        schema: "control",
+        table: "tenant_users",
+        query: {
+          select: "tenant_id,user_id,role,status,created_at",
+          tenant_id: `in.(${tenantIds.join(",")})`,
+          order: "created_at.asc",
+        },
+      })
+    : [];
+  const uniqueUserIds = Array.from(new Set(tenantUsers.map((row) => row.user_id)));
+  const authUsers = await Promise.all(uniqueUserIds.map((userId) => getAuthAdminUser(env, userId).catch(() => undefined)));
+  const authUserById = new Map(authUsers.filter((user): user is AdminAuthUser => Boolean(user)).map((user) => [user.id, user]));
+
+  const restaurants = await Promise.all(tenants.map(async (tenant) => {
+    const snapshot = await getAdminTenantSnapshot(supabase, tenant);
+
+    return mapAdminRestaurant(
+      tenant,
+      snapshot.location ?? undefined,
+      tenantUsers
+        .filter((row) => row.tenant_id === tenant.id)
+        .map((row) => mapAdminMember(row, authUserById.get(row.user_id))),
+      snapshot.metrics ?? undefined,
+    );
+  }));
+
+  return restaurants;
+}
+
+async function getAdminTenantSnapshot(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  tenant: TenantRow,
+): Promise<AdminTenantSnapshot> {
+  return supabase.rpc<AdminTenantSnapshot>({
+    schema: "control",
+    functionName: "get_tenant_admin_snapshot",
+    args: {
+      p_schema_name: tenant.schema_name,
+      p_timezone: tenant.timezone ?? "America/Bogota",
+    },
+  }).catch((error) => {
+    if (isMissingTableError(error)) return {};
+    throw error;
+  });
+}
+
+async function getTenantById(env: ApiBindings, tenantId: string): Promise<TenantRow | undefined> {
+  const [tenant] = await createSupabaseRestClient(env).select<TenantRow>({
+    schema: "control",
+    table: "tenants",
+    query: {
+      select: "id,name,slug,schema_name,status,timezone,currency,automation_enabled,created_at,updated_at",
+      id: `eq.${tenantId}`,
+      limit: 1,
+    },
+  });
+
+  return tenant;
+}
+
+async function updatePrimaryLocation(
+  env: ApiBindings,
+  schema: string,
+  patch: {
+    name?: string;
+    address?: string;
+    phone?: string;
+    deliveryFeeFixed?: number;
+    pickupEnabled?: boolean;
+    deliveryEnabled?: boolean;
+    automationEnabled?: boolean;
+    transferPaymentInstructions?: string;
+  },
+) {
+  if (Object.values(patch).every((value) => value === undefined)) return;
+
+  await createSupabaseRestClient(env).rpc({
+    schema: "control",
+    functionName: "update_tenant_primary_location",
+    args: {
+      p_schema_name: schema,
+      p_name: patch.name,
+      p_address: patch.address,
+      p_phone: patch.phone,
+      p_delivery_fee_fixed: patch.deliveryFeeFixed,
+      p_pickup_enabled: patch.pickupEnabled,
+      p_delivery_enabled: patch.deliveryEnabled,
+      p_automation_enabled: patch.automationEnabled,
+      p_transfer_payment_instructions: patch.transferPaymentInstructions,
+    },
+  });
+}
+
+async function createOrLinkRestaurantMember(
+  env: ApiBindings,
+  tenant: TenantRow,
+  input: {
+    email: string;
+    name: string;
+    password: string;
+    role: TenantUserRow["role"];
+    resetPasswordIfUserExists?: boolean;
+  },
+) {
+  const existing = await findAuthAdminUserByEmail(env, input.email);
+  const user = existing ?? await createAuthAdminUser(env, {
+    email: input.email,
+    password: input.password,
+    name: input.name,
+  });
+
+  if (existing && input.resetPasswordIfUserExists) {
+    await updateAuthAdminUser(env, existing.id, { password: input.password });
+  }
+
+  await createSupabaseRestClient(env).upsert({
+    schema: "control",
+    table: "tenant_users",
+    onConflict: "tenant_id,user_id",
+    rows: {
+      tenant_id: tenant.id,
+      user_id: user.id,
+      role: input.role,
+      status: "active",
+    },
+  });
+
+  return {
+    member: mapAdminMember({
+      tenant_id: tenant.id,
+      user_id: user.id,
+      role: input.role,
+      status: "active",
+    }, user),
+  };
+}
+
+async function createAuthAdminUser(
+  env: ApiBindings,
+  input: {
+    email: string;
+    password: string;
+    name: string;
+  },
+): Promise<AdminAuthUser> {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: buildAuthAdminHeaders(env),
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: {
+        name: input.name,
+        source: "admin_console",
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new SupabaseRestError("supabase_auth_admin_create_user_failed", response.status, body);
+  }
+
+  return response.json() as Promise<AdminAuthUser>;
+}
+
+async function updateAuthAdminUser(env: ApiBindings, userId: string, patch: Record<string, unknown>): Promise<AdminAuthUser> {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users/${userId}`, {
+    method: "PUT",
+    headers: buildAuthAdminHeaders(env),
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new SupabaseRestError("supabase_auth_admin_update_user_failed", response.status, body);
+  }
+
+  return response.json() as Promise<AdminAuthUser>;
+}
+
+async function getAuthAdminUser(env: ApiBindings, userId: string): Promise<AdminAuthUser> {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users/${userId}`, {
+    headers: buildAuthAdminHeaders(env),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new SupabaseRestError("supabase_auth_admin_get_user_failed", response.status, body);
+  }
+
+  return response.json() as Promise<AdminAuthUser>;
+}
+
+async function findAuthAdminUserByEmail(env: ApiBindings, email: string): Promise<AdminAuthUser | undefined> {
+  const targetEmail = email.trim().toLowerCase();
+
+  for (let page = 1; page <= 10; page += 1) {
+    const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users`);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", "100");
+    const response = await fetch(url.toString(), {
+      headers: buildAuthAdminHeaders(env),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new SupabaseRestError("supabase_auth_admin_list_users_failed", response.status, body);
+    }
+
+    const payload = await response.json() as { users?: AdminAuthUser[] };
+    const users = payload.users ?? [];
+    const found = users.find((user) => user.email?.toLowerCase() === targetEmail);
+    if (found) return found;
+    if (users.length < 100) return undefined;
+  }
+
+  return undefined;
+}
+
+function buildAuthAdminHeaders(env: ApiBindings): HeadersInit {
+  return {
+    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    "Content-Type": "application/json",
+  };
 }
 
 async function requireAuthUser(

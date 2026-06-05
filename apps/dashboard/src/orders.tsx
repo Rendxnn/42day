@@ -475,12 +475,17 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
             <div className="app-scrollbar max-h-[860px] space-y-3 overflow-y-auto px-4 py-4">
               {filteredOrders.map((order) => {
                 const active = order.id === selectedOrderId;
+                const acceptedStage = order.status === "accepted";
                 return (
                   <button
                     className={`w-full rounded-[24px] border px-4 py-4 text-left transition ${
                       active
-                        ? "border-[rgba(137,164,196,0.34)] bg-[var(--surface-strong)]"
-                        : "border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] hover:bg-[var(--surface-muted)]"
+                        ? acceptedStage
+                          ? "border-[rgba(79,122,97,0.38)] bg-[rgba(226,238,231,0.92)] shadow-[inset_5px_0_0_rgba(79,122,97,0.82)]"
+                          : "border-[rgba(137,164,196,0.34)] bg-[var(--surface-strong)]"
+                        : acceptedStage
+                          ? "border-[rgba(79,122,97,0.28)] bg-[rgba(226,238,231,0.72)] shadow-[inset_5px_0_0_rgba(79,122,97,0.68)] hover:bg-[rgba(226,238,231,0.95)]"
+                          : "border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] hover:bg-[var(--surface-muted)]"
                     }`}
                     key={order.id}
                     onClick={() => setSelectedOrderId(order.id)}
@@ -500,7 +505,11 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
                         </p>
                         <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{getFulfillmentLabel(order)}</p>
                         {filter === "confirmed" ? (
-                          <p className="mt-2 inline-flex rounded-full bg-[rgba(79,122,97,0.12)] px-3 py-1 text-xs font-semibold text-[var(--success)]">
+                          <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                            acceptedStage
+                              ? "bg-[var(--success)] text-white shadow-[0_6px_18px_rgba(79,122,97,0.22)]"
+                              : "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
+                          }`}>
                             {getConfirmedProgressLabel(order)}
                           </p>
                         ) : null}
@@ -604,7 +613,6 @@ function OrderDetailPanel({
   const canCancel = !closedStatuses.includes(order.status);
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
-  const confirmedProgress = getConfirmedProgressLabel(order);
   const advanceLabel = order.fulfillmentType === "delivery" ? "Marcar delivery 30 min" : "Marcar listo para recoger";
 
   return (
@@ -625,9 +633,7 @@ function OrderDetailPanel({
             </p>
             <p className="mt-1 text-sm leading-7 text-[var(--text-soft)]">{getFulfillmentLabel(order)}</p>
             {confirmedStatuses.includes(order.status) ? (
-              <p className="mt-2 inline-flex rounded-full bg-[rgba(79,122,97,0.12)] px-3 py-1 text-xs font-semibold text-[var(--success)]">
-                {confirmedProgress}
-              </p>
+              <OrderProgressRail fulfillmentType={order.fulfillmentType} status={order.status} />
             ) : null}
           </div>
 
@@ -1187,13 +1193,58 @@ function ActionButton({
   );
 }
 
+function OrderProgressRail({ fulfillmentType, status }: { fulfillmentType: OrderSummary["fulfillmentType"]; status: OrderStatus }) {
+  const steps = [
+    { id: "accepted", label: "Aceptado" },
+    { id: "preparing", label: "Preparando" },
+    { id: "on_the_way", label: fulfillmentType === "delivery" ? "En camino" : "Listo" },
+  ] as const;
+  const currentIndex = getConfirmedStageIndex(status);
+
+  return (
+    <div className="mt-4 rounded-[22px] border border-[rgba(79,122,97,0.18)] bg-[rgba(226,238,231,0.72)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex items-center gap-2 text-sm font-extrabold text-[var(--success)]">
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--success)] text-white">
+            <Check size={16} />
+          </span>
+          {getConfirmedProgressLabel({ status, fulfillmentType })}
+        </div>
+        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--success)]">
+          Estado confirmado
+        </span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {steps.map((step, index) => {
+          const reached = index <= currentIndex;
+          return (
+            <div
+              className={`rounded-2xl border px-3 py-2 text-xs font-bold ${
+                reached
+                  ? "border-[rgba(79,122,97,0.2)] bg-white text-[var(--success)]"
+                  : "border-[rgba(118,93,71,0.08)] bg-[rgba(255,251,246,0.5)] text-[var(--text-faint)]"
+              }`}
+              key={step.id}
+            >
+              <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(79,122,97,0.12)] text-[11px]">
+                {index + 1}
+              </span>
+              {step.label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const palette = {
     new: "bg-[rgba(118,93,71,0.08)] text-[var(--text-soft)]",
     pending_restaurant_confirmation: "bg-[rgba(193,157,98,0.14)] text-[#8a6a3f]",
     needs_customer_replacement: "bg-[rgba(197,123,87,0.12)] text-[var(--warning)]",
     payment_pending_review: "bg-[rgba(97,135,158,0.12)] text-[#46697c]",
-    accepted: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
+    accepted: "bg-[var(--success)] text-white shadow-[0_6px_18px_rgba(79,122,97,0.22)]",
     preparing: "bg-[rgba(132,111,164,0.12)] text-[#65567f]",
     on_the_way: "bg-[rgba(90,111,170,0.12)] text-[#4c5f8f]",
     delivered: "bg-[rgba(118,93,71,0.12)] text-[var(--text-soft)]",
@@ -1327,6 +1378,12 @@ function getOrderStatusLabel(status: OrderStatus) {
     delivered: "Entregado",
     cancelled: "Cancelado",
   }[status];
+}
+
+function getConfirmedStageIndex(status: OrderStatus) {
+  if (status === "on_the_way") return 2;
+  if (status === "preparing" || status === "payment_pending_review") return 1;
+  return 0;
 }
 
 function getConfirmedProgressLabel(order: Pick<OrderSummary, "status" | "fulfillmentType">) {
