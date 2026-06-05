@@ -105,6 +105,87 @@ export type AdminOverview = {
   activeRestaurantCount: number;
 };
 
+export type AdminRestaurantStatus = "active" | "inactive" | "suspended";
+
+export type AdminRestaurantMember = {
+  userId: string;
+  email?: string;
+  name?: string;
+  role: "encargado" | "trabajador";
+  status: "active" | "inactive";
+  createdAt?: string;
+  lastSignInAt?: string;
+};
+
+export type AdminRestaurant = {
+  id: string;
+  name: string;
+  slug: string;
+  schemaName: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  cartaUrlPath: string;
+  defaultPassword: string;
+  location?: {
+    id: string;
+    name: string;
+    address?: string;
+    phone?: string;
+    deliveryFeeFixed: number;
+    pickupEnabled: boolean;
+    deliveryEnabled: boolean;
+    automationEnabled: boolean;
+    transferPaymentInstructions?: string;
+    isActive: boolean;
+  };
+  members: AdminRestaurantMember[];
+  metrics: {
+    activeProductCount: number;
+    todayMenuItemCount: number;
+    ordersTodayCount: number;
+    pendingOrderCount: number;
+    completedTodayCount: number;
+    revenueToday: number;
+    lastOrderAt?: string;
+  };
+};
+
+export type CreateAdminRestaurantPayload = {
+  name: string;
+  slug?: string;
+  timezone?: string;
+  currency?: string;
+  status?: AdminRestaurantStatus;
+  automationEnabled?: boolean;
+  locationName?: string;
+  locationAddress?: string;
+  locationPhone?: string;
+  deliveryFeeFixed?: number;
+  ownerEmail?: string;
+  ownerName?: string;
+  ownerPassword?: string;
+};
+
+export type UpdateAdminRestaurantPayload = Partial<{
+  name: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: number;
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  locationAutomationEnabled: boolean;
+  transferPaymentInstructions: string;
+}>;
+
 export type DashboardDiagnostics = {
   tenant: string;
   schema: string;
@@ -132,6 +213,69 @@ export function getMe() {
 
 export function getAdminOverview() {
   return request<AdminOverview>("/admin/overview");
+}
+
+export function listAdminRestaurants() {
+  return request<{ restaurants: AdminRestaurant[] }>("/admin/restaurants");
+}
+
+export function createAdminRestaurant(payload: CreateAdminRestaurantPayload) {
+  return request<{ restaurant: AdminRestaurant; owner?: AdminRestaurantMember; temporaryPassword?: string }>("/admin/restaurants", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminRestaurant(restaurantId: string, payload: UpdateAdminRestaurantPayload) {
+  return request<{ restaurant?: AdminRestaurant }>(`/admin/restaurants/${restaurantId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminRestaurant(restaurantId: string) {
+  return request<{ ok: true }>(`/admin/restaurants/${restaurantId}`, {
+    method: "DELETE",
+  });
+}
+
+export function createAdminRestaurantMember(
+  restaurantId: string,
+  payload: {
+    email: string;
+    name?: string;
+    role?: AdminRestaurantMember["role"];
+    password?: string;
+  },
+) {
+  return request<{ member: AdminRestaurantMember; temporaryPassword: string }>(`/admin/restaurants/${restaurantId}/members`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminRestaurantMember(
+  restaurantId: string,
+  userId: string,
+  payload: Partial<Pick<AdminRestaurantMember, "name" | "role" | "status">>,
+) {
+  return request<{ restaurant?: AdminRestaurant }>(`/admin/restaurants/${restaurantId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminRestaurantMember(restaurantId: string, userId: string) {
+  return request<{ ok: true }>(`/admin/restaurants/${restaurantId}/members/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+export function resetAdminRestaurantMemberPassword(restaurantId: string, userId: string, password?: string) {
+  return request<{ temporaryPassword: string }>(`/admin/restaurants/${restaurantId}/members/${userId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
 }
 
 export function getDiagnostics(tenantSlug: string) {
