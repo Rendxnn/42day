@@ -16,6 +16,7 @@
     "@42day/types": "workspace:*",
     "@rendxnn/t-router": "workspace:*",
     "hono": "^4.6.15",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

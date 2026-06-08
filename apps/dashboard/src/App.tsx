@@ -4,7 +4,7 @@ import type { MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
-  analyzeMenuImage,
+  analyzeMenuFile,
   createAdminRestaurant,
   createAdminRestaurantMember,
   createProduct,
@@ -15,19 +15,21 @@ import {
   deleteProduct,
   getAdminOverview,
   getDiagnostics,
+  getLunchReminderPreview,
   getMe,
   getPublicCarta,
   getTodayMenu,
   listOrders,
   listAdminRestaurants,
   resetAdminRestaurantMemberPassword,
+  sendLunchReminders,
   updateMenuItem,
   updateAdminRestaurant,
   updateAdminRestaurantMember,
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct } from "./api";
+import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct, LunchReminderPreview, LunchReminderSendResult, MenuFileAnalysisPayload } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
   Camera,
@@ -49,7 +51,6 @@ import {
   QrCode,
   Search,
   SearchCheck,
-  Sparkles,
   Store,
   Trash2,
   UploadCloud,
@@ -925,6 +926,7 @@ function DashboardApp() {
                   menuIsActive={menuIsActive}
                   products={products}
                   saveStatus={saveStatus}
+                  tenantSlug={tenantSlug}
                   onAddDish={addFromCatalog}
                   onDeleteDish={removeMenuItem}
                   onUpdateDish={persistItem}
@@ -953,15 +955,17 @@ function DashboardApp() {
               )}
               {activeView === "upload" && (
                 <SmartUpload
-                  onAnalyze={(file) => analyzeMenuImage(tenantSlug, file)}
+                  onAnalyze={(file) => analyzeMenuFile(tenantSlug, file)}
                   onCreateProducts={async (detectedProducts) => {
                     for (const product of detectedProducts) {
                       await saveProduct({
                         name: product.name,
-                        description: product.description ?? "Detectado automaticamente desde imagen del menu.",
+                        description: product.description ?? "Detectado automaticamente desde archivo de menu.",
                         basePrice: product.basePrice,
                         category: product.category,
                         emoji: product.emoji,
+                        options: product.options,
+                        productType: product.productType ?? (product.options && product.options.length > 0 ? "composite" : "simple"),
                         isActive: true,
                       });
                     }
@@ -1015,10 +1019,27 @@ function PublicCartaPage() {
   const totalItems = payload?.items.length ?? 0;
 
   return (
-    <div className="min-h-screen bg-[#edf2f7] text-[var(--text-strong)]">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(197,123,87,0.20),transparent_24%),radial-gradient(circle_at_90%_20%,rgba(32,26,22,0.12),transparent_28%),linear-gradient(180deg,#f7fafc_0%,#edf2f7_52%,#dfe8f2_100%)]" />
+    <div className="min-h-screen bg-[#050403] text-[var(--text-strong)]">
+      <div
+        className="pointer-events-none fixed inset-0 bg-top bg-repeat-y opacity-70"
+        style={{
+          backgroundImage: "url('/fondo_carta.jpg')",
+          backgroundPosition: "top center",
+          backgroundSize: "min(100vw, 720px) auto",
+        }}
+      />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(213,167,108,0.18),transparent_26%),radial-gradient(circle_at_85%_18%,rgba(0,0,0,0.72),transparent_34%),linear-gradient(90deg,rgba(0,0,0,0.82)_0%,rgba(0,0,0,0.42)_28%,rgba(0,0,0,0.34)_50%,rgba(0,0,0,0.42)_72%,rgba(0,0,0,0.82)_100%)]" />
+      <div
+        className="pointer-events-none fixed inset-0 opacity-60"
+        style={{
+          backgroundImage:
+            "linear-gradient(180deg, rgba(5,4,3,0) 0%, rgba(5,4,3,0.30) 44%, rgba(5,4,3,0.62) 50%, rgba(5,4,3,0.30) 56%, rgba(5,4,3,0) 100%)",
+          backgroundRepeat: "repeat-y",
+          backgroundSize: "100% 1040px",
+        }}
+      />
       <main className="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-[36px] border border-white/70 bg-[rgba(255,255,255,0.62)] shadow-[0_28px_90px_rgba(37,31,26,0.16)] backdrop-blur-xl">
+        <section className="overflow-hidden rounded-[36px] border border-[rgba(255,242,227,0.16)] bg-[rgba(10,8,6,0.58)] shadow-[0_28px_90px_rgba(0,0,0,0.46)] backdrop-blur-xl">
           <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_390px] lg:p-8">
             <div className="flex min-h-[360px] flex-col justify-between rounded-[32px] bg-[linear-gradient(145deg,#211b17_0%,#342a24_58%,#4a3429_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_70px_rgba(32,24,18,0.28)] sm:p-8">
               <div>
@@ -1049,7 +1070,7 @@ function PublicCartaPage() {
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-[rgba(118,93,71,0.12)] bg-[#f8fafc] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+            <div className="rounded-[32px] border border-[rgba(255,242,227,0.14)] bg-[rgba(255,250,244,0.82)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-md">
               <div className="rounded-[28px] bg-[#1f1b18] p-4 text-[var(--text-on-dark)] shadow-[0_24px_60px_rgba(32,24,18,0.22)]">
                 <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(160deg,#2c2520,#191511)] p-5">
                   <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[rgba(197,123,87,0.22)] blur-2xl" />
@@ -1081,11 +1102,11 @@ function PublicCartaPage() {
         ) : (
           <div className="mt-6 space-y-8 pb-12">
             {groups.map((group) => (
-              <section key={group.id}>
+              <section className="rounded-[34px] border border-[rgba(255,242,227,0.14)] bg-[rgba(10,8,6,0.50)] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-md sm:p-5" key={group.id}>
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[var(--text-faint)]">{group.label}</p>
-                    <h2 className="app-display mt-2 text-[2.8rem] leading-none text-[var(--text-strong)]">{group.items.length} opciones</h2>
+                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[rgba(246,236,223,0.56)]">{group.label}</p>
+                    <h2 className="app-display mt-2 text-[2.8rem] leading-none text-[var(--text-on-dark)]">{group.items.length} opciones</h2>
                   </div>
                 </div>
                 <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -1426,19 +1447,71 @@ function TodayMenu(props: {
   menuIsActive: boolean;
   products: Product[];
   saveStatus: SaveStatus;
+  tenantSlug: string;
   onAddDish: (productId: string) => Promise<void>;
   onDeleteDish: (itemId: string) => void;
   onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
 }) {
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [reminderPreview, setReminderPreview] = useState<LunchReminderPreview | null>(null);
+  const [reminderResult, setReminderResult] = useState<LunchReminderSendResult | null>(null);
+  const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderError, setReminderError] = useState("");
   const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
   const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
   const groups = groupMenuItemsByOrderType(props.items);
 
+  useEffect(() => {
+    let active = true;
+    setReminderLoading(true);
+    setReminderError("");
+
+    getLunchReminderPreview(props.tenantSlug)
+      .then((preview) => {
+        if (!active) return;
+        setReminderPreview(preview);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setReminderPreview(null);
+        setReminderError(error instanceof Error ? error.message : "No se pudo calcular el alcance del recordatorio.");
+      })
+      .finally(() => {
+        if (active) setReminderLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [props.tenantSlug, props.activeCount, props.items.length]);
+
+  async function handleSendLunchReminder() {
+    if (!reminderPreview?.canSend || reminderSending) return;
+
+    const confirmed = window.confirm(
+      `Enviar WhatsApp a ${reminderPreview.recipientCount} cliente${reminderPreview.recipientCount === 1 ? "" : "s"} que pidieron en los ultimos ${reminderPreview.lookbackDays} dias?`,
+    );
+    if (!confirmed) return;
+
+    setReminderSending(true);
+    setReminderError("");
+    try {
+      const result = await sendLunchReminders(props.tenantSlug);
+      setReminderResult(result);
+      const nextPreview = await getLunchReminderPreview(props.tenantSlug).catch(() => reminderPreview);
+      setReminderPreview(nextPreview);
+    } catch (error) {
+      setReminderError(error instanceof Error ? error.message : "No se pudo enviar el recordatorio.");
+    } finally {
+      setReminderSending(false);
+    }
+  }
+
   return (
     <section className="space-y-6 pb-28 lg:pb-32">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px]">
-        <div className="rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
+      <div className="grid items-stretch gap-4 xl:grid-cols-3">
+        <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.5)]">
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.08)] px-3 py-1.5">
               <Clock size={14} />
@@ -1449,8 +1522,8 @@ function TodayMenu(props: {
               {props.menuIsActive ? "Servicio publicado" : "Menu sin activar"}
             </span>
           </div>
-          <h2 className="app-display mt-5 text-[2.6rem] leading-none sm:text-[3.2rem]">Curar el menu del dia</h2>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <h2 className="app-display mt-5 text-[2.35rem] leading-none sm:text-[3rem]">Curar el menu del dia</h2>
+          <div className="mt-auto pt-6">
             <button
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-5 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
               onClick={() => setCatalogOpen(true)}
@@ -1462,11 +1535,20 @@ function TodayMenu(props: {
           </div>
         </div>
 
-        <div className="grid gap-3">
-          <MenuMetric label="Platos activos" tone="strong" value={props.activeCount} />
-          <MenuMetric label="Platos ocultos" value={inactiveCount} />
-          <MenuMetric label="Estado de sincronizacion" value={statusLabel} />
-        </div>
+        <LunchReminderPanel
+          error={reminderError}
+          loading={reminderLoading}
+          preview={reminderPreview}
+          result={reminderResult}
+          sending={reminderSending}
+          onSend={() => void handleSendLunchReminder()}
+        />
+
+        <MenuMetricsPanel
+          activeCount={props.activeCount}
+          inactiveCount={inactiveCount}
+          statusLabel={statusLabel}
+        />
       </div>
 
       {groups.length === 0 ? (
@@ -1528,11 +1610,112 @@ function groupMenuItemsByOrderType(items: MenuItem[]) {
   }));
 }
 
-function MenuMetric({ label, tone = "muted", value }: { label: string; tone?: "muted" | "strong"; value: string | number }) {
+function MenuMetricsPanel({
+  activeCount,
+  inactiveCount,
+  statusLabel,
+}: {
+  activeCount: number;
+  inactiveCount: number;
+  statusLabel: string;
+}) {
   return (
-    <div className="app-panel-dark rounded-[26px] px-5 py-5 text-[var(--text-on-dark)]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">{label}</p>
-      <p className={`mt-4 ${tone === "strong" ? "app-display text-[3rem] leading-none" : "text-2xl font-semibold"}`}>{value}</p>
+    <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.05)] p-5 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Metricas del menu</p>
+      <div className="mt-4 grid flex-1 gap-3">
+        <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos activos</p>
+          <p className="app-display mt-2 text-[2.6rem] leading-none">{activeCount}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Ocultos</p>
+            <p className="mt-2 text-2xl font-extrabold">{inactiveCount}</p>
+          </div>
+          <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Sincronizacion</p>
+            <p className="mt-2 truncate text-lg font-extrabold">{statusLabel}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LunchReminderPanel({
+  error,
+  loading,
+  onSend,
+  preview,
+  result,
+  sending,
+}: {
+  error: string;
+  loading: boolean;
+  onSend: () => void;
+  preview: LunchReminderPreview | null;
+  result: LunchReminderSendResult | null;
+  sending: boolean;
+}) {
+  const canSend = Boolean(preview?.canSend) && !loading && !sending;
+  const disabledReason = !preview
+    ? "Calculando clientes recientes"
+    : preview.menuItemCount === 0
+      ? "Publica platos disponibles para hoy"
+      : preview.recipientCount === 0
+        ? "No hay clientes con pedidos en los ultimos 3 dias"
+        : "";
+
+  return (
+    <div className="flex min-h-[260px] flex-col overflow-hidden rounded-[28px] border border-[rgba(255,242,227,0.1)] bg-[rgba(255,248,240,0.08)] p-4 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Recordatorio WhatsApp</p>
+          <h3 className="mt-2 text-base font-extrabold">Activar clientes recientes</h3>
+        </div>
+        <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[rgba(255,248,240,0.08)] text-[rgba(246,236,223,0.78)]">
+          <Bell size={17} />
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Clientes</p>
+          <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.recipientCount ?? 0}</p>
+        </div>
+        <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos</p>
+          <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.menuItemCount ?? 0}</p>
+        </div>
+      </div>
+
+      {preview?.messagePreview ? (
+        <div className="mt-3 max-h-20 overflow-y-auto rounded-2xl bg-[rgba(18,15,13,0.36)] px-3 py-2.5 text-xs leading-5 text-[rgba(246,236,223,0.72)] app-scrollbar">
+          {preview.messagePreview}
+        </div>
+      ) : null}
+
+      {result ? (
+        <div className="mt-3 rounded-2xl border border-[rgba(79,122,97,0.18)] bg-[rgba(79,122,97,0.12)] px-3 py-2.5 text-xs font-semibold text-[#d8f0dd]">
+          Enviado: {result.sentCount} exitosos, {result.failedCount} fallidos.
+        </div>
+      ) : null}
+
+      {error || disabledReason ? (
+        <p className="mt-2 text-xs leading-5 text-[rgba(246,236,223,0.56)]">{error || disabledReason}</p>
+      ) : null}
+
+      <div className="mt-auto pt-3">
+        <button
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-4 text-sm font-extrabold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={!canSend}
+          onClick={onSend}
+          type="button"
+        >
+          {sending || loading ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
+          {sending ? "Enviando recordatorio..." : "Enviar recordatorio"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -3076,7 +3259,7 @@ function SmartUpload({
   onCreateProducts,
   onNotify,
 }: {
-  onAnalyze: (file: File) => Promise<{ products: DetectedMenuProduct[] }>;
+  onAnalyze: (file: File) => Promise<MenuFileAnalysisPayload>;
   onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
   onNotify: (message: string) => void;
 }) {
@@ -3085,7 +3268,9 @@ function SmartUpload({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [results, setResults] = useState<DetectedMenuProduct[]>([]);
+  const [analysisMeta, setAnalysisMeta] = useState<MenuFileAnalysisPayload | null>(null);
   const [error, setError] = useState("");
+  const selectedFileKind = selectedFile ? getUploadFileKind(selectedFile) : "";
 
   function updateDetectedProduct(index: number, patch: Partial<DetectedMenuProduct>) {
     setResults((current) => current.map((product, entryIndex) => (
@@ -3099,10 +3284,21 @@ function SmartUpload({
 
   function readFile(file?: File) {
     if (!file) return;
+    if (!isSupportedMenuUploadFile(file)) {
+      setError("Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.");
+      return;
+    }
+
     setSelectedFile(file);
-    setPreview(URL.createObjectURL(file));
+    setPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : "");
     setResults([]);
+    setAnalysisMeta(null);
     setError("");
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    readFile(event.dataTransfer.files?.[0]);
   }
 
   async function analyzeSelectedFile() {
@@ -3111,6 +3307,7 @@ function SmartUpload({
     setError("");
     try {
       const payload = await onAnalyze(selectedFile);
+      setAnalysisMeta(payload);
       setResults(payload.products.map((product) => ({
         ...product,
         emoji: product.emoji || inferProductEmoji({
@@ -3120,9 +3317,7 @@ function SmartUpload({
       })));
       onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
     } catch (analysisError) {
-      setError(analysisError instanceof Error && analysisError.message === "gemini_quota_exhausted"
-        ? "Gemini no tiene creditos disponibles para analizar la imagen."
-        : "No se pudo analizar la imagen. Revisa la foto o la configuracion de Gemini.");
+      setError(getMenuUploadErrorMessage(analysisError));
     } finally {
       setIsAnalyzing(false);
     }
@@ -3140,11 +3335,13 @@ function SmartUpload({
           name: product.name,
           description: product.description,
         }),
+        options: product.options,
+        productType: product.productType,
       }))
-      .filter((product) => product.name && product.basePrice > 0);
+      .filter((product) => product.name && product.basePrice >= 0);
 
     if (sanitizedResults.length === 0) {
-      setError("No hay productos validos para confirmar. Revisa nombre y precio.");
+      setError("No hay productos validos para confirmar. Revisa minimo el nombre de cada producto.");
       return;
     }
 
@@ -3165,23 +3362,45 @@ function SmartUpload({
     <section className="space-y-6">
       <SectionTitle
         title="Subida inteligente"
-        subtitle="Convierte una foto del menu en una base editable de productos antes de publicarlos."
+        subtitle="Convierte Excel, CSV, PDF, TXT o imagenes del menu en una base editable de productos antes de publicarlos."
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <label className="rounded-[30px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
-          <input accept="image/*" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
+        <label
+          className="rounded-[30px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleDrop}
+        >
+          <input accept=".xlsx,.xls,.csv,.pdf,.txt,image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
           <div className={`flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[rgba(255,242,227,0.14)] px-6 text-center transition hover:border-[rgba(255,242,227,0.22)] ${preview ? "overflow-hidden bg-[rgba(255,248,240,0.04)]" : "bg-[rgba(255,248,240,0.04)]"}`}>
             {preview ? (
               <img alt="Preview del menu" className="h-full w-full rounded-[20px] object-cover" src={preview} />
+            ) : selectedFile ? (
+              <>
+                <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
+                  <UploadCloud size={26} />
+                </div>
+                <p className="text-xl font-extrabold">{selectedFile.name}</p>
+                <p className="mt-3 rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-[rgba(246,236,223,0.6)]">
+                  {selectedFileKind}
+                </p>
+                <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
+                  El sistema intentara leer estructura, filas, texto y precios antes de usar IA.
+                </p>
+              </>
             ) : (
               <>
                 <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
-                  <Sparkles size={26} />
+                  <UploadCloud size={26} />
                 </div>
-                <p className="app-display text-[2.3rem] leading-none">Sube una foto del menu</p>
+                <p className="app-display text-[2.3rem] leading-none">Sube el archivo del menu</p>
                 <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
-                  Usa una captura limpia y deja que el sistema detecte productos y precios para convertirlos en entidades editables.
+                  Arrastra o selecciona Excel, CSV, PDF, TXT o imagen. Nada se guarda sin revisar y confirmar.
                 </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.52)]">
+                  {[".xlsx", ".xls", ".csv", ".pdf", ".txt"].map((format) => (
+                    <span className="rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5" key={format}>{format}</span>
+                  ))}
+                </div>
               </>
             )}
           </div>
@@ -3189,11 +3408,23 @@ function SmartUpload({
 
         <div className="app-panel rounded-[28px] p-5">
           <div className="mb-4 rounded-[22px] border border-[rgba(137,164,196,0.18)] bg-[var(--surface-pending)] px-4 py-4">
-            <p className="text-sm font-semibold text-[var(--text-strong)]">Deteccion recomendada: 30 platos o menos</p>
+            <p className="text-sm font-semibold text-[var(--text-strong)]">Procesamiento por tipo de archivo</p>
             <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-              El analisis devuelve hasta 30 productos por imagen. Para menus grandes, toma varias fotos divididas por seccion.
+              Excel, CSV y TXT se leen primero de forma estructurada. PDF intenta extraer texto seleccionable. La IA entra solo si el archivo es ambiguo.
             </p>
           </div>
+          {selectedFile && (
+            <div className="mb-4 grid gap-2 rounded-[22px] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-[var(--text-strong)]">Archivo</span>
+                <span className="truncate text-right">{selectedFile.name}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-[var(--text-strong)]">Formato detectado</span>
+                <span>{selectedFileKind}</span>
+              </div>
+            </div>
+          )}
           <button
             className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!selectedFile || isAnalyzing}
@@ -3203,6 +3434,22 @@ function SmartUpload({
             {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
             {isAnalyzing ? "Analizando menu" : "Analizar menu"}
           </button>
+          {analysisMeta && (
+            <div className="mt-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
+              <p className="font-semibold text-[var(--text-strong)]">
+                {analysisMeta.source === "ai" ? "Interpretado con IA" : "Interpretado deterministicamente"}
+              </p>
+              <p className="mt-1 text-xs">
+                Parser: {analysisMeta.parser} - Formato: {analysisMeta.fileType.toUpperCase()}
+                {analysisMeta.needsAiFallback ? " - IA usada por ambiguedad" : ""}
+              </p>
+              {analysisMeta.warnings.length > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                  {analysisMeta.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
           {error && (
             <p className="mt-3 rounded-[20px] border border-[rgba(180,94,84,0.18)] bg-[rgba(190,110,95,0.08)] px-4 py-3 text-sm font-medium text-[#8c4e47]">
               {error}
@@ -3282,6 +3529,7 @@ function SmartUpload({
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
                       {item.confidence !== undefined ? `Confianza ${Math.round(item.confidence * 100)}%` : "Producto detectado"}
+                      {item.options && item.options.length > 0 ? ` · ${item.options.length} opcion${item.options.length === 1 ? "" : "es"}` : ""}
                     </p>
                     <button
                       className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[rgba(180,94,84,0.18)] px-3 text-xs font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
@@ -3311,6 +3559,31 @@ function SmartUpload({
       </div>
     </section>
   );
+}
+
+function isSupportedMenuUploadFile(file: File) {
+  return /\.(xlsx|xls|csv|pdf|txt)$/i.test(file.name) || /^image\/(jpeg|png|webp)$/.test(file.type);
+}
+
+function getUploadFileKind(file: File) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) return "Excel";
+  if (name.endsWith(".csv")) return "CSV";
+  if (name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".txt")) return "Texto plano";
+  if (file.type.startsWith("image/")) return "Imagen";
+  return "Archivo";
+}
+
+function getMenuUploadErrorMessage(error: unknown) {
+  if (error instanceof DashboardApiError) {
+    if (error.backendError === "gemini_quota_exhausted") return "Gemini no tiene creditos disponibles para interpretar este archivo.";
+    if (error.backendError === "gemini_not_configured") return "Gemini no esta configurado para interpretar archivos ambiguos.";
+    if (error.backendError === "unsupported_menu_file_type") return "Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.";
+    if (error.backendError === "menu_file_required") return "Selecciona un archivo de menu antes de analizar.";
+  }
+
+  return "No se pudo analizar el archivo. Revisa el formato o intenta con otro documento.";
 }
 
 function ConfigRequiredScreen() {

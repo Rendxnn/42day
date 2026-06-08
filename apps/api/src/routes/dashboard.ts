@@ -23,6 +23,7 @@ import type {
 import type { ApiBindings } from "../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-rest";
 import { updateConversationState } from "../modules/conversation-service/conversation-service";
+import { processMenuFile } from "../modules/menu-upload/menuFileProcessor";
 import { logOutboundTextMessage } from "../modules/message-log/message-log";
 import { sendWhatsAppTextMessage } from "../modules/whatsapp-webhook/whatsapp-client";
 
@@ -207,6 +208,18 @@ type OrderNotificationContext = {
   customer: CustomerRow;
   draftOrder?: DraftOrderRow;
   location?: LocationRow;
+};
+
+type LunchReminderRecipient = {
+  customer: CustomerRow;
+  order: Pick<OrderRow, "id" | "draft_order_id" | "created_at">;
+  conversationId?: string;
+};
+
+type LunchReminderMenuItem = {
+  name: string;
+  price?: number;
+  category?: string;
 };
 
 type DashboardVariables = {
@@ -801,6 +814,139 @@ dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
   };
 
   return c.json(payload);
+});
+
+dashboardRoutes.get("/:tenantSlug/lunch-reminders/preview", async (c) => {
+  const tenant = c.get("tenant");
+  const [recipients, menuItems] = await Promise.all([
+    resolveLunchReminderRecipients(c.env, tenant.schema_name),
+    resolveLunchReminderMenuItems(c.env, tenant.schema_name, tenant.timezone),
+  ]);
+
+  const messagePreview = menuItems.length > 0 && recipients[0]
+    ? buildLunchReminderMessage({
+        restaurantName: tenant.name ?? tenant.slug,
+        customerName: recipients[0].customer.name,
+        menuItems,
+      })
+    : "";
+
+  return c.json({
+    lookbackDays: 3,
+    recipientCount: recipients.length,
+    menuItemCount: menuItems.length,
+    canSend: recipients.length > 0 && menuItems.length > 0,
+    messagePreview,
+    recipients: recipients.slice(0, 8).map((recipient) => ({
+      customerId: recipient.customer.id,
+      name: recipient.customer.name,
+      phone: recipient.customer.phone,
+      lastOrderAt: recipient.order.created_at,
+    })),
+  });
+});
+
+dashboardRoutes.post("/:tenantSlug/lunch-reminders/send", async (c) => {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (!role) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const [recipients, menuItems] = await Promise.all([
+    resolveLunchReminderRecipients(c.env, tenant.schema_name),
+    resolveLunchReminderMenuItems(c.env, tenant.schema_name, tenant.timezone),
+  ]);
+
+  if (menuItems.length === 0) {
+    return c.json({ error: "lunch_reminder_menu_not_available" }, 409);
+  }
+
+  if (recipients.length === 0) {
+    return c.json({ error: "lunch_reminder_recipients_not_found" }, 409);
+  }
+
+  const batchId = crypto.randomUUID();
+  const results: Array<{
+    customerId: string;
+    name?: string;
+    phone: string;
+    lastOrderAt: string;
+    status: "sent" | "failed";
+    providerMessageId?: string;
+  }> = [];
+
+  for (const recipient of recipients) {
+    const text = buildLunchReminderMessage({
+      restaurantName: tenant.name ?? tenant.slug,
+      customerName: recipient.customer.name,
+      menuItems,
+    });
+    const result = await sendWhatsAppTextMessage(c.env, {
+      to: recipient.customer.phone,
+      text,
+    });
+    const sent = Boolean(result.providerMessageId);
+
+    results.push({
+      customerId: recipient.customer.id,
+      name: recipient.customer.name,
+      phone: recipient.customer.phone,
+      lastOrderAt: recipient.order.created_at,
+      status: sent ? "sent" : "failed",
+      providerMessageId: result.providerMessageId,
+    });
+
+    if (recipient.conversationId) {
+      await logOutboundTextMessage({
+        env: c.env,
+        schemaName: tenant.schema_name,
+        conversationId: recipient.conversationId,
+        text,
+        result,
+        metadata: {
+          marketing: {
+            type: "lunch_reminder",
+            batchId,
+            source: "dashboard_api",
+            triggeredBy: authUser.id,
+          },
+        },
+      }).catch(() => undefined);
+    }
+
+    await createSupabaseRestClient(c.env).insert({
+      schema: tenant.schema_name,
+      table: "app_events",
+      rows: {
+        conversation_id: recipient.conversationId ?? null,
+        draft_order_id: recipient.order.draft_order_id ?? null,
+        order_id: recipient.order.id,
+        event_name: sent ? "marketing.lunch_reminder_sent" : "marketing.lunch_reminder_failed",
+        severity: sent ? "info" : "warn",
+        source: "dashboard_api",
+        metadata: {
+          batchId,
+          customerId: recipient.customer.id,
+          phone: recipient.customer.phone,
+          providerMessageId: result.providerMessageId ?? null,
+          triggeredBy: authUser.id,
+        },
+      },
+    }).catch(() => undefined);
+  }
+
+  return c.json({
+    batchId,
+    lookbackDays: 3,
+    recipientCount: recipients.length,
+    sentCount: results.filter((result) => result.status === "sent").length,
+    failedCount: results.filter((result) => result.status === "failed").length,
+    menuItemCount: menuItems.length,
+    results,
+  });
 });
 
 dashboardRoutes.get("/:tenantSlug/orders", async (c) => {
@@ -1570,6 +1716,32 @@ dashboardRoutes.post("/:tenantSlug/uploads/menu-image/analyze", async (c) => {
   const products = parseGeminiMenuProducts(text);
 
   return c.json({ products });
+});
+
+dashboardRoutes.post("/:tenantSlug/uploads/menu-file/analyze", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form.file;
+
+  if (!(file instanceof File)) {
+    return c.json({ error: "menu_file_required" }, 400);
+  }
+
+  try {
+    const result = await processMenuFile({
+      env: c.env,
+      file,
+    });
+
+    return c.json(result);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "menu_file_analysis_failed";
+    if (reason === "unsupported_menu_file_type") return c.json({ error: reason }, 415);
+    if (reason === "gemini_not_configured") return c.json({ error: reason }, 500);
+    if (reason === "gemini_quota_exhausted") return c.json({ error: reason }, 429);
+
+    console.error("menu_file_analysis_failed", { reason });
+    return c.json({ error: "menu_file_analysis_failed" }, 502);
+  }
 });
 
 dashboardRoutes.post("/:tenantSlug/uploads/product-image", async (c) => {
@@ -2355,6 +2527,152 @@ async function resolvePendingConfirmationAlerts(env: ApiBindings, schema: string
   });
 }
 
+async function resolveLunchReminderRecipients(
+  env: ApiBindings,
+  schemaName: string,
+): Promise<LunchReminderRecipient[]> {
+  const supabase = createSupabaseRestClient(env);
+  const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  let orders: Array<Pick<OrderRow, "id" | "draft_order_id" | "customer_id" | "created_at">> = [];
+
+  try {
+    orders = await supabase.select<ArrayElement<typeof orders>>({
+      schema: schemaName,
+      table: "orders",
+      query: {
+        select: "id,draft_order_id,customer_id,created_at",
+        created_at: `gte.${since}`,
+        status: "neq.cancelled",
+        order: "created_at.desc",
+        limit: 500,
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  const customerIds = Array.from(new Set(orders.map((order) => order.customer_id).filter(Boolean)));
+  if (customerIds.length === 0) return [];
+
+  const customers = await supabase.select<CustomerRow>({
+    schema: schemaName,
+    table: "customers",
+    query: {
+      select: "id,phone,name",
+      id: `in.(${customerIds.join(",")})`,
+      limit: customerIds.length,
+    },
+  });
+  const customerById = new Map(customers.filter((customer) => customer.phone).map((customer) => [customer.id, customer]));
+  const draftOrderIds = Array.from(new Set(orders.map((order) => order.draft_order_id).filter((id): id is string => Boolean(id))));
+  const draftOrders = draftOrderIds.length > 0
+    ? await supabase.select<DraftOrderRow>({
+        schema: schemaName,
+        table: "draft_orders",
+        query: {
+          select: "id,conversation_id",
+          id: `in.(${draftOrderIds.join(",")})`,
+          limit: draftOrderIds.length,
+        },
+      }).catch((error) => {
+        if (isMissingTableError(error)) return [];
+        throw error;
+      })
+    : [];
+  const conversationByDraftOrderId = new Map(draftOrders.map((draftOrder) => [draftOrder.id, draftOrder.conversation_id ?? undefined]));
+  const recipientsByPhone = new Map<string, LunchReminderRecipient>();
+
+  for (const order of orders) {
+    const customer = customerById.get(order.customer_id);
+    if (!customer) continue;
+
+    const phoneKey = normalizePhoneKey(customer.phone);
+    if (!phoneKey || recipientsByPhone.has(phoneKey)) continue;
+
+    recipientsByPhone.set(phoneKey, {
+      customer,
+      order,
+      conversationId: order.draft_order_id ? conversationByDraftOrderId.get(order.draft_order_id) : undefined,
+    });
+  }
+
+  return [...recipientsByPhone.values()];
+}
+
+async function resolveLunchReminderMenuItems(
+  env: ApiBindings,
+  schemaName: string,
+  timezone?: string,
+): Promise<LunchReminderMenuItem[]> {
+  const supabase = createSupabaseRestClient(env);
+  const activeMenuId = await resolveActiveMenuId(supabase, schemaName, timezone);
+  if (!activeMenuId) return [];
+
+  const menuItems = await supabase.select<MenuItemRow>({
+    schema: schemaName,
+    table: "menu_items",
+    query: {
+      select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
+      menu_id: `eq.${activeMenuId}`,
+      is_available: "eq.true",
+      order: "sort_order.asc",
+      limit: 20,
+    },
+  });
+  const productIds = menuItems
+    .map((item) => item.product_id)
+    .filter((value): value is string => Boolean(value));
+  const products = productIds.length > 0
+    ? await selectProducts(supabase, schemaName, {
+        id: `in.(${productIds.join(",")})`,
+      })
+    : [];
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  const reminderItems: LunchReminderMenuItem[] = [];
+
+  for (const item of menuItems) {
+    const product = item.product_id ? productById.get(item.product_id) : undefined;
+    const name = item.display_name || product?.name;
+    if (!name) continue;
+
+    reminderItems.push({
+      name,
+      price: item.price_override ?? product?.base_price,
+      category: product?.category,
+    });
+  }
+
+  return reminderItems;
+}
+
+function buildLunchReminderMessage(input: {
+  restaurantName: string;
+  customerName?: string;
+  menuItems: LunchReminderMenuItem[];
+}): string {
+  const firstName = input.customerName?.trim().split(/\s+/)[0];
+  const greeting = firstName ? `Hola ${firstName}!` : "Hola!";
+  const itemLines = input.menuItems
+    .slice(0, 8)
+    .map((item, index) => `${index + 1}. ${item.name}${item.price !== undefined ? ` - ${formatCop(item.price)}` : ""}`);
+  const remainingCount = Math.max(input.menuItems.length - itemLines.length, 0);
+
+  return [
+    `${greeting} Hoy en ${input.restaurantName} tenemos un menu lleno de platos deliciosos listos para ti:`,
+    itemLines.join("\n"),
+    remainingCount > 0 ? `Y ${remainingCount} opcion${remainingCount === 1 ? "" : "es"} mas disponible${remainingCount === 1 ? "" : "s"}.` : "",
+    "Si quieres, responde por aqui con el plato que se te antoje y te ayudamos a dejar tu pedido listo.",
+  ].filter(Boolean).join("\n\n");
+}
+
+function normalizePhoneKey(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
+type ArrayElement<T> = T extends Array<infer Value> ? Value : never;
+
 function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): string {
   if (order.payment_method === "transfer") {
     const instructions = location?.transfer_payment_instructions?.trim();
@@ -2368,7 +2686,7 @@ function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): str
 
   return [
     `Listo, tu pedido ${order.id.slice(0, 8)} fue confirmado por el restaurante.`,
-    "Ya lo estamos preparando y cualquier novedad te avisamos por aqui.",
+    "Ya lo estamos preparando y cualquier novedad te avisamos por aqui. Gracias por elegirnos para tu comida de hoy!",
   ].join("\n\n");
 }
 
