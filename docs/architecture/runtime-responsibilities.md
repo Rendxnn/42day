@@ -23,8 +23,8 @@ Vive ahi:
 - creacion de ordenes,
 - handoff humano,
 - endpoints para dashboard,
-- descarga de comprobantes desde Meta,
-- subida de comprobantes a Supabase Storage.
+- futura descarga de comprobantes desde Meta,
+- futura subida de comprobantes a Supabase Storage.
 
 Archivos relacionados:
 
@@ -51,8 +51,7 @@ Vive ahi:
 - tenants,
 - menus,
 - productos,
-- combos,
-- promociones,
+- configurables de producto,
 - conversaciones,
 - mensajes,
 - drafts,
@@ -101,6 +100,11 @@ Ejemplo:
 5. Worker consulta menu en Supabase.
 6. Worker calcula respuesta.
 7. Worker envia mensaje por WhatsApp.
+
+Nota de estado actual:
+
+- la infraestructura para comprobantes de transferencia ya existe en DB y Storage,
+- pero el flujo end-to-end de descarga, persistencia y revision del comprobante sigue siendo un gap demo-ready.
 
 ## Configuracion: codigo vs servicio externo
 
@@ -203,4 +207,3 @@ Razones:
 - el flujo es principalmente HTTP/event-driven,
 - el equipo puede avanzar mas rapido,
 - hay menos infraestructura que mantener.
-

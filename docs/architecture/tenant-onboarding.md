@@ -1,6 +1,6 @@
 # Onboarding de nuevos clientes
 
-## Por que existen `control` y `tenant_demo`
+## Por que existen `control` y los schemas tenant
 
 ### `control`
 
@@ -14,40 +14,22 @@ Guarda informacion transversal:
 - usuarios del dashboard asociados a cada tenant,
 - webhooks raw antes de saber completamente como procesarlos.
 
-Ejemplo:
-
-```txt
-control.tenants
-control.tenant_channels
-control.tenant_users
-control.webhook_events
-```
-
-### `tenant_demo`
+### `tenant_<slug>`
 
 Es el plano operativo de un restaurante concreto.
 
 Guarda datos propios de ese restaurante:
 
 - productos,
-- combos,
+- opciones,
 - menus,
 - clientes,
 - conversaciones,
 - mensajes,
 - drafts,
 - ordenes,
-- comprobantes,
-- alertas.
-
-En produccion, cada cliente tendra su propio schema:
-
-```txt
-tenant_demo
-tenant_la_arepera
-tenant_sushi_centro
-tenant_pollos_norte
-```
+- alertas,
+- eventos.
 
 ## Flujo al recibir un mensaje
 
@@ -57,78 +39,39 @@ tenant_pollos_norte
 4. Lee `control.tenants.schema_name`.
 5. Usa ese schema para operar datos del restaurante.
 
-Ejemplo:
+## Como se crea un nuevo cliente hoy
 
-```txt
-phone_number_id=123
--> control.tenant_channels
--> tenant_id=abc
--> control.tenants.schema_name=tenant_demo
--> consultar tenant_demo.conversations, tenant_demo.menus, tenant_demo.orders
-```
+El onboarding ya no es solo manual por SQL.
 
-## Como se crea un nuevo cliente
+Hoy existe una consola admin y una RPC de provisionamiento que permiten:
 
-En una version madura, esto debe ser una operacion interna de administracion.
+1. crear fila en `control.tenants`,
+2. crear schema dedicado `tenant_<slug>`,
+3. crear tablas base del tenant,
+4. crear sede principal,
+5. crear menu inicial,
+6. crear o asociar usuarios,
+7. configurar estado y automatizacion inicial.
 
-Pasos:
+Documentacion relacionada:
 
-1. Crear fila en `control.tenants`.
-2. Crear schema dedicado: `tenant_<slug>`.
-3. Ejecutar migraciones tenant dentro de ese schema.
-4. Crear sede inicial.
-5. Crear bucket/rutas si se requieren convenciones por tenant.
-6. Registrar canal WhatsApp en `control.tenant_channels`.
-7. Crear usuarios dashboard en Supabase Auth.
-8. Asociar usuarios en `control.tenant_users`.
-9. Configurar datos operativos:
-   - domicilio fijo,
-   - horarios,
-   - datos de transferencia,
-   - menu inicial.
-10. Activar `automation_enabled`.
+- [Admin: gestion de restaurantes y miembros](../planning/admin-restaurant-management.md)
 
-## Donde se ejecutaria esto
+## Limite actual importante
 
-### MVP temprano
+El alta del tenant ya crea el schema fisico y permite operarlo desde la consola admin.
 
-Lo ejecutamos nosotros con script o MCP:
+Sin embargo, varias pantallas operativas del dashboard del restaurante siguen dependiendo de que el schema este expuesto en Data API. Por eso:
 
-```txt
-admin/dev -> script interno -> Supabase
-```
+- el provisionamiento administrativo ya funciona,
+- pero un tenant nuevo puede requerir pasos adicionales de exposicion o evolucion de endpoints para usar todas las pantallas operativas existentes.
 
-### Producto mas maduro
+## Checklist recomendado para demos
 
-Puede existir un dashboard interno de desarrolladores/admin:
-
-```txt
-admin dashboard -> endpoint backend -> job onboarding -> Supabase
-```
-
-Ese dashboard no seria el dashboard del restaurante. Seria un panel interno para nosotros como operadores del SaaS.
-
-## Recomendacion
-
-Para el MVP:
-
-- mantener onboarding manual/asistido por script,
-- no construir todavia un dashboard interno,
-- documentar cada paso,
-- automatizar cuando tengamos el segundo o tercer cliente real.
-
-Cuando ya duela hacerlo manual, se crea:
-
-```txt
-POST /admin/tenants
-```
-
-Ese endpoint debe:
-
-- validar slug,
-- crear tenant,
-- crear schema,
-- aplicar migraciones,
-- crear sede,
-- registrar canal,
-- dejar logs de onboarding.
+- tenant creado,
+- sede activa,
+- menu publicado,
+- usuarios creados,
+- canal WhatsApp asociado,
+- automatizacion activada cuando corresponda,
+- schema expuesto si la pantalla operativa lo requiere.

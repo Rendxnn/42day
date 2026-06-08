@@ -1,319 +1,188 @@
 # Estado actual
 
-Ultima actualizacion: 2026-04-29.
+Ultima actualizacion: 2026-06-07.
 
-Referencia de handoff para continuar desde otro hilo:
+## Resumen ejecutivo
 
-- [thread-handoff.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/thread-handoff.md)
-- [cloudflare-meta-token-and-deploy.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/runbooks/cloudflare-meta-token-and-deploy.md)
-- [deterministic-order-engine-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/deterministic-order-engine-plan.md)
-- [natural-conversation-implementation-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/natural-conversation-implementation-plan.md)
-- [dashboard-product-alignment-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/dashboard-product-alignment-plan.md)
-- [t-router-adoption-plan.md](/mnt/c/Users/samir/Documents/freelance/42day/docs/planning/t-router-adoption-plan.md)
+42day ya tiene una base funcional para demos del flujo principal:
 
-## Logro principal
+- WhatsApp inbound y outbound,
+- persistencia conversacional,
+- draft order y checkout basico,
+- orden pendiente de confirmacion del restaurante,
+- dashboard para aceptar pedido,
+- dashboard para reportar agotados,
+- retoma de conversacion con reemplazos,
+- consola admin de restaurantes y miembros,
+- notificaciones basicas por pedidos.
 
-Se valido el primer flujo tecnico end-to-end:
+La documentacion anterior mezclaba plan, estado, handoff de otros hilos y fases ya absorbidas por el codigo. Desde este punto, este archivo es la referencia principal del estado real.
 
-```txt
-WhatsApp tester
--> Meta WhatsApp Cloud API
--> Cloudflare Worker staging
--> Supabase control.webhook_events
--> respuesta automatica por WhatsApp
-```
+## Objetivo inmediato
 
-El primer bot validado respondio en WhatsApp con una respuesta basica de asistencia. El bot actual ya carga menu real y ante `hola` responde con saludo, menu publicado y sugerencias cortas.
+Cerrar una version `demo-ready`, no todavia una version `production-ready`.
 
-Ejemplo conceptual:
+Eso significa poder:
 
-```txt
-Hola, soy el asistente de pedidos de Restaurante Demo. Como vas?
-
-Este es el menu de hoy de Restaurante Demo:
-1. ...
-
-Escribe el numero del producto para agregarlo al pedido.
-```
+- grabar demos creibles,
+- dejar que un posible cliente pruebe el flujo principal,
+- mostrar operacion real de restaurante en dashboard,
+- demostrar donde interviene la IA y donde interviene el humano.
 
 ## Infraestructura configurada
 
 ### Supabase
 
-Proyecto:
-
-```txt
-https://ggyhzxyrgbaykdwhtmqx.supabase.co
-```
-
-Configurado:
-
+- proyecto activo en Supabase,
 - schema `control`,
-- schema `tenant_demo`,
-- schema `tenant_arepas`,
-- schema `tenant_pizza`,
-- tenant demo activo,
-- sede demo,
-- canal WhatsApp demo registrado,
+- schemas demo `tenant_demo`, `tenant_arepas`, `tenant_pizza`,
 - bucket privado `payment-proofs`,
 - bucket publico `product-images`,
-- grants para Data API,
-- indices de foreign keys,
 - RLS activado en tablas expuestas por PostgREST,
-- RLS activado tambien en schemas demo del dashboard.
-
-Canal demo:
-
-```txt
-phone_number_id = 1051363798067045
-waba_id = 1491008919702313
-display_phone_number = +1 555 638 6291
-```
+- configuracion lista para dashboard y consola admin.
 
 ### Cloudflare Workers
 
-Worker staging desplegado:
-
-```txt
-https://42day-api-staging.42day.workers.dev
-```
-
-Configurado:
-
-- secrets de Meta,
-- secrets de Supabase,
+- Worker staging desplegado,
+- secrets de Meta y Supabase configurados,
 - `APP_ENV=staging`,
-- `META_GRAPH_API_VERSION=v22.0`.
+- runtime operativo para webhook y dashboard API.
 
 ### Meta Developers
 
-Configurado:
-
-- app Meta Developers,
-- WhatsApp Cloud API,
-- numero tester verificado,
+- app y sandbox de WhatsApp configurados,
 - webhook apuntando al Worker staging,
-- suscripcion al evento `messages`.
+- tester verificado para pruebas manuales.
 
-## Codigo implementado
+## Implementado en codigo
 
-Backend:
+### Backend conversacional
 
-- Hono + Cloudflare Workers,
 - `GET /health`,
 - `GET /webhooks/whatsapp`,
 - `POST /webhooks/whatsapp`,
 - verificacion de webhook Meta,
-- normalizacion inicial de payload WhatsApp,
-- registro raw en `control.webhook_events`,
-- idempotencia inicial por `provider_message_id`,
-- resolucion de tenant desde `control.tenant_channels`,
-- creacion/busqueda de customer por telefono,
-- creacion/carga de conversation activa,
-- timeout de conversation a 30 minutos,
-- guardado de inbound/outbound en `tenant_demo.messages`,
-- normalizacion de mensajes tipo ubicacion de WhatsApp,
-- almacenamiento de ubicaciones WhatsApp en `tenant_demo.customer_addresses`,
-- marcado de webhook procesado,
-- envio outbound basico por WhatsApp,
-- lectura del menu publicado del dia desde Supabase,
-- respuesta `menu` real por WhatsApp con lista numerada,
-- seleccion guiada por numero, texto con cantidad simple o frase determinista multi-item basica,
-- creacion/persistencia inicial de `draft_orders`,
-- agregado de items a `draft_order_items`,
-- `conversation.context` y `clarification_attempts`,
-- seleccion determinista de `delivery/pickup`,
-- captura de direccion por texto o ubicacion,
-- seleccion de pago,
-- resumen final determinista,
-- creacion de `orders` y `order_items`,
-- alertas `order_pending_confirmation` y `transfer_payment_review`,
-- trazabilidad del mecanismo de respuesta en `messages.payload.internal.routing`,
-- cliente REST minimo para Supabase.
+- log raw en `control.webhook_events`,
+- resolucion de tenant por `control.tenant_channels`,
+- customer por telefono,
+- conversacion persistente con timeout,
+- logging inbound/outbound,
+- guardado de ubicacion WhatsApp,
+- menu publicado real desde Supabase,
+- seleccion por numero, nombre, alias o texto simple,
+- soporte multi-item simple,
+- `draft_orders` y `draft_order_items`,
+- fulfillment, direccion y pago,
+- resumen y confirmacion del cliente,
+- `orders` y `order_items`,
+- orden en `pending_restaurant_confirmation`,
+- soporte de agotados y reemplazos,
+- metadata de routing por outbound,
+- fallback LLM con Gemini via `t-router`.
 
-Flujo guiado actual validable en codigo:
+### Dashboard restaurante
+
+- vista de pedidos operativa,
+- detalle de pedido,
+- aceptar pedido,
+- reportar agotado,
+- seleccionar reemplazos por categoria,
+- reintentar notificacion al cliente,
+- mover estados operativos basicos,
+- CRUD de productos,
+- productos compuestos/configurables,
+- menu del dia,
+- upload de imagen de producto,
+- notificaciones basicas por pedidos nuevos,
+- toggle de automatizacion.
+
+### Admin plataforma
+
+- overview admin,
+- crear restaurante,
+- editar tenant y sede,
+- crear miembros,
+- resetear password,
+- inactivar restaurante y miembros,
+- provisionamiento de schema tenant.
+
+## Flujo principal actualmente demostrable
 
 ```txt
-hola/menu
--> muestra menu real
--> usuario selecciona item por numero o texto con cantidad simple
--> draft_order + item
--> pregunta delivery/pickup
--> direccion si delivery
--> metodo de pago
--> resumen
--> confirmacion del cliente
--> order + order_items + alerta operativa
+cliente escribe por WhatsApp
+-> bot muestra menu real o interpreta pedido simple
+-> se construye draft
+-> bot pide fulfillment, direccion y pago
+-> cliente confirma
+-> backend crea order pendiente de revision
+-> dashboard la muestra
+-> restaurante acepta o reporta agotado
+-> backend notifica al cliente
 ```
 
-Dashboard:
+## IA: estado actual
 
-- app `apps/dashboard` integrada al monorepo,
-- React + Vite + Tailwind,
-- rutas `/dashboard/*` en `apps/api`,
-- CRUD basico de productos,
-- CRUD basico de menu del dia,
-- rutas base para modulo de ordenes y alertas,
-- toggle API para activar/desactivar automatizacion,
-- upload de imagen de producto,
-- cliente frontend ya tiene funciones para ordenes, alertas y automatizacion,
-- UI actual se concentra en menu/catalogo/subida; aun no existe consola visual completa de ordenes, alertas y conversacion,
-- tenant demo `demo`,
-- tenants demo adicionales `arepas` y `pizza`.
+La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
 
-Paquetes compartidos:
+- intenta ayudar solo cuando el mensaje parece pedido libre o edicion libre,
+- devuelve textos, cantidades, opciones y confianza,
+- no calcula precios,
+- no devuelve IDs canonicos,
+- no decide disponibilidad,
+- no confirma ordenes.
 
-- `@42day/types`,
-- `@42day/core`,
-- `@42day/config`,
-- `@42day/db`.
-
-Router IA:
-
-- `packages/t-router` existe dentro del workspace.
-- `apps/api` depende de `@rendxnn/t-router` via `workspace:*`.
-- El plan de extraerlo a dependencia remota/versionada sigue pendiente.
+El backend siempre intenta resolver esa salida contra el menu real y puede volver al camino deterministico si la salida no es confiable o no es aplicable.
 
 ## Verificacion actual
 
-Comando validado:
+Validado localmente o por script:
 
-```bash
-corepack pnpm typecheck:direct
-```
+- `corepack pnpm typecheck:direct`
+- modulo de pedidos del dashboard compilando
+- script E2E `scripts/e2e_order_confirmation_phase5.py`
 
-Resultado:
+El script E2E actual cubre:
 
-```txt
-sin errores
-```
+- pedido normal aceptado,
+- retry de notificacion,
+- agotado con reemplazo,
+- agotado con cancelacion del cliente.
 
-Query de verificacion en Supabase:
+## Limites actuales conocidos
 
-```sql
-select
-  id,
-  provider,
-  event_id,
-  provider_message_id,
-  phone_number_id,
-  status,
-  error_message,
-  received_at
-from control.webhook_events
-order by received_at desc
-limit 20;
-```
+### Core conversacional
 
-Resultado observado:
+- la validacion de configurables contra `product_options` todavia no es robusta,
+- `validation_engine` y `pricing_engine` todavia son capas muy delgadas,
+- el router concentra demasiada orquestacion.
 
-- webhooks recientes con `status = processed`,
-- `customer` persistido,
-- `conversation` activa con expiracion a 30 minutos,
-- inbound y outbound guardados en `tenant_demo.messages`,
-- outbound recientes con `status = sent`,
-- ubicaciones WhatsApp guardadas en `tenant_demo.customer_addresses`.
+### Transferencia
 
-## Limitaciones actuales
+- falta descargar y almacenar el archivo real del comprobante,
+- falta asociarlo a mensaje y orden,
+- falta mover la orden a `payment_pending_review` de forma completa.
 
-La persistencia de `customers`, `conversations`, `messages`, `customer_addresses` y `processed_at` ya esta implementada y validada.
+### Operacion humana
 
-Ya se aplicaron en Supabase:
+- la API de alertas existe,
+- pero falta una bandeja visual dedicada de alertas y timeline de conversacion,
+- falta contexto humano mas completo para conversaciones `manual`.
 
-- migracion `dashboard_product_images`,
-- migracion `test_tenants_arepas_pizza`,
-- migracion `product_images_bucket`,
-- migracion `business_config_and_addresses`,
-- migracion `enable_rls_for_exposed_tables`,
-- migracion `enable_rls_for_dashboard_demo_tenants`,
-- migracion `order_console_and_conversation_context`,
-- migracion `extend_product_options_for_deterministic_configurables`,
-- migracion `ai_provider_config_and_aliases`,
-- migracion `enable_rls_ai_provider_config`,
-- seed `menu_demo.sql`.
+### Automatizacion
 
-Todavia no existe:
+- si la automatizacion esta apagada, el sistema deja de responder,
+- pero todavia no deja siempre una alerta operativa consistente por mensaje pendiente.
 
-- parser semantico completo para configurables con validacion de opciones; ya existe fallback Gemini por `GEMINI_API_KEY` para extraer textos + confianza,
-- descarga/subida real de comprobantes en conversacion,
-- confirmacion operativa completa desde dashboard,
-- manejo operativo completo de producto agotado al confirmar.
+### Testing
 
-Limitaciones conversacionales actuales:
-
-- el parser LLM aun no valida opciones configurables contra `product_options`,
-- no se descargan ni almacenan archivos de comprobante desde Meta,
-- los aliases existen en BD, pero todavia no tienen UI de dashboard,
 - falta suite automatizada de pruebas conversacionales,
-- el flujo de cambio de pedido confirmado aun debe pasar a humano con mas contexto operativo.
+- falta cubrir mas escenarios naturales y configurables,
+- la prueba manual real con tester de WhatsApp sigue siendo necesaria.
 
-Mejoras conversacionales ya implementadas:
+## Siguiente referencia
 
-- despues de agregar productos el flujo queda en `awaiting_more_items` y pregunta si el cliente quiere agregar algo mas antes de pedir entrega,
-- Gemini puede apoyar pedidos naturales en estados activos del pedido, no solo en la seleccion inicial,
-- el router procesa multiples productos devueltos por el parser semantico,
-- sin Gemini configurado, el matcher determinista ya puede resolver frases multi-item simples separadas por `y`, `tambien`, `ademas` o coma,
-- se corrigio la extraccion de cantidades escritas para tomar el primer numero que aparece en la frase,
-- el draft soporta quitar, reemplazar y ajustar cantidades desde acciones semanticas iniciales,
-- los saludos durante un pedido activo conservan el contexto del pedido.
+Para el alcance cerrado y el plan de cierre demo-ready:
 
-Observabilidad conversacional:
-
-- cada respuesta outbound guarda metadata interna en `messages.payload.internal.routing`,
-- `responseSource` indica `deterministic`, `llm` o `deterministic_after_llm_fallback`,
-- `llm` registra si Gemini se intento, si se uso, outcome, intent, confianza y conteo de items/acciones,
-- esto permite auditar una conversacion real mensaje por mensaje sin depender solo de logs del Worker.
-
-Herramientas operativas:
-
-- `scripts/powershell/Set-MetaAccessToken.ps1` actualiza `META_ACCESS_TOKEN` en Cloudflare,
-- `scripts/powershell/Set-GeminiApiKey.ps1` actualiza `GEMINI_API_KEY` en Cloudflare,
-- `scripts/powershell/Set-CfWorkerSecret.ps1` permite actualizar cualquier secret del Worker.
-
-## Siguiente objetivo tecnico
-
-Mejorar el flujo guiado real para que sea mas natural sin perder determinismo.
-
-Secuencia recomendada:
-
-1. Alinear documentacion y contratos con el estado actual.
-2. Probar staging con `GEMINI_API_KEY` real y revisar `messages.payload.internal.routing`.
-3. Completar validacion de configurables contra `product_options`.
-4. Agregar tests unitarios/conversacionales para el router.
-5. Implementar descarga/subida real de comprobantes de transferencia.
-6. Implementar consola visual de ordenes/alertas/conversacion en dashboard.
-7. Implementar producto agotado al confirmar y retoma de conversacion.
-
-## Siguiente objetivo de producto
-
-Probar un flujo guiado minimo natural:
-
-```txt
-usuario escribe hola
--> bot muestra menu real de hoy y pregunta de forma natural que quiere pedir
--> usuario elige item o escribe `2 menu del dia con sopa de frijoles`
--> bot crea o actualiza draft_order
--> bot pregunta si quiere agregar algo mas o seguir con entrega
--> bot pide delivery/pickup
--> bot pide direccion si aplica
--> bot pide pago
--> bot muestra resumen
--> bot crea order al confirmar
-```
-
-## Decisiones pendientes
-
-Necesitamos definir o aterrizar:
-
-- reglas iniciales de promociones,
-- integracion de comprobantes y media,
-- schema final de productos configurables y aliases en dashboard,
-- umbrales finales para fallback LLM vs aclaracion humana.
-
-Decisiones aclaradas:
-
-- proveedor LLM inicial: Gemini,
-- configuracion LLM por tenant en `control.tenant_ai_provider_configs`,
-- credenciales cifradas a nivel aplicacion; clave maestra como secret del backend,
-- salida del parser semantico: textos + confianza, sin IDs ni precios,
-- aliases inicialmente en BD; luego se administraran desde dashboard.
+- [Scope congelado demo-ready](./business-decisions.md)
+- [Gap analysis demo-ready](./demo-ready-gap-analysis.md)
+- [Conversacion natural e integracion IA](./natural-conversation-implementation-plan.md)

@@ -2,7 +2,14 @@
 
 ## Estado actual
 
-El repo ya tiene implementacion inicial de API, dashboard, persistencia conversacional y flujo guiado.
+El repo ya tiene:
+
+- API sobre Cloudflare Workers,
+- dashboard operativo,
+- persistencia conversacional,
+- flujo guiado,
+- fallback LLM acotado,
+- modulo de pedidos y agotados.
 
 ## Requisitos recomendados
 
@@ -20,8 +27,6 @@ corepack pnpm install
 ```
 
 ## Instalacion inicial
-
-Cuando se empiece implementacion:
 
 ```bash
 pnpm install
@@ -76,11 +81,13 @@ SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
-OPENAI_API_KEY
 GEMINI_API_KEY
 GEMINI_MODEL
 AI_CONFIG_ENCRYPTION_KEY
+OPENAI_API_KEY
 ```
+
+`OPENAI_API_KEY` hoy es opcional y legado. El proveedor activo del flujo actual es Gemini.
 
 ## Supabase
 
@@ -118,7 +125,7 @@ Recomendacion: usar staging en Cloudflare Workers para pruebas reales de Meta.
 
 ## Primer smoke test
 
-Cuando exista implementacion:
+Con la implementacion actual:
 
 1. `GET /health` responde ok.
 2. Meta verifica `GET /webhooks/whatsapp`.
@@ -126,7 +133,21 @@ Cuando exista implementacion:
 4. Confirmar que aparece en `webhook_events`.
 5. Confirmar que aparece en `messages`.
 6. Confirmar que se resolvio tenant demo.
-7. Confirmar que se envio respuesta automatica basica.
+7. Confirmar que se envio saludo con menu real.
+
+## Levantar servicios rapido
+
+Desde la raiz:
+
+```bash
+python scripts/dev_services.py --start
+```
+
+Ver estado:
+
+```bash
+python scripts/dev_services.py --status
+```
 
 ## Guia completa
 

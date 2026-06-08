@@ -86,6 +86,7 @@ Este es el menu de hoy de <nombre del restaurante>:
 1. ...
 
 Escribe el numero del producto para agregarlo al pedido.
+Tambien puedes escribir nombre o un pedido simple.
 ```
 
 ## 5. Verificar datos en Supabase

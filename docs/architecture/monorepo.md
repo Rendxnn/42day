@@ -24,6 +24,7 @@ packages/
   types/
   config/
   prompts/
+  t-router/
 
 docs/
 ```
@@ -122,17 +123,22 @@ Evitar que `packages/core` dependa de `apps/api`, Supabase, Hono o Cloudflare.
 
 ## Convencion de trabajo con frontend
 
-El frontend puede avanzar usando contratos definidos en `packages/types`.
+El frontend ya consume el backend real via `apps/api`.
 
-Antes de conectar la UI real, backend deberia publicar endpoints documentados para:
+Hoy el API ya expone rutas para:
 
 - listar ordenes,
+- ver detalle de pedido,
+- aceptar pedido,
+- reportar agotados,
+- reintentar notificacion al cliente,
 - listar alertas,
-- obtener menu del dia,
-- crear/editar productos,
-- crear/editar combos,
-- crear/editar promociones,
-- publicar menu del dia,
-- cambiar estado de orden,
-- marcar alerta como atendida.
+- marcar alerta como `acknowledged` o `resolved`,
+- CRUD de productos y catalogo,
+- gestion admin de restaurantes y miembros.
 
+El gap principal de frontend ya no es "conectar la UI real". Es cerrar:
+
+- bandeja visual dedicada de alertas,
+- timeline de conversacion y mensajes,
+- revision humana de comprobantes de transferencia.

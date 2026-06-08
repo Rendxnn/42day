@@ -4,29 +4,51 @@
 
 - Cloudflare Workers como runtime.
 - Hono como router HTTP.
-- Supabase Postgres como base de datos.
-- Drizzle como ORM/migraciones.
+- Supabase Postgres como base de datos operativa.
+- PostgREST/Data API para acceso desde el Worker.
 - WhatsApp Cloud API como canal.
-- LLM solo para parser semantico de pedidos libres.
+- Gemini via `packages/t-router` como parser semantico acotado.
 
-## Flujo tecnico de un mensaje entrante
+## Flujo tecnico real de un mensaje entrante
+
+Hoy el recorrido real del webhook es este:
 
 ```txt
 Meta WhatsApp
   -> POST /webhooks/whatsapp
+  -> whatsapp_webhook.logRawWebhook()
   -> whatsapp_webhook.normalize()
-  -> tenant_resolver.resolveByPhoneNumberId()
-  -> message_log.storeInbound()
-  -> conversation_service.loadOrCreate()
-  -> timeout check
-  -> message_router.route()
-  -> guided_flow_engine o semantic_parser
-  -> validation_engine
-  -> pricing_engine
-  -> draft_order_service.update()
-  -> whatsapp_client.sendMessage()
-  -> message_log.storeOutbound()
+  -> tenant_resolver.resolveTenantForInboundMessage()
+  -> customer_service.findOrCreateCustomer()
+  -> conversation_service.loadOrCreateActiveConversation()
+  -> message_log.logInboundMessage()
+  -> customer_address_service.saveCustomerAddressFromWhatsAppLocation() si aplica
+  -> message_router.routeInboundMessage()
+  -> sendWhatsAppTextMessage()
+  -> message_log.logOutboundTextMessage()
 ```
+
+## Orquestacion actual vs objetivo
+
+### Estado actual
+
+La orquestacion del flujo principal vive sobre todo en:
+
+- `message_router`,
+- `draft_order_service`,
+- `order_service`,
+- `conversation_service`.
+
+Los modulos `guided_flow_engine`, `validation_engine` y `pricing_engine` existen, pero hoy son mas nominales que orquestadores reales. La logica de decision sigue concentrada en `message_router`.
+
+### Objetivo demo-ready
+
+Mantener el comportamiento actual, pero extraer y endurecer:
+
+- validacion real de configurables y reglas operativas,
+- cobertura/horario cuando se active,
+- flujo de comprobantes de transferencia,
+- alertas operativas cuando automatizacion este apagada.
 
 ## Modulos
 
@@ -35,115 +57,103 @@ Meta WhatsApp
 Responsable de:
 
 - verificar challenge de Meta,
-- recibir eventos inbound,
-- validar firma si se configura `APP_SECRET`,
+- registrar raw webhook,
+- ignorar duplicados de webhook,
 - normalizar payloads,
-- responder rapido a Meta.
-
-Meta puede reenviar webhooks si no recibe respuesta exitosa. Por eso el webhook debe ser idempotente.
+- iterar mensajes inbound,
+- marcar el webhook como procesado.
 
 ### `tenant_resolver`
 
-Durante desarrollo:
+Responsable de:
 
-- usa el `META_PHONE_NUMBER_ID` del numero demo.
-- resuelve a un tenant demo.
-
-En produccion:
-
-- consulta `control.tenant_channels`,
-- usa `phone_number_id` y `waba_id`,
-- devuelve tenant, schema y configuracion.
+- resolver tenant por `phone_number_id` y `waba_id`,
+- devolver `tenantId`, `slug`, `schemaName`, timezone y flags operativas.
 
 ### `conversation_service`
 
 Responsable de:
 
-- crear conversaciones,
-- mantener estado actual,
-- asociar customer,
-- asociar draft activo,
-- cerrar por timeout,
-- poner conversacion en `manual`.
+- crear o reutilizar conversacion activa,
+- extender expiracion a 30 minutos,
+- expirar conversaciones viejas,
+- guardar `state`, `context`, `clarification_attempts` y `manual_reason`.
 
 ### `message_router`
 
-Clasifica el mensaje segun:
+Es el centro real del flujo conversacional hoy.
 
-- estado de conversacion,
-- tipo de payload,
-- texto recibido,
-- botones/list replies,
-- si hay draft activo,
-- si hay handoff manual.
+Responsable de:
 
-### `guided_flow_engine`
-
-Maneja seleccion paso a paso.
-
-Debe ser deterministico y funcionar aunque el parser semantico este apagado.
+- detectar senales cerradas,
+- decidir si intentar parser semantico,
+- operar el draft,
+- avanzar de estado,
+- mover a `manual`,
+- registrar metadata de routing en cada outbound.
 
 ### `semantic_parser`
 
-Solo se usa si el usuario escribe un pedido libre.
+Se usa solo como fallback cuando el usuario escribe un pedido libre o una edicion libre.
 
-Entrada:
+Reglas:
 
-- mensaje crudo,
-- menu activo,
-- opciones permitidas,
-- tono/idioma.
+- devuelve textos y confianza,
+- no calcula precios,
+- no resuelve IDs canonicos,
+- no decide disponibilidad,
+- no confirma ordenes.
 
-Salida:
+### `draft_order_service`
 
-- candidato estructurado,
-- dudas,
-- campos faltantes,
-- confianza.
+Responsable de:
 
-Nunca debe:
+- crear o reutilizar draft activo,
+- agregar/quitar/reemplazar items,
+- recalcular totales,
+- marcar el draft como listo o con aclaraciones.
 
-- calcular precios,
-- inventar productos,
-- decidir disponibilidad,
-- confirmar ordenes.
+### `order_service`
 
-### `validation_engine`
+Responsable de:
 
-Valida:
+- convertir draft confirmado en orden,
+- crear `order_items`,
+- crear alertas de confirmacion,
+- manejar flujo de agotados y reemplazos del cliente.
 
-- existencia de productos,
-- disponibilidad en menu del dia,
-- variantes/opciones,
-- cantidades,
-- direccion,
-- metodo de pago,
-- cobertura,
-- horario,
-- estado de tenant/sede.
+### `dashboard_api`
 
-### `pricing_engine`
+Responsable de:
 
-Calcula:
-
-- subtotal items,
-- extras,
-- descuentos/promociones permitidas,
-- domicilio fijo,
-- total final.
+- exponer CRUD operativo de menu/catalogo,
+- exponer modulo de pedidos,
+- aceptar pedido,
+- devolver agotado,
+- reintentar notificaciones,
+- exponer configuracion de automatizacion,
+- exponer consola admin para restaurantes y miembros.
 
 ### `handoff_service`
 
-Marca la conversacion como manual y crea una alerta para dashboard.
+Responsable de:
 
-Casos iniciales:
+- persistir `human_intervention_alerts`,
+- dejar la conversacion en `manual`.
 
-- usuario pide asesor,
-- usuario envia comprobante de transferencia,
-- parser no entiende despues de varios intentos,
-- validacion falla repetidamente,
-- error externo critico,
-- restaurante desactiva automatizacion.
+## IA en backend
+
+La IA no reemplaza la state machine.
+
+Secuencia actual:
+
+1. `message_router` intenta resolver por reglas.
+2. Si el texto parece pedido libre o edicion libre, intenta `semantic_parser`.
+3. Si el parser devuelve baja confianza o no resuelve contra menu, el flujo vuelve al camino deterministico.
+4. Cada outbound registra si fue:
+   - `deterministic`
+   - `llm`
+   - `deterministic_after_llm_fallback`
 
 ## Idempotencia
 
@@ -154,41 +164,35 @@ Meta puede reenviar webhooks cuando:
 - hay problemas de red,
 - Meta no confirma entrega del evento.
 
-Sugerencia:
-
-- guardar `provider_message_id` de WhatsApp en `messages`,
-- crear indice unico por `tenant_id + provider + provider_message_id + direction`,
-- si llega duplicado, responder 200 sin reprocesar,
-- registrar evento `webhook.duplicate_ignored`.
+Hoy ya existe idempotencia inicial a nivel de webhook raw. La siguiente mejora natural es endurecer tambien unicidad por mensaje inbound/outbound persistido.
 
 ## Fallas externas
 
-Si falla OpenAI:
+Si falla Gemini:
 
-- mantener flujo guiado disponible,
-- enviar respuesta simple pidiendo usar menu guiado o hablar con asesor,
-- crear log `semantic_parser.failed`.
+- el flujo guiado sigue disponible,
+- el pedido libre vuelve a matcher deterministico o aclaracion,
+- el outbound deja trazabilidad de fallback.
 
 Si falla Supabase:
 
-- responder 200 a Meta solo si el evento pudo registrarse o encolarse.
-- Si no hay cola en MVP, responder error para permitir retry de Meta.
+- no hay cola intermedia en este MVP,
+- por tanto la capacidad de reintento depende del comportamiento de Meta y de no perder el webhook antes de persistir.
 
-Si falla envio WhatsApp:
+Si falla WhatsApp outbound:
 
-- guardar log `whatsapp.outbound_failed`,
-- dejar conversacion en estado recuperable,
-- alertar si es persistente.
+- el envio queda trazado en `messages`,
+- algunos caminos del dashboard ya permiten retry de notificacion al cliente,
+- todavia falta una consola humana completa para algunos casos fallidos.
 
 ## Automatizacion activa/inactiva
 
-Cada tenant debe tener una bandera:
+Cada tenant y sede puede tener `automation_enabled`.
 
-- `automation_enabled`
+Estado actual:
 
-Si esta apagada:
+- si esta apagada, el webhook sigue registrando y el router no responde automaticamente.
 
-- se registran mensajes,
-- no se generan respuestas automaticas,
-- se crean alertas de mensajes pendientes si aplica.
+Gap actual:
 
+- todavia no se crea sistematicamente una alerta operativa cuando la automatizacion esta apagada y entra un mensaje.

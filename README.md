@@ -2,31 +2,39 @@
 
 Sistema multi-tenant de automatizacion de pedidos por WhatsApp para restaurantes pequenos y medianos.
 
-## Objetivo del MVP
+## Objetivo actual
 
-Construir una base seria para:
+Dejar un flujo principal `demo-ready` para:
 
 - recibir mensajes por WhatsApp Cloud API,
-- interpretar pedidos guiados o libres,
-- validar el pedido contra el menu activo,
-- calcular totales en codigo,
-- pedir datos faltantes,
-- confirmar el pedido antes de crearlo,
-- mostrar ordenes e intervenciones humanas en dashboard,
-- permitir handoff a humano.
+- mostrar menu real,
+- tomar pedidos guiados o naturales simples,
+- construir y persistir `draft_orders`,
+- calcular totales en backend,
+- pedir solo los datos faltantes,
+- crear orden pendiente de revision del restaurante,
+- operar aceptacion, agotados y notificaciones desde dashboard,
+- permitir handoff a humano cuando el bot no debe continuar.
 
-## Enfoque actual
+No es una meta de produccion completa todavia. El objetivo inmediato es poder grabar demos y habilitar pruebas controladas con posibles clientes.
 
-Por ahora el foco del backend es:
+## Estado resumido
 
-- estructura del monorepo,
-- documentacion funcional y tecnica,
-- integracion WhatsApp Cloud API,
-- recepcion, normalizacion y logging de mensajes,
-- base logica para enrutar conversaciones,
-- preparacion de Supabase Postgres como fuente de datos.
+Hoy el repo ya tiene:
 
-El frontend/dashboard lo trabaja otro integrante del equipo y debe vivir en `apps/dashboard`.
+- webhook de WhatsApp funcionando sobre Cloudflare Workers,
+- persistencia de customers, conversations, messages, draft orders y orders en Supabase,
+- router conversacional con camino deterministico y fallback LLM acotado,
+- dashboard operativo para menu, catalogo, pedidos, aceptacion y agotados,
+- consola admin para provisionar restaurantes y miembros,
+- notificaciones operativas basicas por pedidos.
+
+Los huecos principales para el siguiente tramo son:
+
+- validacion fuerte de configurables contra `product_options`,
+- flujo completo de comprobantes de transferencia,
+- consola humana de alertas/conversacion,
+- pruebas automatizadas conversacionales mas amplias.
 
 ## Desarrollo local rapido
 
@@ -86,7 +94,8 @@ packages/
   db/                  # Schema, migraciones y clientes DB
   types/               # Tipos compartidos
   config/              # Configuracion y validacion de env
-  prompts/             # Prompts versionados para parser semantico
+  prompts/             # Reservado para prompts versionados
+  t-router/            # Router IA vendorizado temporalmente
 
 docs/
   architecture/
@@ -101,22 +110,21 @@ docs/
 
 - [Contexto del proyecto](./PROJECT_CONTEXT.md)
 - [Estado actual](./docs/planning/current-status.md)
-- [Estructura del monorepo](./docs/architecture/monorepo.md)
+- [Scope congelado demo-ready](./docs/planning/business-decisions.md)
+- [Gap analysis demo-ready](./docs/planning/demo-ready-gap-analysis.md)
+- [Plan conversacional natural + IA](./docs/planning/natural-conversation-implementation-plan.md)
 - [Arquitectura backend](./docs/architecture/backend.md)
-- [Supabase vs Cloudflare Workers](./docs/architecture/runtime-responsibilities.md)
 - [Onboarding de nuevos clientes](./docs/architecture/tenant-onboarding.md)
 - [Flujo conversacional](./docs/flows/conversation-flow.md)
 - [Handoff humano](./docs/flows/handoff.md)
+- [Gestion admin de restaurantes](./docs/planning/admin-restaurant-management.md)
+- [Notificaciones operativas](./docs/planning/realtime-order-notifications.md)
+- [Supabase vs Cloudflare Workers](./docs/architecture/runtime-responsibilities.md)
 - [WhatsApp Cloud API](./docs/integrations/whatsapp-cloud-api.md)
 - [Supabase](./docs/integrations/supabase.md)
 - [Schema de base de datos V1](./docs/schemas/database-v1.md)
 - [Logging y monitoreo](./docs/schemas/logging-events.md)
-- [Roadmap y division de tareas](./docs/planning/roadmap-and-task-split.md)
-- [Decisiones de negocio](./docs/planning/business-decisions.md)
-- [Plan de trabajo adelantable](./docs/planning/parallel-work-plan.md)
-- [Plan conversacional natural deterministico + LLM](./docs/planning/natural-conversation-implementation-plan.md)
-- [Plan de alineacion del dashboard](./docs/planning/dashboard-product-alignment-plan.md)
 - [Setup local](./docs/runbooks/local-setup.md)
 - [Configuracion externa paso a paso](./docs/runbooks/external-configuration-step-by-step.md)
 - [Cloudflare Worker setup](./docs/runbooks/cloudflare-worker-setup.md)
-- [Primera prueba con persistencia conversacional](./docs/runbooks/first-persistent-flow-test.md)
+- [Prueba manual persistente](./docs/runbooks/first-persistent-flow-test.md)

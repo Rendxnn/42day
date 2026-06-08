@@ -97,6 +97,13 @@ Opcional por ahora:
 ```bash
 corepack pnpm --filter @42day/api exec wrangler secret put SUPABASE_ANON_KEY --env staging
 corepack pnpm --filter @42day/api exec wrangler secret put DATABASE_URL --env staging
+corepack pnpm --filter @42day/api exec wrangler secret put GEMINI_API_KEY --env staging
+corepack pnpm --filter @42day/api exec wrangler secret put GEMINI_MODEL --env staging
+```
+
+Opcional legado:
+
+```bash
 corepack pnpm --filter @42day/api exec wrangler secret put OPENAI_API_KEY --env staging
 ```
 
@@ -149,7 +156,7 @@ Hola, soy el asistente de pedidos de <nombre del restaurante>. Como vas?
 Este es el menu de hoy de <nombre del restaurante>:
 1. ...
 
-Escribe el numero del producto para agregarlo al pedido.
+Puedes escribir el numero, nombre o pedido simple.
 ```
 
 ## Estado validado
