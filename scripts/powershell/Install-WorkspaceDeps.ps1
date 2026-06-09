@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "Resolve-Pnpm.ps1")
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $installMarker = Join-Path $repoRoot "node_modules\.modules.yaml"
 
@@ -17,7 +19,10 @@ Push-Location $repoRoot
 try {
   $previousCi = $env:CI
   $env:CI = "true"
-  corepack pnpm install --frozen-lockfile
+  Invoke-WorkspacePnpm install --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) {
+    throw "pnpm install failed with exit code $LASTEXITCODE"
+  }
 }
 finally {
   $env:CI = $previousCi

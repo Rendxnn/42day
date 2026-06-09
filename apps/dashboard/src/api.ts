@@ -223,8 +223,56 @@ export type DetectedMenuProduct = {
   description?: string;
   basePrice: number;
   category?: string;
+  currency?: string;
   emoji?: string;
   confidence?: number;
+  isAvailable?: boolean;
+  options?: Product["options"];
+  productType?: Product["productType"];
+};
+
+export type MenuFileAnalysisPayload = {
+  categories?: Array<{
+    items: DetectedMenuProduct[];
+    name: string;
+  }>;
+  fileType: "image" | "excel" | "csv" | "pdf" | "txt";
+  needsAiFallback: boolean;
+  parser: string;
+  products: DetectedMenuProduct[];
+  source: "deterministic" | "ai";
+  warnings: string[];
+};
+
+export type LunchReminderPreview = {
+  lookbackDays: number;
+  recipientCount: number;
+  menuItemCount: number;
+  canSend: boolean;
+  messagePreview: string;
+  recipients: Array<{
+    customerId: string;
+    name?: string;
+    phone: string;
+    lastOrderAt: string;
+  }>;
+};
+
+export type LunchReminderSendResult = {
+  batchId: string;
+  lookbackDays: number;
+  recipientCount: number;
+  sentCount: number;
+  failedCount: number;
+  menuItemCount: number;
+  results: Array<{
+    customerId: string;
+    name?: string;
+    phone: string;
+    lastOrderAt: string;
+    status: "sent" | "failed";
+    providerMessageId?: string;
+  }>;
 };
 
 export function listTenants() {
@@ -310,6 +358,17 @@ export function getTodayMenu(tenantSlug: string) {
   return request<TodayMenuPayload>(`/${tenantSlug}/menu/today`);
 }
 
+export function getLunchReminderPreview(tenantSlug: string) {
+  return request<LunchReminderPreview>(`/${tenantSlug}/lunch-reminders/preview`);
+}
+
+export function sendLunchReminders(tenantSlug: string) {
+  return request<LunchReminderSendResult>(`/${tenantSlug}/lunch-reminders/send`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function getPublicCarta(tenantSlug: string) {
   return publicRequest<PublicCartaPayload>(`/public/${tenantSlug}/carta`);
 }
@@ -327,7 +386,7 @@ export function getOrderPaymentProof(tenantSlug: string, orderId: string) {
 }
 
 export function confirmOrderPaymentProof(tenantSlug: string, orderId: string) {
-  return request(`/${tenantSlug}/orders/${orderId}/payment-proof/confirm`, {
+  return request<{ ok: true }>(`/${tenantSlug}/orders/${orderId}/payment-proof/confirm`, {
     method: "POST",
   });
 }
@@ -430,6 +489,16 @@ export function analyzeMenuImage(tenantSlug: string, file: File) {
     method: "POST",
     body: formData,
     headers: {},
+  });
+}
+
+export function analyzeMenuFile(tenantSlug: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return request<MenuFileAnalysisPayload>(`/${tenantSlug}/uploads/menu-file/analyze`, {
+    method: "POST",
+    body: formData,
   });
 }
 

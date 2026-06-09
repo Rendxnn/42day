@@ -4,7 +4,7 @@ import type { MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
-  analyzeMenuImage,
+  analyzeMenuFile,
   createAdminRestaurant,
   createAdminRestaurantMember,
   createProduct,
@@ -15,21 +15,24 @@ import {
   deleteProduct,
   getAdminOverview,
   getDiagnostics,
+  getLunchReminderPreview,
   getMe,
   getPublicCarta,
   getTodayMenu,
   listOrders,
   listAdminRestaurants,
   resetAdminRestaurantMemberPassword,
+  sendLunchReminders,
   updateMenuItem,
   updateAdminRestaurant,
   updateAdminRestaurantMember,
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct } from "./api";
+import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct, LunchReminderPreview, LunchReminderSendResult, MenuFileAnalysisPayload } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
+  ArrowDown,
   Camera,
   Bell,
   Check,
@@ -38,6 +41,8 @@ import {
   Copy,
   Clock,
   Edit3,
+  Eye,
+  EyeOff,
   ExternalLink,
   Home,
   LayoutGrid,
@@ -49,7 +54,6 @@ import {
   QrCode,
   Search,
   SearchCheck,
-  Sparkles,
   Store,
   Trash2,
   UploadCloud,
@@ -350,27 +354,27 @@ function createDefaultCompositeOptions(): ProductOption[] {
   return [
     {
       ...createEmptyCompositeOption(0),
-      name: "Acompanante",
+      name: "Sopas",
       values: [
-        { name: "Yuca", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Platano", priceDelta: 0, isActive: true, sortOrder: 10 },
-        { name: "Papa", priceDelta: 0, isActive: true, sortOrder: 20 },
+        { name: "Sopa de lentejas", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Sopa de espinaca", priceDelta: 0, isActive: true, sortOrder: 10 },
       ],
     },
     {
       ...createEmptyCompositeOption(10),
-      name: "Principio",
+      name: "Proteina",
       values: [
-        { name: "Frijoles", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Lentejas", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Res", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Cerdo", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Pollo", priceDelta: 0, isActive: true, sortOrder: 20 },
       ],
     },
     {
       ...createEmptyCompositeOption(20),
-      name: "Ensalada",
+      name: "Acompanante",
       values: [
-        { name: "Ensalada de la casa", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Ensalada cesar", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Guarapo", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Jugo natural", priceDelta: 0, isActive: true, sortOrder: 10 },
       ],
     },
   ];
@@ -925,6 +929,7 @@ function DashboardApp() {
                   menuIsActive={menuIsActive}
                   products={products}
                   saveStatus={saveStatus}
+                  tenantSlug={tenantSlug}
                   onAddDish={addFromCatalog}
                   onDeleteDish={removeMenuItem}
                   onUpdateDish={persistItem}
@@ -953,15 +958,17 @@ function DashboardApp() {
               )}
               {activeView === "upload" && (
                 <SmartUpload
-                  onAnalyze={(file) => analyzeMenuImage(tenantSlug, file)}
+                  onAnalyze={(file) => analyzeMenuFile(tenantSlug, file)}
                   onCreateProducts={async (detectedProducts) => {
                     for (const product of detectedProducts) {
                       await saveProduct({
                         name: product.name,
-                        description: product.description ?? "Detectado automaticamente desde imagen del menu.",
+                        description: product.description ?? "Detectado automaticamente desde archivo de menu.",
                         basePrice: product.basePrice,
                         category: product.category,
                         emoji: product.emoji,
+                        options: product.options,
+                        productType: product.productType ?? (product.options && product.options.length > 0 ? "composite" : "simple"),
                         isActive: true,
                       });
                     }
@@ -1012,28 +1019,44 @@ function PublicCartaPage() {
     () => groupByCategorySection(payload?.items ?? [], (item) => item.product?.category ?? item.displayName),
     [payload?.items],
   );
-  const totalItems = payload?.items.length ?? 0;
+  const featuredCategories = groups.slice(0, 4);
 
   return (
-    <div className="min-h-screen bg-[#edf2f7] text-[var(--text-strong)]">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(197,123,87,0.20),transparent_24%),radial-gradient(circle_at_90%_20%,rgba(32,26,22,0.12),transparent_28%),linear-gradient(180deg,#f7fafc_0%,#edf2f7_52%,#dfe8f2_100%)]" />
+    <div className="min-h-screen bg-[#050403] text-[var(--text-strong)]">
+      <div
+        className="pointer-events-none fixed inset-0 bg-top bg-repeat-y opacity-70"
+        style={{
+          backgroundImage: "url('/fondo_carta.jpg')",
+          backgroundPosition: "top center",
+          backgroundSize: "min(100vw, 720px) auto",
+        }}
+      />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(213,167,108,0.18),transparent_26%),radial-gradient(circle_at_85%_18%,rgba(0,0,0,0.72),transparent_34%),linear-gradient(90deg,rgba(0,0,0,0.82)_0%,rgba(0,0,0,0.42)_28%,rgba(0,0,0,0.34)_50%,rgba(0,0,0,0.42)_72%,rgba(0,0,0,0.82)_100%)]" />
+      <div
+        className="pointer-events-none fixed inset-0 opacity-60"
+        style={{
+          backgroundImage:
+            "linear-gradient(180deg, rgba(5,4,3,0) 0%, rgba(5,4,3,0.30) 44%, rgba(5,4,3,0.62) 50%, rgba(5,4,3,0.30) 56%, rgba(5,4,3,0) 100%)",
+          backgroundRepeat: "repeat-y",
+          backgroundSize: "100% 1040px",
+        }}
+      />
       <main className="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-[36px] border border-white/70 bg-[rgba(255,255,255,0.62)] shadow-[0_28px_90px_rgba(37,31,26,0.16)] backdrop-blur-xl">
-          <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_390px] lg:p-8">
-            <div className="flex min-h-[360px] flex-col justify-between rounded-[32px] bg-[linear-gradient(145deg,#211b17_0%,#342a24_58%,#4a3429_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_70px_rgba(32,24,18,0.28)] sm:p-8">
+        <section className="overflow-hidden rounded-[36px] border border-[rgba(255,242,227,0.16)] bg-[rgba(10,8,6,0.58)] shadow-[0_28px_90px_rgba(0,0,0,0.46)] backdrop-blur-xl">
+          <div className="grid gap-4 p-4 sm:gap-6 sm:p-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:p-8">
+            <div className="flex min-h-[300px] flex-col justify-between rounded-[32px] bg-[linear-gradient(145deg,#211b17_0%,#342a24_58%,#4a3429_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_70px_rgba(32,24,18,0.28)] sm:p-8">
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.58)]">
                   <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">42day carta</span>
-                  <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">{totalItems} platos visibles</span>
+                  {payload?.menu?.name ? (
+                    <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">{payload.menu.name}</span>
+                  ) : null}
                 </div>
-                <h1 className="app-display mt-8 max-w-3xl text-[3.7rem] leading-[0.9] tracking-[-0.06em] sm:text-[5.4rem]">
+                <h1 className="app-display mt-6 max-w-3xl text-[2.9rem] leading-[0.92] tracking-[-0.06em] sm:mt-8 sm:text-[4.5rem] lg:text-[5.2rem]">
                   {payload?.tenant.name ?? "Carta del restaurante"}
                 </h1>
-                <p className="mt-5 max-w-2xl text-sm leading-7 text-[rgba(246,236,223,0.72)] sm:text-base">
-                  Carta digital de lectura. Consulta platos disponibles, precios y componentes antes de ordenar en el restaurante.
-                </p>
               </div>
-              <div className="mt-10 flex flex-wrap items-center gap-3 text-sm text-[rgba(246,236,223,0.72)]">
+              <div className="mt-8 flex flex-wrap items-center gap-3 text-sm text-[rgba(246,236,223,0.72)]">
                 {payload?.location?.name && (
                   <span className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(255,248,240,0.08)] px-4 py-3">
                     <MapPin size={16} />
@@ -1049,22 +1072,28 @@ function PublicCartaPage() {
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-[rgba(118,93,71,0.12)] bg-[#f8fafc] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+            <div className="rounded-[32px] border border-[rgba(255,242,227,0.14)] bg-[rgba(255,250,244,0.82)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-md sm:p-5">
               <div className="rounded-[28px] bg-[#1f1b18] p-4 text-[var(--text-on-dark)] shadow-[0_24px_60px_rgba(32,24,18,0.22)]">
-                <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(160deg,#2c2520,#191511)] p-5">
+                <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(160deg,#2c2520,#191511)] p-4 sm:p-5">
                   <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[rgba(197,123,87,0.22)] blur-2xl" />
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Hoy en carta</p>
-                  <p className="app-display mt-4 text-[4.5rem] leading-none">{totalItems}</p>
-                  <p className="mt-3 text-sm leading-6 text-[rgba(246,236,223,0.68)]">
-                    Productos publicados y disponibles para clientes en sitio.
-                  </p>
+                  <a
+                    className="mt-4 inline-flex h-11 w-full items-center justify-between rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] px-4 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.16)]"
+                    href="#carta-secciones"
+                  >
+                    <span>Ver secciones</span>
+                    <ArrowDown size={16} />
+                  </a>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  {groups.slice(0, 4).map((group) => (
-                    <div className="rounded-[20px] bg-[rgba(255,248,240,0.08)] p-4" key={group.id}>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.46)]">{group.label}</p>
-                      <p className="mt-3 text-2xl font-semibold">{group.items.length}</p>
-                    </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {featuredCategories.map((group) => (
+                    <a
+                      className="rounded-full border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-3 py-2 text-xs font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.14)]"
+                      href={`#category-${group.id}`}
+                      key={group.id}
+                    >
+                      {group.label}
+                    </a>
                   ))}
                 </div>
               </div>
@@ -1079,16 +1108,20 @@ function PublicCartaPage() {
         ) : groups.length === 0 ? (
           <PublicCartaState title="Carta sin platos visibles" description="El restaurante aun no tiene productos publicados para mostrar en esta carta." />
         ) : (
-          <div className="mt-6 space-y-8 pb-12">
+          <div className="mt-6 space-y-6 pb-12 sm:space-y-8" id="carta-secciones">
             {groups.map((group) => (
-              <section key={group.id}>
+              <section
+                className="scroll-mt-6 rounded-[30px] border border-[rgba(255,242,227,0.14)] bg-[rgba(10,8,6,0.50)] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-md sm:scroll-mt-8 sm:p-5"
+                id={`category-${group.id}`}
+                key={group.id}
+              >
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[var(--text-faint)]">{group.label}</p>
-                    <h2 className="app-display mt-2 text-[2.8rem] leading-none text-[var(--text-strong)]">{group.items.length} opciones</h2>
+                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[rgba(246,236,223,0.56)]">Categoria</p>
+                    <h2 className="app-display mt-2 text-[2.35rem] leading-none text-[var(--text-on-dark)] sm:text-[2.8rem]">{group.label}</h2>
                   </div>
                 </div>
-                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-3">
                   {group.items.map((item) => (
                     <PublicCartaCard item={item} key={item.id} />
                   ))}
@@ -1426,19 +1459,71 @@ function TodayMenu(props: {
   menuIsActive: boolean;
   products: Product[];
   saveStatus: SaveStatus;
+  tenantSlug: string;
   onAddDish: (productId: string) => Promise<void>;
   onDeleteDish: (itemId: string) => void;
   onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
 }) {
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [reminderPreview, setReminderPreview] = useState<LunchReminderPreview | null>(null);
+  const [reminderResult, setReminderResult] = useState<LunchReminderSendResult | null>(null);
+  const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderError, setReminderError] = useState("");
   const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
   const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
   const groups = groupMenuItemsByOrderType(props.items);
 
+  useEffect(() => {
+    let active = true;
+    setReminderLoading(true);
+    setReminderError("");
+
+    getLunchReminderPreview(props.tenantSlug)
+      .then((preview) => {
+        if (!active) return;
+        setReminderPreview(preview);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setReminderPreview(null);
+        setReminderError(error instanceof Error ? error.message : "No se pudo calcular el alcance del recordatorio.");
+      })
+      .finally(() => {
+        if (active) setReminderLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [props.tenantSlug, props.activeCount, props.items.length]);
+
+  async function handleSendLunchReminder() {
+    if (!reminderPreview?.canSend || reminderSending) return;
+
+    const confirmed = window.confirm(
+      `Enviar WhatsApp a ${reminderPreview.recipientCount} cliente${reminderPreview.recipientCount === 1 ? "" : "s"} que pidieron en los ultimos ${reminderPreview.lookbackDays} dias?`,
+    );
+    if (!confirmed) return;
+
+    setReminderSending(true);
+    setReminderError("");
+    try {
+      const result = await sendLunchReminders(props.tenantSlug);
+      setReminderResult(result);
+      const nextPreview = await getLunchReminderPreview(props.tenantSlug).catch(() => reminderPreview);
+      setReminderPreview(nextPreview);
+    } catch (error) {
+      setReminderError(error instanceof Error ? error.message : "No se pudo enviar el recordatorio.");
+    } finally {
+      setReminderSending(false);
+    }
+  }
+
   return (
     <section className="space-y-6 pb-28 lg:pb-32">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px]">
-        <div className="rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
+      <div className="grid items-stretch gap-4 xl:grid-cols-3">
+        <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.5)]">
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.08)] px-3 py-1.5">
               <Clock size={14} />
@@ -1449,8 +1534,8 @@ function TodayMenu(props: {
               {props.menuIsActive ? "Servicio publicado" : "Menu sin activar"}
             </span>
           </div>
-          <h2 className="app-display mt-5 text-[2.6rem] leading-none sm:text-[3.2rem]">Curar el menu del dia</h2>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <h2 className="app-display mt-5 text-[2.35rem] leading-none sm:text-[3rem]">Curar el menu del dia</h2>
+          <div className="mt-auto pt-6">
             <button
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-5 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
               onClick={() => setCatalogOpen(true)}
@@ -1462,11 +1547,20 @@ function TodayMenu(props: {
           </div>
         </div>
 
-        <div className="grid gap-3">
-          <MenuMetric label="Platos activos" tone="strong" value={props.activeCount} />
-          <MenuMetric label="Platos ocultos" value={inactiveCount} />
-          <MenuMetric label="Estado de sincronizacion" value={statusLabel} />
-        </div>
+        <LunchReminderPanel
+          error={reminderError}
+          loading={reminderLoading}
+          preview={reminderPreview}
+          result={reminderResult}
+          sending={reminderSending}
+          onSend={() => void handleSendLunchReminder()}
+        />
+
+        <MenuMetricsPanel
+          activeCount={props.activeCount}
+          inactiveCount={inactiveCount}
+          statusLabel={statusLabel}
+        />
       </div>
 
       {groups.length === 0 ? (
@@ -1528,11 +1622,112 @@ function groupMenuItemsByOrderType(items: MenuItem[]) {
   }));
 }
 
-function MenuMetric({ label, tone = "muted", value }: { label: string; tone?: "muted" | "strong"; value: string | number }) {
+function MenuMetricsPanel({
+  activeCount,
+  inactiveCount,
+  statusLabel,
+}: {
+  activeCount: number;
+  inactiveCount: number;
+  statusLabel: string;
+}) {
   return (
-    <div className="app-panel-dark rounded-[26px] px-5 py-5 text-[var(--text-on-dark)]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">{label}</p>
-      <p className={`mt-4 ${tone === "strong" ? "app-display text-[3rem] leading-none" : "text-2xl font-semibold"}`}>{value}</p>
+    <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.05)] p-5 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Metricas del menu</p>
+      <div className="mt-4 grid flex-1 gap-3">
+        <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos activos</p>
+          <p className="app-display mt-2 text-[2.6rem] leading-none">{activeCount}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Ocultos</p>
+            <p className="mt-2 text-2xl font-extrabold">{inactiveCount}</p>
+          </div>
+          <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Sincronizacion</p>
+            <p className="mt-2 truncate text-lg font-extrabold">{statusLabel}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LunchReminderPanel({
+  error,
+  loading,
+  onSend,
+  preview,
+  result,
+  sending,
+}: {
+  error: string;
+  loading: boolean;
+  onSend: () => void;
+  preview: LunchReminderPreview | null;
+  result: LunchReminderSendResult | null;
+  sending: boolean;
+}) {
+  const canSend = Boolean(preview?.canSend) && !loading && !sending;
+  const disabledReason = !preview
+    ? "Calculando clientes recientes"
+    : preview.menuItemCount === 0
+      ? "Publica platos disponibles para hoy"
+      : preview.recipientCount === 0
+        ? "No hay clientes con pedidos en los ultimos 3 dias"
+        : "";
+
+  return (
+    <div className="flex min-h-[260px] flex-col overflow-hidden rounded-[28px] border border-[rgba(255,242,227,0.1)] bg-[rgba(255,248,240,0.08)] p-4 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Recordatorio WhatsApp</p>
+          <h3 className="mt-2 text-base font-extrabold">Activar clientes recientes</h3>
+        </div>
+        <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[rgba(255,248,240,0.08)] text-[rgba(246,236,223,0.78)]">
+          <Bell size={17} />
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Clientes</p>
+          <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.recipientCount ?? 0}</p>
+        </div>
+        <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos</p>
+          <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.menuItemCount ?? 0}</p>
+        </div>
+      </div>
+
+      {preview?.messagePreview ? (
+        <div className="mt-3 max-h-20 overflow-y-auto rounded-2xl bg-[rgba(18,15,13,0.36)] px-3 py-2.5 text-xs leading-5 text-[rgba(246,236,223,0.72)] app-scrollbar">
+          {preview.messagePreview}
+        </div>
+      ) : null}
+
+      {result ? (
+        <div className="mt-3 rounded-2xl border border-[rgba(79,122,97,0.18)] bg-[rgba(79,122,97,0.12)] px-3 py-2.5 text-xs font-semibold text-[#d8f0dd]">
+          Enviado: {result.sentCount} exitosos, {result.failedCount} fallidos.
+        </div>
+      ) : null}
+
+      {error || disabledReason ? (
+        <p className="mt-2 text-xs leading-5 text-[rgba(246,236,223,0.56)]">{error || disabledReason}</p>
+      ) : null}
+
+      <div className="mt-auto pt-3">
+        <button
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-4 text-sm font-extrabold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={!canSend}
+          onClick={onSend}
+          type="button"
+        >
+          {sending || loading ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
+          {sending ? "Enviando recordatorio..." : "Enviar recordatorio"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -2002,7 +2197,7 @@ function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
       margin: 2,
       width: 320,
     })
-      .then((dataUrl) => {
+      .then((dataUrl: string) => {
         if (active) setQrDataUrl(dataUrl);
       })
       .catch(() => {
@@ -2658,8 +2853,8 @@ function EmojiSelect({
 }) {
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
-  const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...availableProductEmojis]));
-  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 36);
+  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 56);
+  const extendedOptions = Array.from(new Set([...quickOptions, ...availableProductEmojis])).slice(0, 240);
 
   return (
     <div className="rounded-[22px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-3">
@@ -2672,19 +2867,7 @@ function EmojiSelect({
           {selectedEmoji}
         </span>
       </div>
-      <select
-        aria-label={`Seleccionar emoji para ${name}`}
-        className="mb-3 h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-4 text-xl outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-        onChange={(event) => onChange(event.target.value)}
-        value={selectedEmoji}
-      >
-        {options.map((emoji) => (
-          <option key={emoji} value={emoji}>
-            {emoji}
-          </option>
-        ))}
-      </select>
-      <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-12">
+      <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10 lg:grid-cols-14">
         {quickOptions.map((emoji) => (
           <button
             aria-label={`Seleccionar emoji ${emoji}`}
@@ -2701,6 +2884,28 @@ function EmojiSelect({
           </button>
         ))}
       </div>
+      <details className="mt-3 rounded-[18px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-3">
+        <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">
+          Mas emojis
+        </summary>
+        <div className="mt-3 grid max-h-64 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-14">
+          {extendedOptions.map((emoji) => (
+            <button
+              aria-label={`Seleccionar emoji ${emoji}`}
+              className={`grid h-9 w-9 place-items-center rounded-xl text-[1.25rem] transition ${
+                selectedEmoji === emoji
+                  ? "bg-[var(--text-strong)] shadow-[0_8px_20px_rgba(20,14,10,0.18)]"
+                  : "bg-[var(--surface-base)] hover:bg-white"
+              }`}
+              key={`extended-${emoji}`}
+              onClick={() => onChange(emoji)}
+              type="button"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </details>
     </div>
   );
 }
@@ -2718,21 +2923,51 @@ function CompactEmojiSelect({
 }) {
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
-  const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...availableProductEmojis]));
+  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 24);
+  const extendedOptions = Array.from(new Set([...quickOptions, ...availableProductEmojis])).slice(0, 120);
 
   return (
-    <select
-      aria-label={`Emoji para ${name}`}
-      className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-center text-xl outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-      onChange={(event) => onChange(event.target.value)}
-      value={selectedEmoji}
-    >
-      {options.map((emoji) => (
-        <option key={emoji} value={emoji}>
-          {emoji}
-        </option>
-      ))}
-    </select>
+    <div className="rounded-[20px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-2.5">
+      <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+        {quickOptions.map((emoji) => (
+          <button
+            aria-label={`Seleccionar emoji ${emoji}`}
+            className={`grid h-9 w-full place-items-center rounded-xl text-[1.1rem] transition ${
+              selectedEmoji === emoji
+                ? "bg-[var(--text-strong)] shadow-[0_8px_18px_rgba(20,14,10,0.18)]"
+                : "bg-[var(--panel-strong)] hover:bg-white"
+            }`}
+            key={`compact-${emoji}`}
+            onClick={() => onChange(emoji)}
+            type="button"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      <details className="mt-2">
+        <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+          Ver mas
+        </summary>
+        <div className="mt-2 grid max-h-44 grid-cols-6 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-8">
+          {extendedOptions.map((emoji) => (
+            <button
+              aria-label={`Seleccionar emoji ${emoji}`}
+              className={`grid h-9 w-full place-items-center rounded-xl text-[1.1rem] transition ${
+                selectedEmoji === emoji
+                  ? "bg-[var(--text-strong)] shadow-[0_8px_18px_rgba(20,14,10,0.18)]"
+                  : "bg-[var(--panel-strong)] hover:bg-white"
+              }`}
+              key={`compact-extended-${emoji}`}
+              onClick={() => onChange(emoji)}
+              type="button"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </details>
+    </div>
   );
 }
 
@@ -2797,11 +3032,12 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
   function addValue(optionIndex: number) {
     onChange(options.map((option, currentOptionIndex) => {
       if (currentOptionIndex !== optionIndex) return option;
+      const nextSortOrder = option.values.reduce((max, value) => Math.max(max, value.sortOrder), -10) + 10;
       return {
         ...option,
         values: [
           ...option.values,
-          { name: "", priceDelta: 0, isActive: true, sortOrder: option.values.length * 10 },
+          { name: "", priceDelta: 0, isActive: true, sortOrder: nextSortOrder },
         ],
       };
     }));
@@ -2823,7 +3059,7 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Componentes del plato</p>
           <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-            Crea grupos como acompanante, principio o ensalada. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige.
+            Crea grupos como Sopas, Proteina o Acompanante. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige.
           </p>
         </div>
         <button
@@ -2844,12 +3080,12 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
         ) : null}
 
         {options.map((option, optionIndex) => (
-          <article className="rounded-[24px] border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-4" key={`${option.name}-${optionIndex}`}>
+          <article className="rounded-[24px] border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-4" key={`option-${option.sortOrder}-${optionIndex}`}>
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px_130px_auto]">
               <TextInput
                 label="Grupo"
                 onChange={(value) => updateOption(optionIndex, { name: value })}
-                placeholder="Ej. Acompanante"
+                placeholder="Ej. Sopas"
                 value={option.name}
               />
               <TextInput
@@ -2877,35 +3113,43 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
 
             <div className="mt-4 space-y-2">
               {option.values.map((value, valueIndex) => (
-                <div className="grid gap-2 rounded-[18px] bg-[var(--surface-base)] p-3 sm:grid-cols-[minmax(0,1fr)_120px_auto_auto]" key={`${value.name}-${valueIndex}`}>
-                  <input
-                    className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-                    onChange={(event) => updateValue(optionIndex, valueIndex, { name: event.target.value })}
-                    placeholder="Ej. Yuca"
-                    value={value.name}
-                  />
-                  <input
-                    className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-                    onChange={(event) => updateValue(optionIndex, valueIndex, { priceDelta: Number(event.target.value) })}
-                    placeholder="+ COP"
-                    type="number"
-                    value={String(value.priceDelta)}
-                  />
-                  <label className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)]">
+                <div className="rounded-[18px] bg-[var(--surface-base)] p-3" key={`value-${value.sortOrder}-${valueIndex}`}>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
                     <input
-                      checked={value.isActive}
-                      onChange={(event) => updateValue(optionIndex, valueIndex, { isActive: event.target.checked })}
-                      type="checkbox"
+                      className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                      onChange={(event) => updateValue(optionIndex, valueIndex, { name: event.target.value, priceDelta: 0 })}
+                      placeholder="Ej. Sopa de lentejas"
+                      value={value.name}
                     />
-                    Activo
-                  </label>
-                  <button
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(180,94,84,0.18)] px-3 text-sm font-semibold text-[#8c4e47]"
-                    onClick={() => removeValue(optionIndex, valueIndex)}
-                    type="button"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                    <label className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)]">
+                      <input
+                        checked={value.isActive}
+                        onChange={(event) => updateValue(optionIndex, valueIndex, { isActive: event.target.checked })}
+                        type="checkbox"
+                      />
+                      Activo
+                    </label>
+                    <details className="group">
+                      <summary className="inline-flex h-11 cursor-pointer list-none items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--panel-strong)]">
+                        Especificaciones
+                      </summary>
+                      <div className="mt-2 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-3">
+                        <textarea
+                          className="min-h-20 w-full resize-none rounded-2xl border border-[rgba(118,93,71,0.12)] bg-white/70 px-3 py-2 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                          onChange={(event) => updateValue(optionIndex, valueIndex, { description: event.target.value })}
+                          placeholder="Ej. En salsa de ciruela"
+                          value={value.description ?? ""}
+                        />
+                      </div>
+                    </details>
+                    <button
+                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(180,94,84,0.18)] px-3 text-sm font-semibold text-[#8c4e47]"
+                      onClick={() => removeValue(optionIndex, valueIndex)}
+                      type="button"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -3076,7 +3320,7 @@ function SmartUpload({
   onCreateProducts,
   onNotify,
 }: {
-  onAnalyze: (file: File) => Promise<{ products: DetectedMenuProduct[] }>;
+  onAnalyze: (file: File) => Promise<MenuFileAnalysisPayload>;
   onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
   onNotify: (message: string) => void;
 }) {
@@ -3085,7 +3329,9 @@ function SmartUpload({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [results, setResults] = useState<DetectedMenuProduct[]>([]);
+  const [analysisMeta, setAnalysisMeta] = useState<MenuFileAnalysisPayload | null>(null);
   const [error, setError] = useState("");
+  const selectedFileKind = selectedFile ? getUploadFileKind(selectedFile) : "";
 
   function updateDetectedProduct(index: number, patch: Partial<DetectedMenuProduct>) {
     setResults((current) => current.map((product, entryIndex) => (
@@ -3099,10 +3345,21 @@ function SmartUpload({
 
   function readFile(file?: File) {
     if (!file) return;
+    if (!isSupportedMenuUploadFile(file)) {
+      setError("Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.");
+      return;
+    }
+
     setSelectedFile(file);
-    setPreview(URL.createObjectURL(file));
+    setPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : "");
     setResults([]);
+    setAnalysisMeta(null);
     setError("");
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    readFile(event.dataTransfer.files?.[0]);
   }
 
   async function analyzeSelectedFile() {
@@ -3111,6 +3368,7 @@ function SmartUpload({
     setError("");
     try {
       const payload = await onAnalyze(selectedFile);
+      setAnalysisMeta(payload);
       setResults(payload.products.map((product) => ({
         ...product,
         emoji: product.emoji || inferProductEmoji({
@@ -3120,9 +3378,7 @@ function SmartUpload({
       })));
       onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
     } catch (analysisError) {
-      setError(analysisError instanceof Error && analysisError.message === "gemini_quota_exhausted"
-        ? "Gemini no tiene creditos disponibles para analizar la imagen."
-        : "No se pudo analizar la imagen. Revisa la foto o la configuracion de Gemini.");
+      setError(getMenuUploadErrorMessage(analysisError));
     } finally {
       setIsAnalyzing(false);
     }
@@ -3140,11 +3396,13 @@ function SmartUpload({
           name: product.name,
           description: product.description,
         }),
+        options: product.options,
+        productType: product.productType,
       }))
-      .filter((product) => product.name && product.basePrice > 0);
+      .filter((product) => product.name && product.basePrice >= 0);
 
     if (sanitizedResults.length === 0) {
-      setError("No hay productos validos para confirmar. Revisa nombre y precio.");
+      setError("No hay productos validos para confirmar. Revisa minimo el nombre de cada producto.");
       return;
     }
 
@@ -3165,23 +3423,45 @@ function SmartUpload({
     <section className="space-y-6">
       <SectionTitle
         title="Subida inteligente"
-        subtitle="Convierte una foto del menu en una base editable de productos antes de publicarlos."
+        subtitle="Convierte Excel, CSV, PDF, TXT o imagenes del menu en una base editable de productos antes de publicarlos."
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <label className="rounded-[30px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
-          <input accept="image/*" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
+        <label
+          className="rounded-[30px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleDrop}
+        >
+          <input accept=".xlsx,.xls,.csv,.pdf,.txt,image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
           <div className={`flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[rgba(255,242,227,0.14)] px-6 text-center transition hover:border-[rgba(255,242,227,0.22)] ${preview ? "overflow-hidden bg-[rgba(255,248,240,0.04)]" : "bg-[rgba(255,248,240,0.04)]"}`}>
             {preview ? (
               <img alt="Preview del menu" className="h-full w-full rounded-[20px] object-cover" src={preview} />
+            ) : selectedFile ? (
+              <>
+                <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
+                  <UploadCloud size={26} />
+                </div>
+                <p className="text-xl font-extrabold">{selectedFile.name}</p>
+                <p className="mt-3 rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-[rgba(246,236,223,0.6)]">
+                  {selectedFileKind}
+                </p>
+                <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
+                  El sistema intentara leer estructura, filas, texto y precios antes de usar IA.
+                </p>
+              </>
             ) : (
               <>
                 <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
-                  <Sparkles size={26} />
+                  <UploadCloud size={26} />
                 </div>
-                <p className="app-display text-[2.3rem] leading-none">Sube una foto del menu</p>
+                <p className="app-display text-[2.3rem] leading-none">Sube el archivo del menu</p>
                 <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
-                  Usa una captura limpia y deja que el sistema detecte productos y precios para convertirlos en entidades editables.
+                  Arrastra o selecciona Excel, CSV, PDF, TXT o imagen. Nada se guarda sin revisar y confirmar.
                 </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.52)]">
+                  {[".xlsx", ".xls", ".csv", ".pdf", ".txt"].map((format) => (
+                    <span className="rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5" key={format}>{format}</span>
+                  ))}
+                </div>
               </>
             )}
           </div>
@@ -3189,11 +3469,23 @@ function SmartUpload({
 
         <div className="app-panel rounded-[28px] p-5">
           <div className="mb-4 rounded-[22px] border border-[rgba(137,164,196,0.18)] bg-[var(--surface-pending)] px-4 py-4">
-            <p className="text-sm font-semibold text-[var(--text-strong)]">Deteccion recomendada: 30 platos o menos</p>
+            <p className="text-sm font-semibold text-[var(--text-strong)]">Procesamiento por tipo de archivo</p>
             <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-              El analisis devuelve hasta 30 productos por imagen. Para menus grandes, toma varias fotos divididas por seccion.
+              Excel, CSV y TXT se leen primero de forma estructurada. PDF intenta extraer texto seleccionable. La IA entra solo si el archivo es ambiguo.
             </p>
           </div>
+          {selectedFile && (
+            <div className="mb-4 grid gap-2 rounded-[22px] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-[var(--text-strong)]">Archivo</span>
+                <span className="truncate text-right">{selectedFile.name}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-[var(--text-strong)]">Formato detectado</span>
+                <span>{selectedFileKind}</span>
+              </div>
+            </div>
+          )}
           <button
             className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!selectedFile || isAnalyzing}
@@ -3203,6 +3495,22 @@ function SmartUpload({
             {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
             {isAnalyzing ? "Analizando menu" : "Analizar menu"}
           </button>
+          {analysisMeta && (
+            <div className="mt-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
+              <p className="font-semibold text-[var(--text-strong)]">
+                {analysisMeta.source === "ai" ? "Interpretado con IA" : "Interpretado deterministicamente"}
+              </p>
+              <p className="mt-1 text-xs">
+                Parser: {analysisMeta.parser} - Formato: {analysisMeta.fileType.toUpperCase()}
+                {analysisMeta.needsAiFallback ? " - IA usada por ambiguedad" : ""}
+              </p>
+              {analysisMeta.warnings.length > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                  {analysisMeta.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
           {error && (
             <p className="mt-3 rounded-[20px] border border-[rgba(180,94,84,0.18)] bg-[rgba(190,110,95,0.08)] px-4 py-3 text-sm font-medium text-[#8c4e47]">
               {error}
@@ -3282,6 +3590,7 @@ function SmartUpload({
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
                       {item.confidence !== undefined ? `Confianza ${Math.round(item.confidence * 100)}%` : "Producto detectado"}
+                      {item.options && item.options.length > 0 ? ` · ${item.options.length} opcion${item.options.length === 1 ? "" : "es"}` : ""}
                     </p>
                     <button
                       className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[rgba(180,94,84,0.18)] px-3 text-xs font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
@@ -3311,6 +3620,31 @@ function SmartUpload({
       </div>
     </section>
   );
+}
+
+function isSupportedMenuUploadFile(file: File) {
+  return /\.(xlsx|xls|csv|pdf|txt)$/i.test(file.name) || /^image\/(jpeg|png|webp)$/.test(file.type);
+}
+
+function getUploadFileKind(file: File) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) return "Excel";
+  if (name.endsWith(".csv")) return "CSV";
+  if (name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".txt")) return "Texto plano";
+  if (file.type.startsWith("image/")) return "Imagen";
+  return "Archivo";
+}
+
+function getMenuUploadErrorMessage(error: unknown) {
+  if (error instanceof DashboardApiError) {
+    if (error.backendError === "gemini_quota_exhausted") return "Gemini no tiene creditos disponibles para interpretar este archivo.";
+    if (error.backendError === "gemini_not_configured") return "Gemini no esta configurado para interpretar archivos ambiguos.";
+    if (error.backendError === "unsupported_menu_file_type") return "Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.";
+    if (error.backendError === "menu_file_required") return "Selecciona un archivo de menu antes de analizar.";
+  }
+
+  return "No se pudo analizar el archivo. Revisa el formato o intenta con otro documento.";
 }
 
 function ConfigRequiredScreen() {
@@ -3370,26 +3704,24 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
-    <div className="grid min-h-screen place-items-center px-4 py-8">
-      <div className="grid w-full max-w-[1120px] overflow-hidden rounded-[34px] border border-[rgba(255,242,227,0.1)] bg-[rgba(30,26,23,0.92)] shadow-[0_30px_90px_rgba(0,0,0,0.32)] lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="border-b border-[rgba(255,242,227,0.08)] p-8 text-[var(--text-on-dark)] lg:border-b-0 lg:border-r lg:p-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">42day</p>
-          <h1 className="app-display mt-6 text-[3.4rem] leading-none sm:text-[4.4rem]">
-            Operacion limpia para equipos de restaurante.
-          </h1>
-          <p className="mt-5 max-w-lg text-sm leading-7 text-[rgba(246,236,223,0.7)] sm:text-[15px]">
-            Inspirado en interfaces editoriales y silenciosas: menos ruido, mejores decisiones y foco absoluto en lo que se puede vender, confirmar o corregir.
-          </p>
-          <div className="mt-8 grid gap-3 md:grid-cols-2">
-            <LoginHighlight title="Menu del dia" copy="Activa o pausa platos sin ambiguedad." />
-            <LoginHighlight title="Pedidos vivos" copy="Acepta pedidos y gestiona agotados sin cambiar de contexto." />
-            <LoginHighlight title="Catalogo base" copy="Mantiene una carta consistente para todos los tenants." />
-            <LoginHighlight title="Subida asistida" copy="Extrae productos desde imagenes con IA." />
-          </div>
-        </div>
-
+    <div className="grid min-h-screen place-items-center bg-[linear-gradient(180deg,#221d18_0%,#181512_100%)] px-4 py-6 sm:px-6 sm:py-8">
+      <div className="relative grid w-full max-w-[1380px] overflow-hidden rounded-[36px] border border-[rgba(255,250,244,0.16)] bg-[#17120f] shadow-[0_32px_100px_rgba(0,0,0,0.34)] lg:min-h-[820px] lg:grid-cols-[minmax(0,1fr)_520px]">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, rgba(10,8,6,0.08) 0%, rgba(10,8,6,0.08) 54%, rgba(10,8,6,0.52) 72%, rgba(10,8,6,0.88) 100%), url('/login-hero.png')",
+            backgroundPosition: "left center",
+            backgroundRepeat: "no-repeat",
+            backgroundSize: "cover",
+          }}
+        />
+        <div className="absolute inset-y-0 right-0 hidden w-[46%] bg-[linear-gradient(90deg,rgba(14,11,9,0.12)_0%,rgba(14,11,9,0.34)_18%,rgba(14,11,9,0.7)_46%,rgba(14,11,9,0.9)_100%)] lg:block" />
+        <div className="absolute inset-y-0 right-0 hidden w-[44%] backdrop-blur-[12px] lg:block" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(255,209,146,0.14),transparent_24%),radial-gradient(circle_at_68%_18%,rgba(255,236,216,0.08),transparent_18%),linear-gradient(180deg,rgba(8,7,6,0.02),rgba(8,7,6,0.18))]" />
+        <div className="relative hidden lg:block" />
         <form
-          className="p-8 lg:p-10"
+          className="relative z-10 flex min-h-[100svh] items-center justify-center p-4 sm:p-6 lg:min-h-[820px] lg:justify-start lg:px-12 xl:px-16"
           onSubmit={async (event) => {
             event.preventDefault();
             setIsSubmitting(true);
@@ -3400,19 +3732,19 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
             }
           }}
         >
-          <div className="app-panel rounded-[28px] p-6 sm:p-7">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Ingreso empresas</p>
-            <h2 className="app-display mt-4 text-[2.5rem] leading-none text-[var(--text-strong)]">Entrar al dashboard</h2>
-            <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">
-              Cada usuario solo ve el tenant asignado en control.tenant_users y opera con su sesion de Supabase Auth.
+          <div className="w-full max-w-[432px] rounded-[34px] border border-[rgba(255,255,255,0.14)] bg-[rgba(18,14,11,0.38)] p-7 text-[var(--text-on-dark)] shadow-[0_28px_70px_rgba(0,0,0,0.3)] backdrop-blur-[20px] sm:p-9 lg:-translate-x-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[rgba(246,236,223,0.52)]">42day dashboard</p>
+            <h1 className="app-display mt-5 text-[3.15rem] leading-none text-[var(--text-on-dark)] sm:text-[3.8rem]">Log in</h1>
+            <p className="mt-4 max-w-[28rem] text-[15px] leading-7 text-[rgba(246,236,223,0.72)]">
+              Acceso operativo para restaurantes y administracion.
             </p>
-            <div className="mt-6 space-y-4">
+            <div className="mt-9 space-y-5">
               <TextInput label="Correo" onChange={setEmail} placeholder="empresa@correo.com" value={email} />
               <TextInput label="Contrasena" onChange={setPassword} placeholder="********" type="password" value={password} />
             </div>
             {error && <p className="mt-4 text-sm font-medium text-[#9a4b43]">{error}</p>}
             <button
-              className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-7 inline-flex h-13 w-full items-center justify-center gap-2 rounded-full bg-[var(--success)] px-4 text-base font-semibold text-white transition hover:bg-[#456c56] disabled:cursor-not-allowed disabled:opacity-70"
               disabled={isSubmitting}
               type="submit"
             >
@@ -4625,16 +4957,32 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
 }
 
 function TextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const isPassword = props.type === "password";
+  const resolvedType = isPassword ? (showPassword ? "text" : "password") : props.type ?? "text";
+
   return (
     <label className="block">
       <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{props.label}</span>
-      <input
-        className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.86)] px-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-        onChange={(event) => props.onChange(event.target.value)}
-        placeholder={props.placeholder}
-        type={props.type ?? "text"}
-        value={props.value}
-      />
+      <div className="relative">
+        <input
+          className={`h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.86)] px-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)] ${isPassword ? "pr-12" : ""}`}
+          onChange={(event) => props.onChange(event.target.value)}
+          placeholder={props.placeholder}
+          type={resolvedType}
+          value={props.value}
+        />
+        {isPassword ? (
+          <button
+            aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
+            className="absolute inset-y-0 right-1 my-1 grid w-10 place-items-center rounded-xl text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.08)] hover:text-[var(--text-strong)]"
+            onClick={() => setShowPassword((current) => !current)}
+            type="button"
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        ) : null}
+      </div>
     </label>
   );
 }
