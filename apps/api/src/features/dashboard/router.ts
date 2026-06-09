@@ -1,4 +1,13 @@
 import { Hono } from "hono";
+import { adminDashboardRoutes } from "./routes/admin";
+import { publicCartaRoutes } from "./routes/public-carta";
+import { alertsDashboardRoutes } from "./routes/alerts";
+import { ordersDashboardRoutes } from "./routes/orders";
+import { uploadsDashboardRoutes } from "./routes/uploads";
+import { settingsDashboardRoutes } from "./routes/settings";
+import { menuDashboardRoutes } from "./routes/menu";
+import { diagnosticsDashboardRoutes } from "./routes/diagnostics";
+import { catalogDashboardRoutes } from "./routes/catalog";
 import type {
   AcceptOrderRequest,
   AutomationSettings,
@@ -59,1639 +68,27 @@ export const dashboardRoutes = new Hono<{
   Variables: DashboardVariables;
 }>();
 
-dashboardRoutes.get("/tenants", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-  const tenants = await getAuthorizedTenants(c.env, authUser.id);
+dashboardRoutes.route("/", adminDashboardRoutes);
 
-  return c.json(
-    tenants.map((tenant) => ({
-      id: tenant.id,
-      name: tenant.name,
-      slug: tenant.slug,
-      schemaName: tenant.schema_name,
-    })),
-  );
-});
-
-dashboardRoutes.get("/me", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-  const tenants = await getAuthorizedTenants(c.env, authUser.id);
-
-  return c.json({
-    user: authUser,
-    tenants: tenants.map((tenant) => ({
-      id: tenant.id,
-      name: tenant.name,
-      slug: tenant.slug,
-      schemaName: tenant.schema_name,
-    })),
-  });
-});
-
-dashboardRoutes.get("/admin/overview", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenants = await createSupabaseRestClient(c.env).select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,name,slug,schema_name,timezone",
-      status: "eq.active",
-    },
-  });
-
-  return c.json({
-    activeRestaurantCount: tenants.filter((tenant) => tenant.slug !== "thaledon").length,
-  });
-});
-
-dashboardRoutes.get("/admin/restaurants", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const restaurants = await listAdminRestaurants(c.env);
-  return c.json({ restaurants });
-});
-
-dashboardRoutes.post("/admin/restaurants", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const body = await c.req.json().catch(() => ({})) as {
-    name?: string;
-    slug?: string;
-    timezone?: string;
-    currency?: string;
-    status?: TenantStatus;
-    automationEnabled?: boolean;
-    locationName?: string;
-    locationAddress?: string;
-    locationPhone?: string;
-    deliveryFeeFixed?: number;
-    ownerEmail?: string;
-    ownerName?: string;
-    ownerPassword?: string;
-  };
-  const name = String(body.name ?? "").trim();
-  const slug = normalizeTenantSlug(body.slug || name);
-
-  if (!name || !slug) {
-    return c.json({ error: "restaurant_name_required" }, 400);
-  }
-
-  const schemaName = `tenant_${slug.replace(/-/g, "_")}`;
-  const supabase = createSupabaseRestClient(c.env);
-  const [existing] = await supabase.select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,slug,schema_name",
-      slug: `eq.${slug}`,
-      limit: 1,
-    },
-  });
-
-  if (existing) {
-    return c.json({ error: "restaurant_slug_already_exists" }, 409);
-  }
-
-  const provisioned = await supabase.rpc<TenantRow[]>({
-    schema: "control",
-    functionName: "provision_restaurant_tenant",
-    args: {
-      p_name: name,
-      p_slug: slug,
-      p_schema_name: schemaName,
-      p_timezone: body.timezone || "America/Bogota",
-      p_currency: body.currency || "COP",
-      p_status: body.status || "active",
-      p_automation_enabled: body.automationEnabled ?? true,
-      p_location_name: body.locationName || "Sede principal",
-      p_location_address: body.locationAddress || null,
-      p_location_phone: body.locationPhone || null,
-      p_delivery_fee_fixed: Number(body.deliveryFeeFixed ?? 0),
-    },
-  });
-  const tenant = provisioned[0];
-
-  if (!tenant) {
-    return c.json({ error: "restaurant_provision_failed" }, 500);
-  }
-
-  let ownerPassword: string | undefined;
-  let ownerMember: Awaited<ReturnType<typeof createOrLinkRestaurantMember>> | undefined;
-  if (body.ownerEmail) {
-    ownerPassword = body.ownerPassword || buildDefaultRestaurantPassword(slug);
-    ownerMember = await createOrLinkRestaurantMember(c.env, tenant, {
-      email: body.ownerEmail,
-      name: body.ownerName || name,
-      password: ownerPassword,
-      role: "encargado",
-      resetPasswordIfUserExists: Boolean(body.ownerPassword),
-    });
-  }
-
-  const restaurants = await listAdminRestaurants(c.env);
-  const restaurant = restaurants.find((entry) => entry.id === tenant.id) ?? mapAdminRestaurant(tenant);
-
-  return c.json({
-    restaurant,
-    owner: ownerMember?.member,
-    temporaryPassword: ownerMember ? ownerPassword : undefined,
-  }, 201);
-});
-
-dashboardRoutes.patch("/admin/restaurants/:tenantId", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  const body = await c.req.json().catch(() => ({})) as {
-    name?: string;
-    status?: TenantStatus;
-    timezone?: string;
-    currency?: string;
-    automationEnabled?: boolean;
-    locationName?: string;
-    locationAddress?: string;
-    locationPhone?: string;
-    deliveryFeeFixed?: number;
-    pickupEnabled?: boolean;
-    deliveryEnabled?: boolean;
-    locationAutomationEnabled?: boolean;
-    transferPaymentInstructions?: string;
-  };
-  const tenantPatch: Record<string, unknown> = {};
-
-  if (body.name !== undefined) tenantPatch.name = String(body.name).trim();
-  if (body.status !== undefined) tenantPatch.status = body.status;
-  if (body.timezone !== undefined) tenantPatch.timezone = String(body.timezone).trim() || "America/Bogota";
-  if (body.currency !== undefined) tenantPatch.currency = String(body.currency).trim() || "COP";
-  if (body.automationEnabled !== undefined) tenantPatch.automation_enabled = body.automationEnabled;
-  if (Object.keys(tenantPatch).length > 0) tenantPatch.updated_at = new Date().toISOString();
-
-  if (tenantPatch.status && !["active", "inactive", "suspended"].includes(String(tenantPatch.status))) {
-    return c.json({ error: "invalid_restaurant_status" }, 400);
-  }
-
-  const supabase = createSupabaseRestClient(c.env);
-  if (Object.keys(tenantPatch).length > 0) {
-    await supabase.update({
-      schema: "control",
-      table: "tenants",
-      query: { id: `eq.${tenant.id}` },
-      values: tenantPatch,
-    });
-  }
-
-  await updatePrimaryLocation(c.env, tenant.schema_name, {
-    name: body.locationName,
-    address: body.locationAddress,
-    phone: body.locationPhone,
-    deliveryFeeFixed: body.deliveryFeeFixed,
-    pickupEnabled: body.pickupEnabled,
-    deliveryEnabled: body.deliveryEnabled,
-    automationEnabled: body.locationAutomationEnabled,
-    transferPaymentInstructions: body.transferPaymentInstructions,
-  });
-
-  const restaurants = await listAdminRestaurants(c.env);
-  return c.json({ restaurant: restaurants.find((entry) => entry.id === tenant.id) });
-});
-
-dashboardRoutes.delete("/admin/restaurants/:tenantId", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  const supabase = createSupabaseRestClient(c.env);
-  await Promise.all([
-    supabase.update({
-      schema: "control",
-      table: "tenants",
-      query: { id: `eq.${tenant.id}` },
-      values: { status: "inactive", automation_enabled: false, updated_at: new Date().toISOString() },
-    }),
-    supabase.update({
-      schema: "control",
-      table: "tenant_users",
-      query: { tenant_id: `eq.${tenant.id}` },
-      values: { status: "inactive" },
-    }),
-    supabase.update({
-      schema: "control",
-      table: "tenant_channels",
-      query: { tenant_id: `eq.${tenant.id}` },
-      values: { status: "inactive" },
-    }).catch((error) => {
-      if (isMissingTableError(error)) return [];
-      throw error;
-    }),
-  ]);
-
-  return c.json({ ok: true });
-});
-
-dashboardRoutes.post("/admin/restaurants/:tenantId/members", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  const body = await c.req.json().catch(() => ({})) as {
-    email?: string;
-    name?: string;
-    role?: TenantUserRow["role"];
-    password?: string;
-  };
-  const email = String(body.email ?? "").trim().toLowerCase();
-
-  if (!email || !email.includes("@")) {
-    return c.json({ error: "member_email_required" }, 400);
-  }
-
-  const role = body.role === "trabajador" ? "trabajador" : "encargado";
-  const temporaryPassword = body.password || buildDefaultRestaurantPassword(tenant.slug);
-  const result = await createOrLinkRestaurantMember(c.env, tenant, {
-    email,
-    name: body.name || email.split("@")[0] || "Usuario",
-    password: temporaryPassword,
-    role,
-    resetPasswordIfUserExists: Boolean(body.password),
-  });
-
-  return c.json({
-    member: result.member,
-    temporaryPassword,
-  }, 201);
-});
-
-dashboardRoutes.patch("/admin/restaurants/:tenantId/members/:userId", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  const body = await c.req.json().catch(() => ({})) as {
-    role?: TenantUserRow["role"];
-    status?: TenantUserRow["status"];
-    name?: string;
-  };
-  const patch: Record<string, unknown> = {};
-  if (body.role !== undefined) patch.role = body.role;
-  if (body.status !== undefined) patch.status = body.status;
-
-  if (patch.role && !["encargado", "trabajador"].includes(String(patch.role))) {
-    return c.json({ error: "invalid_member_role" }, 400);
-  }
-
-  if (patch.status && !["active", "inactive"].includes(String(patch.status))) {
-    return c.json({ error: "invalid_member_status" }, 400);
-  }
-
-  if (Object.keys(patch).length > 0) {
-    await createSupabaseRestClient(c.env).update({
-      schema: "control",
-      table: "tenant_users",
-      query: {
-        tenant_id: `eq.${tenant.id}`,
-        user_id: `eq.${c.req.param("userId")}`,
-      },
-      values: patch,
-    });
-  }
-
-  if (body.name !== undefined) {
-    await updateAuthAdminUser(c.env, c.req.param("userId"), {
-      user_metadata: {
-        name: String(body.name).trim(),
-        source: "admin_console",
-      },
-    });
-  }
-
-  const restaurants = await listAdminRestaurants(c.env);
-  const restaurant = restaurants.find((entry) => entry.id === tenant.id);
-  return c.json({ restaurant });
-});
-
-dashboardRoutes.delete("/admin/restaurants/:tenantId/members/:userId", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  await createSupabaseRestClient(c.env).update({
-    schema: "control",
-    table: "tenant_users",
-    query: {
-      tenant_id: `eq.${tenant.id}`,
-      user_id: `eq.${c.req.param("userId")}`,
-    },
-    values: { status: "inactive" },
-  });
-
-  return c.json({ ok: true });
-});
-
-dashboardRoutes.post("/admin/restaurants/:tenantId/members/:userId/reset-password", async (c) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-
-  if (!isSystemAdmin(authUser)) {
-    return c.json({ error: "admin_forbidden" }, 403);
-  }
-
-  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
-  if (!tenant) {
-    return c.json({ error: "restaurant_not_found" }, 404);
-  }
-
-  const body = await c.req.json().catch(() => ({})) as { password?: string };
-  const temporaryPassword = body.password || buildDefaultRestaurantPassword(tenant.slug);
-
-  await updateAuthAdminUser(c.env, c.req.param("userId"), {
-    password: temporaryPassword,
-  });
-
-  return c.json({ temporaryPassword });
-});
-
-dashboardRoutes.get("/public/:tenantSlug/carta", async (c) => {
-  const supabase = createSupabaseRestClient(c.env);
-  const [tenant] = await supabase.select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,name,slug,schema_name,timezone",
-      slug: `eq.${c.req.param("tenantSlug")}`,
-      status: "eq.active",
-      limit: 1,
-    },
-  });
-
-  if (!tenant) {
-    return c.json({ error: "tenant_not_found" }, 404);
-  }
-
-  const date = resolveBusinessDate(c.req.query("date"), tenant.timezone);
-  const [location] = await supabase.select<LocationRow>({
-    schema: tenant.schema_name,
-    table: "locations",
-    query: {
-      select: "id,name,address,phone,delivery_fee_fixed,is_active",
-      is_active: "eq.true",
-      limit: 1,
-    },
-  });
-
-  const [menu] = location
-    ? await supabase.select<MenuRow>({
-        schema: tenant.schema_name,
-        table: "menus",
-        query: {
-          select: "id,location_id,date,name,status,published_at",
-          location_id: `eq.${location.id}`,
-          date: `eq.${date}`,
-          status: "eq.published",
-          limit: 1,
-        },
-      })
-    : [];
-
-  const itemRows = menu
-    ? await supabase.select<MenuItemRow>({
-        schema: tenant.schema_name,
-        table: "menu_items",
-        query: {
-          select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
-          menu_id: `eq.${menu.id}`,
-          is_available: "eq.true",
-          order: "sort_order.asc",
-        },
-      })
-    : [];
-
-  const productIds = itemRows
-    .map((item) => item.product_id)
-    .filter((productId): productId is string => Boolean(productId));
-  const products = productIds.length > 0
-    ? await selectProducts(supabase, tenant.schema_name, {
-        id: `in.(${productIds.join(",")})`,
-        is_active: "eq.true",
-      })
-    : [];
-  const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
-  const productById = new Map(products.map((product) => [product.id, mapProduct(product, productOptions.get(product.id))]));
-
-  const payload: PublicCartaPayload = {
-    tenant: {
-      name: tenant.name ?? tenant.slug,
-      slug: tenant.slug,
-    },
-    requestedDate: date,
-    generatedAt: new Date().toISOString(),
-    location: location ? mapLocation(location) : undefined,
-    menu: menu ? mapMenu(menu) : undefined,
-    items: itemRows
-      .map((item) => mapMenuItem(item, productById.get(item.product_id ?? "")))
-      .filter((item) => item.product?.isActive !== false),
-  };
-
-  return c.json(payload);
-});
+dashboardRoutes.route("/", publicCartaRoutes);
 
 dashboardRoutes.use("/:tenantSlug/*", tenantAccessMiddleware);
 
-dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
-  const tenant = c.get("tenant");
-  const supabase = createSupabaseRestClient(c.env);
-  const date = resolveBusinessDate(c.req.query("date"), tenant.timezone);
-  const [location] = await supabase.select<LocationRow>({
-    schema: tenant.schema_name,
-    table: "locations",
-    query: {
-      select: "id,name,address,phone,delivery_fee_fixed,is_active",
-      is_active: "eq.true",
-      limit: 1,
-    },
-  });
+dashboardRoutes.route("/", ordersDashboardRoutes);
 
-  const [menu] = location
-    ? await supabase.select<MenuRow>({
-        schema: tenant.schema_name,
-        table: "menus",
-        query: {
-          select: "id,location_id,date,name,status,published_at",
-          location_id: `eq.${location.id}`,
-          date: `eq.${date}`,
-          limit: 1,
-        },
-      })
-    : [];
+dashboardRoutes.route("/", alertsDashboardRoutes);
 
-  const products = await selectProducts(supabase, tenant.schema_name);
-  const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
+dashboardRoutes.route("/", settingsDashboardRoutes);
 
-  const itemRows = menu
-    ? await supabase.select<MenuItemRow>({
-        schema: tenant.schema_name,
-        table: "menu_items",
-        query: {
-          select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
-          menu_id: `eq.${menu.id}`,
-          order: "sort_order.asc",
-        },
-      })
-    : [];
+dashboardRoutes.route("/", catalogDashboardRoutes);
 
-  const productById = new Map(products.map((product) => [product.id, mapProduct(product, productOptions.get(product.id))]));
-  const payload: TodayMenuPayload = {
-    tenantSlug: tenant.slug,
-    tenantSchema: tenant.schema_name,
-    location: location ? mapLocation(location) : undefined,
-    menu: menu ? mapMenu(menu) : undefined,
-    items: itemRows.map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
-    products: products.map((product) => mapProduct(product, productOptions.get(product.id))),
-  };
+dashboardRoutes.route("/", uploadsDashboardRoutes);
 
-  return c.json(payload);
-});
+dashboardRoutes.route("/", diagnosticsDashboardRoutes);
 
-dashboardRoutes.get("/:tenantSlug/orders", async (c) => {
-  const tenant = c.get("tenant");
-  const supabase = createSupabaseRestClient(c.env);
-  const bucket = parseOrdersBucket(c.req.query("bucket"));
-  const status = parseOrderStatusFilter(c.req.query("status"));
-  const limit = parsePositiveInt(c.req.query("limit"), 200);
-  let orders: OrderRow[] = [];
-  let customers: CustomerRow[] = [];
-  let alerts: AlertRow[] = [];
+dashboardRoutes.route("/", menuDashboardRoutes);
 
-  try {
-    [orders, customers, alerts] = await Promise.all([
-      supabase.select<OrderRow>({
-        schema: tenant.schema_name,
-        table: "orders",
-        query: {
-          select:
-            "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
-          ...(status ? { status: `eq.${status}` } : {}),
-          order: "created_at.desc",
-          limit,
-        },
-      }),
-      supabase.select<CustomerRow>({
-        schema: tenant.schema_name,
-        table: "customers",
-        query: {
-          select: "id,phone,name",
-          limit: 500,
-        },
-      }),
-      selectAlerts(supabase, tenant.schema_name, {
-        limit: 200,
-      }),
-    ]);
-  } catch (error) {
-    if (!isMissingTableError(error)) {
-      throw error;
-    }
-  }
-
-  const customerById = new Map(customers.map((customer) => [customer.id, customer]));
-  const summaries = orders.map((order) => mapOrderSummary(order, customerById.get(order.customer_id)));
-  const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
-  const openAlerts = alerts.filter((alert) => alert.status === "open");
-  const payload: OrdersDashboardPayload = {
-    bucket,
-    counts: {
-      pendingConfirmation: summaries.filter((order) => matchesOrdersBucket(order, "pending_confirmation")).length,
-      active: summaries.filter((order) => matchesOrdersBucket(order, "active")).length,
-      history: summaries.filter((order) => matchesOrdersBucket(order, "history")).length,
-      transferPendingReview: summaries.filter((order) => order.status === "payment_pending_review").length,
-      openAlerts: openAlerts.length,
-    },
-    orders: filteredOrders,
-  };
-
-  return c.json(payload);
-});
-
-dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
-  const tenant = c.get("tenant");
-  const supabase = createSupabaseRestClient(c.env);
-  let order: OrderRow | undefined;
-
-  try {
-    [order] = await supabase.select<OrderRow>({
-      schema: tenant.schema_name,
-      table: "orders",
-      query: {
-        select:
-          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
-        id: `eq.${c.req.param("orderId")}`,
-        limit: 1,
-      },
-    });
-  } catch (error) {
-    if (isMissingTableError(error)) {
-      return c.json({ error: "order_module_unavailable" }, 404);
-    }
-
-    throw error;
-  }
-
-  if (!order) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  const [customer, items, paymentProof] = await Promise.all([
-    supabase.select<CustomerRow>({
-      schema: tenant.schema_name,
-      table: "customers",
-      query: {
-        select: "id,phone,name",
-        id: `eq.${order.customer_id}`,
-        limit: 1,
-      },
-    }),
-    supabase.select<OrderItemRow>({
-      schema: tenant.schema_name,
-      table: "order_items",
-      query: {
-        select: "id,order_id,menu_item_id,product_id,combo_id,category_snapshot,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total",
-        order_id: `eq.${order.id}`,
-      },
-    }),
-    getLatestPaymentProofForOrder({
-      env: c.env,
-      schemaName: tenant.schema_name,
-      orderId: order.id,
-      paymentProofId: order.payment_proof_file_id ?? undefined,
-    }).catch(() => undefined),
-  ]);
-
-  const detail: OrderDetail = {
-    ...mapOrderSummary(order, customer[0]),
-    locationId: order.location_id ?? undefined,
-    deliveryAddress: order.delivery_address ?? undefined,
-    deliveryAddressId: order.delivery_address_id ?? undefined,
-    items: items.map(mapOrderLineItem),
-    paymentProof,
-  };
-
-  return c.json(detail);
-});
-
-dashboardRoutes.get("/:tenantSlug/orders/:orderId/payment-proof", async (c) => {
-  const tenant = c.get("tenant");
-  const authUser = c.get("authUser");
-  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
-
-  if (!role) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const [order] = await createSupabaseRestClient(c.env).select<OrderRow>({
-    schema: tenant.schema_name,
-    table: "orders",
-    query: {
-      select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
-      id: `eq.${c.req.param("orderId")}`,
-      limit: 1,
-    },
-  });
-
-  if (!order) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  const paymentProof = await downloadLatestPaymentProofForOrder({
-    env: c.env,
-    schemaName: tenant.schema_name,
-    orderId: order.id,
-    paymentProofId: order.payment_proof_file_id ?? undefined,
-  }).catch(() => undefined);
-
-  if (!paymentProof) {
-    return c.json({ error: "payment_proof_not_found" }, 404);
-  }
-
-  return new Response(paymentProof.data, {
-    headers: {
-      "Content-Type": paymentProof.contentType,
-      "Content-Disposition": `inline; filename="${paymentProof.filename}"`,
-      "Cache-Control": "no-store",
-    },
-  });
-});
-
-dashboardRoutes.post("/:tenantSlug/orders/:orderId/payment-proof/confirm", async (c) => {
-  const tenant = c.get("tenant");
-  const authUser = c.get("authUser");
-  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
-
-  if (!role) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  try {
-    await confirmLatestPaymentProofForOrder({
-      env: c.env,
-      schemaName: tenant.schema_name,
-      orderId: c.req.param("orderId"),
-      reviewedBy: authUser.id,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (message === "payment_proof.order_not_found") {
-      return c.json({ error: "order_not_found" }, 404);
-    }
-
-    if (message === "payment_proof.not_found") {
-      return c.json({ error: "payment_proof_not_found" }, 404);
-    }
-
-    if (message === "payment_proof.order_not_pending_review") {
-      return c.json({ error: "order_not_pending_payment_review" }, 409);
-    }
-
-    throw error;
-  }
-
-  const [updatedOrder, customer] = await Promise.all([
-    createSupabaseRestClient(c.env).select<OrderRow>({
-      schema: tenant.schema_name,
-      table: "orders",
-      query: {
-        select:
-          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
-        id: `eq.${c.req.param("orderId")}`,
-        limit: 1,
-      },
-    }),
-    createSupabaseRestClient(c.env).select<CustomerRow>({
-      schema: tenant.schema_name,
-      table: "customers",
-      query: {
-        select: "id,phone,name",
-        limit: 500,
-      },
-    }),
-  ]);
-
-  const order = updatedOrder[0];
-  if (!order) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  const customerById = new Map(customer.map((entry) => [entry.id, entry]));
-  return c.json(mapOrderSummary(order, customerById.get(order.customer_id)));
-});
-
-dashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
-  const tenant = c.get("tenant");
-  const authUser = c.get("authUser");
-  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
-
-  if (!role) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const body = (await c.req.json().catch(() => ({}))) as AcceptOrderRequest;
-  const context = await loadOrderNotificationContext(c.env, tenant.schema_name, c.req.param("orderId"));
-
-  if (!context) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  if (context.order.status !== "pending_restaurant_confirmation") {
-    return c.json({ error: "order_not_pending_restaurant_confirmation" }, 409);
-  }
-
-  const now = new Date().toISOString();
-  const status = "accepted" as const;
-  const conversationState = context.order.payment_method === "transfer" ? "awaiting_transfer_proof" : "completed";
-  const [updated] = await createSupabaseRestClient(c.env).updateReturning<OrderRow>({
-    schema: tenant.schema_name,
-    table: "orders",
-    query: { id: `eq.${context.order.id}` },
-    patch: {
-      status,
-      restaurant_reviewed_at: now,
-      restaurant_reviewed_by: authUser.id,
-      restaurant_confirmed_at: now,
-      restaurant_confirmed_by: authUser.id,
-      restaurant_review_note: body.note ?? null,
-      customer_notification_status: "pending",
-      customer_notification_error: null,
-      updated_at: now,
-    },
-  });
-
-  if (context.draftOrder?.conversation_id) {
-    await updateConversationState({
-      env: c.env,
-      schemaName: tenant.schema_name,
-      conversationId: context.draftOrder.conversation_id,
-      state: conversationState,
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-  }
-
-  await createSupabaseRestClient(c.env).insert({
-    schema: tenant.schema_name,
-    table: "app_events",
-    rows: {
-      conversation_id: context.draftOrder?.conversation_id ?? null,
-      draft_order_id: context.order.draft_order_id ?? null,
-      order_id: context.order.id,
-      event_name: "order.restaurant_accepted",
-      severity: "info",
-      source: "dashboard_api",
-      metadata: {
-        reviewedBy: authUser.id,
-        note: body.note ?? null,
-      },
-    },
-  }).catch(() => undefined);
-
-  await resolvePendingConfirmationAlerts(c.env, tenant.schema_name, context.order.id).catch(() => undefined);
-
-  const notificationText = buildAcceptedOrderMessage(updated ?? context.order, context.location);
-  const finalOrder = await sendOrderCustomerNotification({
-    env: c.env,
-    schemaName: tenant.schema_name,
-    context: {
-      ...context,
-      order: updated ?? context.order,
-    },
-    messageText: notificationText,
-    notificationType: "accepted",
-  });
-
-  return c.json(mapOrderSummary(finalOrder, context.customer));
-});
-
-dashboardRoutes.post("/:tenantSlug/orders/:orderId/reject-out-of-stock", async (c) => {
-  const tenant = c.get("tenant");
-  const authUser = c.get("authUser");
-  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
-
-  if (!role) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const body = await c.req.json<RejectOutOfStockOrderRequest>().catch(() => undefined);
-
-  if (!body || !Array.isArray(body.items) || body.items.length === 0) {
-    return c.json({ error: "invalid_out_of_stock_request" }, 400);
-  }
-
-  const context = await loadOrderNotificationContext(c.env, tenant.schema_name, c.req.param("orderId"));
-
-  if (!context) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  if (context.order.status !== "pending_restaurant_confirmation") {
-    return c.json({ error: "order_not_pending_restaurant_confirmation" }, 409);
-  }
-
-  const unavailableSelection = body.items[0];
-  if (!unavailableSelection) {
-    return c.json({ error: "invalid_out_of_stock_request" }, 400);
-  }
-  const orderItems = await createSupabaseRestClient(c.env).select<OrderItemRow>({
-    schema: tenant.schema_name,
-    table: "order_items",
-    query: {
-      select: "id,order_id,menu_item_id,product_id,combo_id,category_snapshot,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total",
-      order_id: `eq.${context.order.id}`,
-    },
-  });
-  const unavailableItem = orderItems.find((item) => item.id === unavailableSelection.orderItemId);
-
-  if (!unavailableItem) {
-    return c.json({ error: "order_item_not_found" }, 404);
-  }
-
-  const replacementOptions = await resolveReplacementOptions({
-    env: c.env,
-    schemaName: tenant.schema_name,
-    tenantTimezone: tenant.timezone,
-    orderItem: unavailableItem,
-    requestedReplacementMenuItemIds: unavailableSelection.replacementMenuItemIds ?? [],
-  });
-
-  if (replacementOptions.length === 0) {
-    return c.json({ error: "replacement_options_not_found" }, 409);
-  }
-
-  if (unavailableSelection.markMenuItemUnavailable && unavailableItem.menu_item_id) {
-    await createSupabaseRestClient(c.env).update({
-      schema: tenant.schema_name,
-      table: "menu_items",
-      values: {
-        is_available: false,
-      },
-      query: {
-        id: `eq.${unavailableItem.menu_item_id}`,
-      },
-    }).catch(() => undefined);
-
-    await createSupabaseRestClient(c.env).insert({
-      schema: tenant.schema_name,
-      table: "app_events",
-      rows: {
-        conversation_id: context.draftOrder?.conversation_id ?? null,
-        draft_order_id: context.order.draft_order_id ?? null,
-        order_id: context.order.id,
-        event_name: "menu_item.marked_unavailable_from_order",
-        severity: "info",
-        source: "dashboard_api",
-        metadata: {
-          orderItemId: unavailableItem.id,
-          menuItemId: unavailableItem.menu_item_id,
-          reviewedBy: authUser.id,
-        },
-      },
-    }).catch(() => undefined);
-  }
-
-  const reviewMetadata = {
-    reason: "out_of_stock",
-    unavailableOrderItemIds: [unavailableItem.id],
-    unavailableItems: [
-      {
-        orderItemId: unavailableItem.id,
-        menuItemId: unavailableItem.menu_item_id ?? undefined,
-        productId: unavailableItem.product_id ?? undefined,
-        comboId: unavailableItem.combo_id ?? undefined,
-        name: unavailableItem.name_snapshot,
-        quantity: unavailableItem.quantity,
-        category: unavailableItem.category_snapshot ?? undefined,
-      },
-    ],
-    replacementMenuItems: replacementOptions,
-    markMenuItemsUnavailable: Boolean(unavailableSelection.markMenuItemUnavailable),
-  };
-
-  const now = new Date().toISOString();
-  const [updated] = await createSupabaseRestClient(c.env).updateReturning<OrderRow>({
-    schema: tenant.schema_name,
-    table: "orders",
-    query: { id: `eq.${context.order.id}` },
-    patch: {
-      status: "needs_customer_replacement",
-      restaurant_reviewed_at: now,
-      restaurant_reviewed_by: authUser.id,
-      restaurant_review_note: body.note ?? null,
-      restaurant_review_metadata: reviewMetadata,
-      customer_notification_status: "pending",
-      customer_notification_error: null,
-      updated_at: now,
-    },
-  });
-
-  if (context.draftOrder?.conversation_id) {
-    await updateConversationState({
-      env: c.env,
-      schemaName: tenant.schema_name,
-      conversationId: context.draftOrder.conversation_id,
-      state: "awaiting_replacement_selection",
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-  }
-
-  await createSupabaseRestClient(c.env).insert({
-    schema: tenant.schema_name,
-    table: "app_events",
-    rows: {
-      conversation_id: context.draftOrder?.conversation_id ?? null,
-      draft_order_id: context.order.draft_order_id ?? null,
-      order_id: context.order.id,
-      event_name: "order.out_of_stock_returned_to_customer",
-      severity: "info",
-      source: "dashboard_api",
-      metadata: {
-        reviewedBy: authUser.id,
-        note: body.note ?? null,
-        reviewMetadata,
-      },
-    },
-  }).catch(() => undefined);
-
-  await resolvePendingConfirmationAlerts(c.env, tenant.schema_name, context.order.id).catch(() => undefined);
-
-  const notificationText = buildOutOfStockMessage(unavailableItem.name_snapshot, replacementOptions);
-  const finalOrder = await sendOrderCustomerNotification({
-    env: c.env,
-    schemaName: tenant.schema_name,
-    context: {
-      ...context,
-      order: updated ?? context.order,
-    },
-    messageText: notificationText,
-    notificationType: "out_of_stock",
-  });
-
-  return c.json(mapOrderSummary(finalOrder, context.customer));
-});
-
-dashboardRoutes.post("/:tenantSlug/orders/:orderId/customer-notification/retry", async (c) => {
-  const tenant = c.get("tenant");
-  const authUser = c.get("authUser");
-  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
-
-  if (!role) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const body = await c.req.json<RetryOrderCustomerNotificationRequest>().catch(() => undefined);
-
-  if (!body?.type) {
-    return c.json({ error: "invalid_customer_notification_retry_request" }, 400);
-  }
-
-  const context = await loadOrderNotificationContext(c.env, tenant.schema_name, c.req.param("orderId"));
-
-  if (!context) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  const messageText = buildRetryNotificationMessage(body.type, context.order, context.location);
-
-  if (!messageText) {
-    return c.json({ error: "customer_notification_retry_not_available" }, 409);
-  }
-
-  const finalOrder = await sendOrderCustomerNotification({
-    env: c.env,
-    schemaName: tenant.schema_name,
-    context,
-    messageText,
-    notificationType: body.type,
-  });
-
-  return c.json(mapOrderSummary(finalOrder, context.customer));
-});
-
-dashboardRoutes.patch("/:tenantSlug/orders/:orderId/status", async (c) => {
-  const tenant = c.get("tenant");
-  const body = await c.req.json<{
-    status?: OrderStatus;
-    restaurantConfirmed?: boolean;
-    paymentConfirmed?: boolean;
-  }>();
-  const now = new Date().toISOString();
-  const patch: Record<string, unknown> = {
-    updated_at: now,
-  };
-
-  if (body.status !== undefined) {
-    patch.status = body.status;
-  }
-
-  if (body.restaurantConfirmed === true) {
-    patch.restaurant_confirmed_at = now;
-  }
-
-  if (body.restaurantConfirmed === false) {
-    patch.restaurant_confirmed_at = null;
-  }
-
-  if (body.paymentConfirmed === true) {
-    patch.payment_confirmed_at = now;
-  }
-
-  if (body.paymentConfirmed === false) {
-    patch.payment_confirmed_at = null;
-  }
-
-  let order: OrderRow | undefined;
-
-  try {
-    [order] = await createSupabaseRestClient(c.env).updateReturning<OrderRow>({
-      schema: tenant.schema_name,
-      table: "orders",
-      query: { id: `eq.${c.req.param("orderId")}` },
-      patch,
-    });
-  } catch (error) {
-    if (isMissingTableError(error)) {
-      return c.json({ error: "order_module_unavailable" }, 404);
-    }
-
-    throw error;
-  }
-
-  if (!order) {
-    return c.json({ error: "order_not_found" }, 404);
-  }
-
-  const [customer] = await createSupabaseRestClient(c.env).select<CustomerRow>({
-    schema: tenant.schema_name,
-    table: "customers",
-    query: {
-      select: "id,phone,name",
-      id: `eq.${order.customer_id}`,
-      limit: 1,
-    },
-  });
-
-  return c.json(mapOrderSummary(order, customer));
-});
-
-dashboardRoutes.get("/:tenantSlug/alerts", async (c) => {
-  const tenant = c.get("tenant");
-  let alerts: AlertRow[] = [];
-
-  try {
-    alerts = await selectAlerts(createSupabaseRestClient(c.env), tenant.schema_name, {
-      status: c.req.query("status") as HumanInterventionStatus | undefined,
-      limit: 200,
-    });
-  } catch (error) {
-    if (!isMissingTableError(error)) {
-      throw error;
-    }
-  }
-
-  return c.json(alerts.map(mapAlert));
-});
-
-dashboardRoutes.patch("/:tenantSlug/alerts/:alertId/acknowledge", async (c) => {
-  const tenant = c.get("tenant");
-  let alert: AlertRow | undefined;
-
-  try {
-    [alert] = await createSupabaseRestClient(c.env).updateReturning<AlertRow>({
-      schema: tenant.schema_name,
-      table: "human_intervention_alerts",
-      query: {
-        id: `eq.${c.req.param("alertId")}`,
-      },
-      patch: {
-        status: "acknowledged",
-      },
-    });
-  } catch (error) {
-    if (isMissingTableError(error)) {
-      return c.json({ error: "order_module_unavailable" }, 404);
-    }
-
-    throw error;
-  }
-
-  if (!alert) {
-    return c.json({ error: "alert_not_found" }, 404);
-  }
-
-  return c.json(mapAlert(alert));
-});
-
-dashboardRoutes.patch("/:tenantSlug/alerts/:alertId/resolve", async (c) => {
-  const tenant = c.get("tenant");
-  let alert: AlertRow | undefined;
-
-  try {
-    [alert] = await createSupabaseRestClient(c.env).updateReturning<AlertRow>({
-      schema: tenant.schema_name,
-      table: "human_intervention_alerts",
-      query: {
-        id: `eq.${c.req.param("alertId")}`,
-      },
-      patch: {
-        status: "resolved",
-        resolved_at: new Date().toISOString(),
-      },
-    });
-  } catch (error) {
-    if (isMissingTableError(error)) {
-      return c.json({ error: "order_module_unavailable" }, 404);
-    }
-
-    throw error;
-  }
-
-  if (!alert) {
-    return c.json({ error: "alert_not_found" }, 404);
-  }
-
-  return c.json(mapAlert(alert));
-});
-
-dashboardRoutes.get("/:tenantSlug/settings/automation", async (c) => {
-  const tenant = c.get("tenant");
-  const [location] = await createSupabaseRestClient(c.env).select<LocationRow>({
-    schema: tenant.schema_name,
-    table: "locations",
-    query: {
-      select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
-      is_active: "eq.true",
-      limit: 1,
-    },
-  });
-
-  const payload: AutomationSettings = {
-    tenantId: tenant.id,
-    tenantSlug: tenant.slug,
-    tenantAutomationEnabled: true,
-    locationAutomationEnabled: location?.automation_enabled,
-  };
-
-  const [tenantRow] = await createSupabaseRestClient(c.env).select<TenantRow & { automation_enabled: boolean }>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,slug,schema_name,timezone,automation_enabled",
-      id: `eq.${tenant.id}`,
-      limit: 1,
-    },
-  });
-
-  payload.tenantAutomationEnabled = tenantRow?.automation_enabled ?? true;
-
-  return c.json(payload);
-});
-
-dashboardRoutes.patch("/:tenantSlug/settings/automation", async (c) => {
-  const tenant = c.get("tenant");
-  const body = await c.req.json<{ enabled: boolean }>();
-  const supabase = createSupabaseRestClient(c.env);
-  const [location] = await supabase.select<LocationRow>({
-    schema: tenant.schema_name,
-    table: "locations",
-    query: {
-      select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
-      is_active: "eq.true",
-      limit: 1,
-    },
-  });
-
-  await Promise.all([
-    supabase.update({
-      schema: "control",
-      table: "tenants",
-      values: {
-        automation_enabled: body.enabled,
-        updated_at: new Date().toISOString(),
-      },
-      query: {
-        id: `eq.${tenant.id}`,
-      },
-    }),
-    location
-      ? supabase.update({
-          schema: tenant.schema_name,
-          table: "locations",
-          values: {
-            automation_enabled: body.enabled,
-            updated_at: new Date().toISOString(),
-          },
-          query: {
-            id: `eq.${location.id}`,
-          },
-        })
-      : Promise.resolve([]),
-  ]);
-
-  return c.json({
-    tenantId: tenant.id,
-    tenantSlug: tenant.slug,
-    tenantAutomationEnabled: body.enabled,
-    locationAutomationEnabled: location ? body.enabled : undefined,
-  } satisfies AutomationSettings);
-});
-
-dashboardRoutes.post("/:tenantSlug/products", async (c) => {
-  const tenant = c.get("tenant");
-  const body = await c.req.json<Partial<Product>>();
-  const supabase = createSupabaseRestClient(c.env);
-  const rows = {
-    name: body.name,
-    description: body.description ?? null,
-    base_price: body.basePrice ?? 0,
-    category: body.category ?? null,
-    emoji: body.emoji ?? null,
-    product_type: body.productType ?? "simple",
-    ...(body.imageUrl !== undefined ? { image_url: body.imageUrl } : {}),
-    is_active: body.isActive ?? true,
-  };
-  let productRows: ProductRow[];
-
-  try {
-    productRows = await supabase.insertReturning<ProductRow>({
-      schema: tenant.schema_name,
-      table: "products",
-      rows,
-    });
-  } catch (error) {
-    if (error instanceof SupabaseRestError && error.status === 400 && (error.body.includes("image_url") || error.body.includes("emoji"))) {
-      const { emoji: _emoji, image_url: _imageUrl, ...rowsWithoutOptionalVisuals } = rows;
-      productRows = await supabase.insertReturning<ProductRow>({
-        schema: tenant.schema_name,
-        table: "products",
-        rows: rowsWithoutOptionalVisuals,
-      });
-    } else {
-      throw error;
-    }
-  }
-
-  const [product] = productRows;
-
-  if (!product) {
-    return c.json({ error: "product_create_failed" }, 500);
-  }
-
-  await replaceProductOptions(supabase, tenant.schema_name, product.id, body.productType === "composite" ? body.options ?? [] : []);
-  const options = await selectProductOptions(supabase, tenant.schema_name, [product.id]);
-
-  return c.json(mapProduct(product, options.get(product.id)), 201);
-});
-
-dashboardRoutes.post("/:tenantSlug/uploads/menu-image/analyze", async (c) => {
-  const form = await c.req.parseBody();
-  const file = form.file;
-
-  if (!(file instanceof File)) {
-    return c.json({ error: "image_file_required" }, 400);
-  }
-
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    return c.json({ error: "unsupported_image_type" }, 400);
-  }
-
-  const apiKey = c.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "replace-me") {
-    return c.json({ error: "gemini_not_configured" }, 500);
-  }
-
-  const imageBase64 = arrayBufferToBase64(await file.arrayBuffer());
-  const prompt = [
-    "Eres un extractor de menus de restaurante en Colombia. Tu prioridad es capturar nombre, precio, categoria y descripcion completa de cada plato.",
-    "Lee la imagen y devuelve SOLO JSON valido, sin markdown.",
-    "Extrae platos vendibles del menu con precio en COP.",
-    "Si un precio tiene puntos o separadores, conviertelo a entero.",
-    "Ignora encabezados, horarios, telefonos, redes sociales y textos decorativos.",
-    "La descripcion es obligatoria cuando exista texto debajo o al lado del nombre del plato.",
-    "Para desayunos, la descripcion suele ser la linea siguiente con ingredientes como arepa, huevos, cafe, queso, pan o frutas.",
-    "Para almuerzos, conserva acompanamientos e ingredientes: entrada, principio, seco, carne, ensalada, papas, arroz, bebida, etc.",
-    "Para adiciones, si no hay descripcion separada, usa el mismo nombre como descripcion corta.",
-    "Clasifica category usando una de estas etiquetas cuando aplique: desayuno, almuerzo, adicion. Si no aplica, usa otra categoria corta en singular.",
-    "No inventes ingredientes que no aparezcan. Si una descripcion continua en varias lineas, unelas en una sola frase.",
-    "Si el precio dice 'segun pescado', 'segun peso' o similar y no hay numero, omite ese producto.",
-    'Formato exacto: {"products":[{"name":"string","description":"string","basePrice":12345,"category":"string","confidence":0.9}]}',
-    "Usa nombres cortos y claros. No dejes description vacio si la imagen muestra ingredientes o acompanamientos.",
-    "Si no detectas platos, devuelve {\"products\":[]}.",
-  ].join("\n");
-
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: file.type,
-                data: imageBase64,
-              },
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        response_mime_type: "application/json",
-        temperature: 0.1,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.error("gemini_menu_analysis_failed", { status: response.status, body: errorText.slice(0, 500) });
-    if (response.status === 429) {
-      return c.json({ error: "gemini_quota_exhausted" }, 429);
-    }
-
-    return c.json({ error: "gemini_menu_analysis_failed" }, 502);
-  }
-
-  const payload = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
-      };
-    }>;
-  };
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-  const products = parseGeminiMenuProducts(text);
-
-  return c.json({ products });
-});
-
-dashboardRoutes.post("/:tenantSlug/uploads/product-image", async (c) => {
-  const tenant = c.get("tenant");
-  const form = await c.req.parseBody();
-  const file = form.file;
-
-  if (!(file instanceof File)) {
-    return c.json({ error: "image_file_required" }, 400);
-  }
-
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    return c.json({ error: "unsupported_image_type" }, 400);
-  }
-
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-  const storagePath = `${tenant.slug}/products/${crypto.randomUUID()}.${extension}`;
-  const upload = await createSupabaseRestClient(c.env).uploadObject({
-    bucket: "product-images",
-    path: storagePath,
-    body: file,
-    contentType: file.type,
-  });
-
-  return c.json({
-    bucket: "product-images",
-    path: upload.path,
-    publicUrl: upload.publicUrl,
-  });
-});
-
-dashboardRoutes.patch("/:tenantSlug/products/:productId", async (c) => {
-  const tenant = c.get("tenant");
-  const body = await c.req.json<Partial<Product>>();
-  const [product] = await createSupabaseRestClient(c.env).updateReturning<ProductRow>({
-    schema: tenant.schema_name,
-    table: "products",
-    query: { id: `eq.${c.req.param("productId")}` },
-    patch: {
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.description !== undefined ? { description: body.description } : {}),
-      ...(body.basePrice !== undefined ? { base_price: body.basePrice } : {}),
-      ...(body.category !== undefined ? { category: body.category } : {}),
-      ...(body.emoji !== undefined ? { emoji: body.emoji } : {}),
-      ...(body.productType !== undefined ? { product_type: body.productType } : {}),
-      ...(body.imageUrl !== undefined ? { image_url: body.imageUrl } : {}),
-      ...(body.isActive !== undefined ? { is_active: body.isActive } : {}),
-      updated_at: new Date().toISOString(),
-    },
-  });
-
-  if (!product) {
-    return c.json({ error: "product_not_found" }, 404);
-  }
-
-  if (body.productType !== undefined || body.options !== undefined) {
-    await replaceProductOptions(createSupabaseRestClient(c.env), tenant.schema_name, product.id, body.productType === "composite" ? body.options ?? [] : []);
-  }
-
-  const options = await selectProductOptions(createSupabaseRestClient(c.env), tenant.schema_name, [product.id]);
-
-  return c.json(mapProduct(product, options.get(product.id)));
-});
-
-dashboardRoutes.get("/:tenantSlug/diagnostics", async (c) => {
-  const tenant = c.get("tenant");
-  const supabase = createSupabaseRestClient(c.env);
-  const checks: Record<string, boolean | string> = {
-    tenant: tenant.slug,
-    schema: tenant.schema_name,
-    productsTable: false,
-    productImageColumn: false,
-    productImagesBucket: false,
-  };
-
-  try {
-    await supabase.select<ProductRow>({
-      schema: tenant.schema_name,
-      table: "products",
-      query: {
-        select: "id",
-        limit: 1,
-      },
-    });
-    checks.productsTable = true;
-  } catch {
-    checks.productsTable = false;
-  }
-
-  try {
-    await supabase.select<ProductRow>({
-      schema: tenant.schema_name,
-      table: "products",
-      query: {
-        select: "image_url",
-        limit: 1,
-      },
-    });
-    checks.productImageColumn = true;
-  } catch {
-    checks.productImageColumn = false;
-  }
-
-  const bucketResponse = await fetch(`${c.env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/bucket/product-images`, {
-    headers: {
-      apikey: c.env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${c.env.SUPABASE_SERVICE_ROLE_KEY}`,
-    },
-  });
-  checks.productImagesBucket = bucketResponse.ok;
-
-  return c.json(checks);
-});
-
-dashboardRoutes.delete("/:tenantSlug/products/:productId", async (c) => {
-  const tenant = c.get("tenant");
-  await createSupabaseRestClient(c.env).updateReturning<ProductRow>({
-    schema: tenant.schema_name,
-    table: "products",
-    query: { id: `eq.${c.req.param("productId")}` },
-    patch: {
-      is_active: false,
-      updated_at: new Date().toISOString(),
-    },
-  });
-
-  return c.json({ ok: true });
-});
-
-dashboardRoutes.post("/:tenantSlug/menu/today/items", async (c) => {
-  const tenant = c.get("tenant");
-  const supabase = createSupabaseRestClient(c.env);
-  const body = await c.req.json<{ productId: string; date?: string }>();
-  const menu = await findOrCreateTodayMenu(supabase, tenant.schema_name, tenant.timezone, body.date);
-  const nextSortOrder = await getNextMenuSortOrder(supabase, tenant.schema_name, menu.id);
-  const [product] = await selectProducts(supabase, tenant.schema_name, {
-      id: `eq.${body.productId}`,
-      is_active: "eq.true",
-      limit: 1,
-  });
-
-  if (!product) {
-    return c.json({ error: "product_not_found" }, 404);
-  }
-
-  const [item] = await supabase.insertReturning<MenuItemRow>({
-    schema: tenant.schema_name,
-    table: "menu_items",
-    rows: {
-      menu_id: menu.id,
-      product_id: product.id,
-      display_name: product.name,
-      price_override: product.base_price,
-      is_available: true,
-      sort_order: nextSortOrder,
-    },
-  });
-
-  if (!item) {
-    return c.json({ error: "menu_item_create_failed" }, 500);
-  }
-
-  return c.json(mapMenuItem(item, mapProduct(product)), 201);
-});
-
-dashboardRoutes.patch("/:tenantSlug/menu/today/items/:itemId", async (c) => {
-  const tenant = c.get("tenant");
-  const body = await c.req.json<Partial<MenuItem>>();
-  const [item] = await createSupabaseRestClient(c.env).updateReturning<MenuItemRow>({
-    schema: tenant.schema_name,
-    table: "menu_items",
-    query: { id: `eq.${c.req.param("itemId")}` },
-    patch: {
-      ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
-      ...(body.priceOverride !== undefined ? { price_override: body.priceOverride } : {}),
-      ...(body.availableQuantity !== undefined ? { available_quantity: body.availableQuantity } : {}),
-      ...(body.isAvailable !== undefined ? { is_available: body.isAvailable } : {}),
-      ...(body.sortOrder !== undefined ? { sort_order: body.sortOrder } : {}),
-    },
-  });
-
-  if (!item) {
-    return c.json({ error: "menu_item_not_found" }, 404);
-  }
-
-  return c.json(mapMenuItem(item));
-});
-
-dashboardRoutes.delete("/:tenantSlug/menu/today/items/:itemId", async (c) => {
-  const tenant = c.get("tenant");
-  await createSupabaseRestClient(c.env).delete({
-    schema: tenant.schema_name,
-    table: "menu_items",
-    query: { id: `eq.${c.req.param("itemId")}` },
-  });
-
-  return c.json({ ok: true });
-});
-
-async function findOrCreateTodayMenu(
+export async function findOrCreateTodayMenu(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   timezone?: string,
@@ -1746,7 +143,7 @@ async function findOrCreateTodayMenu(
   return menu;
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer) {
+export function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   const chunkSize = 0x8000;
@@ -1758,7 +155,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-function parseGeminiMenuProducts(text: string): GeminiMenuProduct[] {
+export function parseGeminiMenuProducts(text: string): GeminiMenuProduct[] {
   const normalized = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
   const parsed = JSON.parse(normalized) as { products?: unknown[] };
 
@@ -1777,7 +174,7 @@ function parseGeminiMenuProducts(text: string): GeminiMenuProduct[] {
     .slice(0, 30);
 }
 
-async function selectProducts(
+export async function selectProducts(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   query: Record<string, string | number | boolean | undefined> = {},
@@ -1811,7 +208,7 @@ async function selectProducts(
   }
 }
 
-async function getNextMenuSortOrder(
+export async function getNextMenuSortOrder(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   menuId: string,
@@ -1830,7 +227,7 @@ async function getNextMenuSortOrder(
   return (lastItem?.sort_order ?? 0) + 10;
 }
 
-async function selectProductOptions(
+export async function selectProductOptions(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   productIds: string[],
@@ -1904,7 +301,7 @@ async function selectProductOptions(
   return optionsByProductId;
 }
 
-async function replaceProductOptions(
+export async function replaceProductOptions(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   productId: string,
@@ -1978,7 +375,7 @@ async function replaceProductOptions(
   }
 }
 
-async function selectAlerts(
+export async function selectAlerts(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   options: {
@@ -1998,7 +395,7 @@ async function selectAlerts(
   });
 }
 
-function parseOrdersBucket(rawBucket?: string): OrdersBucket {
+export function parseOrdersBucket(rawBucket?: string): OrdersBucket {
   if (rawBucket === "pending_confirmation" || rawBucket === "active" || rawBucket === "history" || rawBucket === "all") {
     return rawBucket;
   }
@@ -2006,12 +403,12 @@ function parseOrdersBucket(rawBucket?: string): OrdersBucket {
   return "pending_confirmation";
 }
 
-function parsePositiveInt(rawValue: string | undefined, fallback: number): number {
+export function parsePositiveInt(rawValue: string | undefined, fallback: number): number {
   const parsed = Number(rawValue);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function parseOrderStatusFilter(rawStatus?: string): OrderStatus | undefined {
+export function parseOrderStatusFilter(rawStatus?: string): OrderStatus | undefined {
   if (!rawStatus) {
     return undefined;
   }
@@ -2031,7 +428,7 @@ function parseOrderStatusFilter(rawStatus?: string): OrderStatus | undefined {
     : undefined;
 }
 
-function matchesOrdersBucket(order: OrderSummary, bucket: OrdersBucket): boolean {
+export function matchesOrdersBucket(order: OrderSummary, bucket: OrdersBucket): boolean {
   if (bucket === "all") {
     return true;
   }
@@ -2047,7 +444,7 @@ function matchesOrdersBucket(order: OrderSummary, bucket: OrdersBucket): boolean
   return ["delivered", "cancelled"].includes(order.status);
 }
 
-function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
+export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
   return {
     id: row.id,
     draftOrderId: row.draft_order_id ?? undefined,
@@ -2078,7 +475,7 @@ function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
   };
 }
 
-function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
+export function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
   return {
     id: row.id,
     menuItemId: row.menu_item_id ?? undefined,
@@ -2094,7 +491,7 @@ function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
   };
 }
 
-function mapAlert(row: AlertRow): HumanInterventionAlert {
+export function mapAlert(row: AlertRow): HumanInterventionAlert {
   return {
     id: row.id,
     conversationId: row.conversation_id ?? undefined,
@@ -2110,7 +507,7 @@ function mapAlert(row: AlertRow): HumanInterventionAlert {
   };
 }
 
-function mapLocation(row: LocationRow) {
+export function mapLocation(row: LocationRow) {
   return {
     id: row.id,
     name: row.name,
@@ -2121,7 +518,7 @@ function mapLocation(row: LocationRow) {
   };
 }
 
-function mapProduct(row: ProductRow, options?: Product["options"]): Product {
+export function mapProduct(row: ProductRow, options?: Product["options"]): Product {
   return {
     id: row.id,
     name: row.name,
@@ -2136,7 +533,7 @@ function mapProduct(row: ProductRow, options?: Product["options"]): Product {
   };
 }
 
-function mapMenu(row: MenuRow): Menu {
+export function mapMenu(row: MenuRow): Menu {
   return {
     id: row.id,
     locationId: row.location_id,
@@ -2147,7 +544,7 @@ function mapMenu(row: MenuRow): Menu {
   };
 }
 
-function mapMenuItem(row: MenuItemRow, product?: Product): MenuItem {
+export function mapMenuItem(row: MenuItemRow, product?: Product): MenuItem {
   return {
     id: row.id,
     menuId: row.menu_id,
@@ -2162,7 +559,7 @@ function mapMenuItem(row: MenuItemRow, product?: Product): MenuItem {
   };
 }
 
-function resolveBusinessDate(requestedDate?: string, timezone = "America/Bogota"): string {
+export function resolveBusinessDate(requestedDate?: string, timezone = "America/Bogota"): string {
   if (requestedDate) {
     return requestedDate;
   }
@@ -2185,7 +582,7 @@ function resolveBusinessDate(requestedDate?: string, timezone = "America/Bogota"
   return `${year}-${month}-${day}`;
 }
 
-async function loadOrderNotificationContext(
+export async function loadOrderNotificationContext(
   env: ApiBindings,
   schema: string,
   orderId: string,
@@ -2252,7 +649,7 @@ async function loadOrderNotificationContext(
   };
 }
 
-async function resolvePendingConfirmationAlerts(env: ApiBindings, schema: string, orderId: string): Promise<void> {
+export async function resolvePendingConfirmationAlerts(env: ApiBindings, schema: string, orderId: string): Promise<void> {
   await createSupabaseRestClient(env).update({
     schema,
     table: "human_intervention_alerts",
@@ -2268,7 +665,7 @@ async function resolvePendingConfirmationAlerts(env: ApiBindings, schema: string
   });
 }
 
-function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): string {
+export function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): string {
   if (order.payment_method === "transfer") {
     const instructions = location?.transfer_payment_instructions?.trim();
     return [
@@ -2285,7 +682,7 @@ function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): str
   ].join("\n\n");
 }
 
-function buildOutOfStockMessage(itemName: string, replacementOptions: Array<{
+export function buildOutOfStockMessage(itemName: string, replacementOptions: Array<{
   name: string;
   price?: number;
 }>): string {
@@ -2301,7 +698,7 @@ function buildOutOfStockMessage(itemName: string, replacementOptions: Array<{
   ].join("\n\n");
 }
 
-function buildRetryNotificationMessage(
+export function buildRetryNotificationMessage(
   type: OrderCustomerNotificationType,
   order: OrderRow,
   location?: LocationRow,
@@ -2340,7 +737,7 @@ function buildRetryNotificationMessage(
   return null;
 }
 
-async function sendOrderCustomerNotification(input: {
+export async function sendOrderCustomerNotification(input: {
   env: ApiBindings;
   schemaName: string;
   context: OrderNotificationContext;
@@ -2404,7 +801,7 @@ async function sendOrderCustomerNotification(input: {
   return updatedOrder ?? input.context.order;
 }
 
-async function resolveReplacementOptions(input: {
+export async function resolveReplacementOptions(input: {
   env: ApiBindings;
   schemaName: string;
   tenantTimezone?: string;
@@ -2504,7 +901,7 @@ async function resolveReplacementOptions(input: {
   return replacements.slice(0, 3);
 }
 
-async function resolveMenuIdForMenuItem(
+export async function resolveMenuIdForMenuItem(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   menuItemId: string,
@@ -2522,7 +919,7 @@ async function resolveMenuIdForMenuItem(
   return menuItem?.menu_id;
 }
 
-async function resolveActiveMenuId(
+export async function resolveActiveMenuId(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   schema: string,
   timezone?: string,
@@ -2556,7 +953,7 @@ async function resolveActiveMenuId(
   return menu?.id;
 }
 
-function formatCop(value: number): string {
+export function formatCop(value: number): string {
   return new Intl.NumberFormat("es-CO", {
     style: "currency",
     currency: "COP",
@@ -2564,7 +961,7 @@ function formatCop(value: number): string {
   }).format(value);
 }
 
-function normalizeTenantSlug(value: string): string {
+export function normalizeTenantSlug(value: string): string {
   return value
     .trim()
     .toLowerCase()
@@ -2575,7 +972,7 @@ function normalizeTenantSlug(value: string): string {
     .slice(0, 63);
 }
 
-function buildDefaultRestaurantPassword(slug: string): string {
+export function buildDefaultRestaurantPassword(slug: string): string {
   const base = slug.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "restaurante";
   return `${base}_42*password`;
 }
@@ -2595,7 +992,7 @@ type AdminTenantSnapshot = {
   metrics?: AdminRestaurantMetrics | null;
 };
 
-function mapAdminRestaurant(
+export function mapAdminRestaurant(
   tenant: TenantRow,
   location?: LocationRow,
   members: ReturnType<typeof mapAdminMember>[] = [],
@@ -2638,7 +1035,7 @@ function mapAdminRestaurant(
   };
 }
 
-function mapAdminMember(row: TenantUserRow, user?: AdminAuthUser) {
+export function mapAdminMember(row: TenantUserRow, user?: AdminAuthUser) {
   return {
     userId: row.user_id,
     email: user?.email,
@@ -2650,7 +1047,7 @@ function mapAdminMember(row: TenantUserRow, user?: AdminAuthUser) {
   };
 }
 
-async function listAdminRestaurants(env: ApiBindings) {
+export async function listAdminRestaurants(env: ApiBindings) {
   const supabase = createSupabaseRestClient(env);
   const tenants = await supabase.select<TenantRow>({
     schema: "control",
@@ -2693,7 +1090,7 @@ async function listAdminRestaurants(env: ApiBindings) {
   return restaurants;
 }
 
-async function getAdminTenantSnapshot(
+export async function getAdminTenantSnapshot(
   supabase: ReturnType<typeof createSupabaseRestClient>,
   tenant: TenantRow,
 ): Promise<AdminTenantSnapshot> {
@@ -2710,7 +1107,7 @@ async function getAdminTenantSnapshot(
   });
 }
 
-async function getTenantById(env: ApiBindings, tenantId: string): Promise<TenantRow | undefined> {
+export async function getTenantById(env: ApiBindings, tenantId: string): Promise<TenantRow | undefined> {
   const [tenant] = await createSupabaseRestClient(env).select<TenantRow>({
     schema: "control",
     table: "tenants",
@@ -2724,7 +1121,7 @@ async function getTenantById(env: ApiBindings, tenantId: string): Promise<Tenant
   return tenant;
 }
 
-async function updatePrimaryLocation(
+export async function updatePrimaryLocation(
   env: ApiBindings,
   schema: string,
   patch: {
@@ -2757,7 +1154,7 @@ async function updatePrimaryLocation(
   });
 }
 
-async function createOrLinkRestaurantMember(
+export async function createOrLinkRestaurantMember(
   env: ApiBindings,
   tenant: TenantRow,
   input: {
@@ -2801,7 +1198,7 @@ async function createOrLinkRestaurantMember(
   };
 }
 
-async function createAuthAdminUser(
+export async function createAuthAdminUser(
   env: ApiBindings,
   input: {
     email: string;
@@ -2831,7 +1228,7 @@ async function createAuthAdminUser(
   return response.json() as Promise<AdminAuthUser>;
 }
 
-async function updateAuthAdminUser(env: ApiBindings, userId: string, patch: Record<string, unknown>): Promise<AdminAuthUser> {
+export async function updateAuthAdminUser(env: ApiBindings, userId: string, patch: Record<string, unknown>): Promise<AdminAuthUser> {
   const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users/${userId}`, {
     method: "PUT",
     headers: buildAuthAdminHeaders(env),
@@ -2846,7 +1243,7 @@ async function updateAuthAdminUser(env: ApiBindings, userId: string, patch: Reco
   return response.json() as Promise<AdminAuthUser>;
 }
 
-async function getAuthAdminUser(env: ApiBindings, userId: string): Promise<AdminAuthUser> {
+export async function getAuthAdminUser(env: ApiBindings, userId: string): Promise<AdminAuthUser> {
   const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/admin/users/${userId}`, {
     headers: buildAuthAdminHeaders(env),
   });
@@ -2859,7 +1256,7 @@ async function getAuthAdminUser(env: ApiBindings, userId: string): Promise<Admin
   return response.json() as Promise<AdminAuthUser>;
 }
 
-async function findAuthAdminUserByEmail(env: ApiBindings, email: string): Promise<AdminAuthUser | undefined> {
+export async function findAuthAdminUserByEmail(env: ApiBindings, email: string): Promise<AdminAuthUser | undefined> {
   const targetEmail = email.trim().toLowerCase();
 
   for (let page = 1; page <= 10; page += 1) {
@@ -2885,7 +1282,7 @@ async function findAuthAdminUserByEmail(env: ApiBindings, email: string): Promis
   return undefined;
 }
 
-function buildAuthAdminHeaders(env: ApiBindings): HeadersInit {
+export function buildAuthAdminHeaders(env: ApiBindings): HeadersInit {
   return {
     apikey: env.SUPABASE_SERVICE_ROLE_KEY,
     Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
