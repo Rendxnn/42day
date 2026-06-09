@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MenuItem, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
+  confirmOrderPaymentProof,
   DashboardApiError,
   getOrder,
+  getOrderPaymentProof,
   listOrders,
   rejectOrderOutOfStock,
   retryOrderCustomerNotification,
@@ -31,6 +33,7 @@ type OrdersViewProps = {
 
 type OrdersFilter = "pending" | "confirmed" | "closed";
 type PendingLane = "restaurant" | "customer";
+type ReplacementScope = "same" | "other";
 
 type OrdersFilterConfig = {
   id: OrdersFilter;
@@ -306,6 +309,33 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
     }
   }
 
+  async function handleViewPaymentProof(order: OrderDetail) {
+    setActionKey(`proof:view:${order.id}`);
+    try {
+      const blob = await getOrderPaymentProof(tenantSlug, order.id);
+      const objectUrl = window.URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, "No se pudo abrir el comprobante."));
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  async function handleConfirmPaymentProof(order: OrderDetail) {
+    setActionKey(`proof:confirm:${order.id}`);
+    try {
+      await confirmOrderPaymentProof(tenantSlug, order.id);
+      onNotify("Pago confirmado y pedido listo para continuar.");
+      await refreshAfterMutation(order.id);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, "No se pudo confirmar el pago."));
+    } finally {
+      setActionKey("");
+    }
+  }
+
   async function handleFinalizeOrder(order: OrderDetail) {
     setActionKey(`status:${order.id}:delivered`);
     try {
@@ -474,12 +504,17 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
             <div className="app-scrollbar max-h-[860px] space-y-3 overflow-y-auto px-4 py-4">
               {filteredOrders.map((order) => {
                 const active = order.id === selectedOrderId;
+                const acceptedStage = order.status === "accepted";
                 return (
                   <button
                     className={`w-full rounded-[24px] border px-4 py-4 text-left transition ${
                       active
-                        ? "border-[rgba(137,164,196,0.34)] bg-[var(--surface-strong)]"
-                        : "border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] hover:bg-[var(--surface-muted)]"
+                        ? acceptedStage
+                          ? "border-[rgba(79,122,97,0.38)] bg-[rgba(226,238,231,0.92)] shadow-[inset_5px_0_0_rgba(79,122,97,0.82)]"
+                          : "border-[rgba(137,164,196,0.34)] bg-[var(--surface-strong)]"
+                        : acceptedStage
+                          ? "border-[rgba(79,122,97,0.28)] bg-[rgba(226,238,231,0.72)] shadow-[inset_5px_0_0_rgba(79,122,97,0.68)] hover:bg-[rgba(226,238,231,0.95)]"
+                          : "border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] hover:bg-[var(--surface-muted)]"
                     }`}
                     key={order.id}
                     onClick={() => setSelectedOrderId(order.id)}
@@ -499,7 +534,11 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
                         </p>
                         <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{getFulfillmentLabel(order)}</p>
                         {filter === "confirmed" ? (
-                          <p className="mt-2 inline-flex rounded-full bg-[rgba(79,122,97,0.12)] px-3 py-1 text-xs font-semibold text-[var(--success)]">
+                          <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                            acceptedStage
+                              ? "bg-[var(--success)] text-white shadow-[0_6px_18px_rgba(79,122,97,0.22)]"
+                              : "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
+                          }`}>
                             {getConfirmedProgressLabel(order)}
                           </p>
                         ) : null}
@@ -546,9 +585,11 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
               onCancel={() => void handleCancelOrder(selectedOrder)}
+              onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
               onFinalize={() => void handleFinalizeOrder(selectedOrder)}
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
+              onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
               order={selectedOrder}
               selectedSummary={selectedSummary}
             />
@@ -577,9 +618,11 @@ function OrderDetailPanel({
   onAccept,
   onAdvanceConfirmed,
   onCancel,
+  onConfirmPaymentProof,
   onFinalize,
   onOpenRejectModal,
   onRetry,
+  onViewPaymentProof,
   order,
   selectedSummary,
 }: {
@@ -588,9 +631,11 @@ function OrderDetailPanel({
   onAccept: () => void;
   onAdvanceConfirmed: () => void;
   onCancel: () => void;
+  onConfirmPaymentProof: () => void;
   onFinalize: () => void;
   onOpenRejectModal: () => void;
   onRetry: () => void;
+  onViewPaymentProof: () => void;
   order: OrderDetail;
   selectedSummary?: OrderSummary;
 }) {
@@ -598,12 +643,12 @@ function OrderDetailPanel({
   const canAccept = order.status === "pending_restaurant_confirmation";
   const canReject = order.status === "pending_restaurant_confirmation";
   const canRetry = notificationFailed && (order.status === "accepted" || order.status === "needs_customer_replacement");
-  const canAdvanceConfirmed = ["accepted", "payment_pending_review", "preparing"].includes(order.status);
+  const canAdvanceConfirmed = ["accepted", "preparing"].includes(order.status);
   const canFinalize = order.status === "on_the_way";
   const canCancel = !closedStatuses.includes(order.status);
+  const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
-  const confirmedProgress = getConfirmedProgressLabel(order);
   const advanceLabel = order.fulfillmentType === "delivery" ? "Marcar delivery 30 min" : "Marcar listo para recoger";
 
   return (
@@ -624,9 +669,7 @@ function OrderDetailPanel({
             </p>
             <p className="mt-1 text-sm leading-7 text-[var(--text-soft)]">{getFulfillmentLabel(order)}</p>
             {confirmedStatuses.includes(order.status) ? (
-              <p className="mt-2 inline-flex rounded-full bg-[rgba(79,122,97,0.12)] px-3 py-1 text-xs font-semibold text-[var(--success)]">
-                {confirmedProgress}
-              </p>
+              <OrderProgressRail fulfillmentType={order.fulfillmentType} status={order.status} />
             ) : null}
           </div>
 
@@ -655,6 +698,24 @@ function OrderDetailPanel({
                 label={actionKey === `retry:${order.id}` ? "Reenviando..." : "Reenviar WhatsApp"}
                 onClick={onRetry}
                 variant="warning"
+              />
+            )}
+            {order.paymentProof && (
+              <ActionButton
+                active={actionKey === `proof:view:${order.id}`}
+                icon={ClipboardList}
+                label={actionKey === `proof:view:${order.id}` ? "Abriendo..." : "Ver comprobante"}
+                onClick={onViewPaymentProof}
+                variant="secondary"
+              />
+            )}
+            {canConfirmPaymentProof && (
+              <ActionButton
+                active={actionKey === `proof:confirm:${order.id}`}
+                icon={Check}
+                label={actionKey === `proof:confirm:${order.id}` ? "Confirmando pago..." : "Confirmar pago"}
+                onClick={onConfirmPaymentProof}
+                variant="primary"
               />
             )}
             {canAdvanceConfirmed && (
@@ -709,6 +770,15 @@ function OrderDetailPanel({
               <p className="mt-4 rounded-[22px] border border-[rgba(197,123,87,0.18)] bg-[rgba(197,123,87,0.08)] px-4 py-3 text-sm font-medium text-[var(--warning)]">
                 Error de envio al cliente: {order.customerNotificationError}
               </p>
+            )}
+            {order.paymentProof && (
+              <div className="mt-4 rounded-[22px] border border-[rgba(97,135,158,0.18)] bg-[rgba(97,135,158,0.08)] px-4 py-4 text-sm text-[#46697c]">
+                <p className="font-semibold text-[#2d5369]">Comprobante de transferencia</p>
+                <p className="mt-2">Estado: {getPaymentProofStatusLabel(order.paymentProof.status)}</p>
+                <p className="mt-1">Recibido: {formatDateTime(order.paymentProof.createdAt)}</p>
+                {order.paymentProof.mimeType && <p className="mt-1">Formato: {order.paymentProof.mimeType}</p>}
+                {order.paymentProof.fileSize !== undefined && <p className="mt-1">Tamano: {formatFileSize(order.paymentProof.fileSize)}</p>}
+              </div>
             )}
           </section>
 
@@ -796,6 +866,7 @@ function OutOfStockModal({
   const [selectedOrderItemId, setSelectedOrderItemId] = useState(order.items.find((item) => item.id)?.id ?? "");
   const [markMenuItemUnavailable, setMarkMenuItemUnavailable] = useState(true);
   const [selectedReplacementIds, setSelectedReplacementIds] = useState<string[]>([]);
+  const [replacementScope, setReplacementScope] = useState<ReplacementScope>("same");
   const [note, setNote] = useState("");
 
   const selectedOrderItem = useMemo(
@@ -803,26 +874,36 @@ function OutOfStockModal({
     [order.items, selectedOrderItemId],
   );
 
-  const replacementSuggestions = useMemo(() => {
+  const replacementPools = useMemo(() => {
     if (!selectedOrderItem) {
-      return [];
+      return { same: [] as MenuItem[], other: [] as MenuItem[] };
     }
 
     const category = selectedOrderItem.categorySnapshot || resolveCategoryFromMenuItem(menuItems, selectedOrderItem.menuItemId);
     const normalizedCategory = normalizeText(category);
 
-    return menuItems
+    const activeCandidates = menuItems
       .filter((item) => item.isAvailable)
       .filter((item) => item.product?.isActive !== false)
       .filter((item) => item.id !== selectedOrderItem.menuItemId)
-      .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) === normalizedCategory)
-      .sort((left, right) => left.sortOrder - right.sortOrder)
-      .slice(0, 4);
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+
+    return {
+      same: activeCandidates
+        .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) === normalizedCategory)
+        .slice(0, 8),
+      other: activeCandidates
+        .filter((item) => normalizeText(resolveCategoryFromMenuItem(menuItems, item.id) || item.product?.category) !== normalizedCategory)
+        .slice(0, 16),
+    };
   }, [menuItems, selectedOrderItem]);
 
+  const replacementSuggestions = replacementScope === "same" ? replacementPools.same : replacementPools.other;
+
   useEffect(() => {
-    setSelectedReplacementIds(replacementSuggestions.map((item) => item.id));
-  }, [replacementSuggestions]);
+    setReplacementScope("same");
+    setSelectedReplacementIds(replacementPools.same.map((item) => item.id));
+  }, [replacementPools.same]);
 
   const categoryLabel = selectedOrderItem?.categorySnapshot
     || resolveCategoryFromMenuItem(menuItems, selectedOrderItem?.menuItemId)
@@ -832,13 +913,13 @@ function OutOfStockModal({
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.55)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="app-panel reveal-up max-h-[92vh] w-full overflow-hidden rounded-t-[28px] sm:max-w-3xl sm:rounded-[30px]">
+      <div className="app-panel reveal-up flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[28px] sm:max-w-3xl sm:rounded-[30px]">
         <div className="flex items-start justify-between border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:px-6">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Agotados</p>
             <h3 className="app-display mt-2 text-[2.2rem] leading-none text-[var(--text-strong)]">Reportar agotado</h3>
             <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
-              El cliente recibira solo alternativas activas de la misma categoria por WhatsApp.
+              El cliente recibira alternativas activas. Priorizamos la misma categoria y puedes abrir otras categorias si hace falta.
             </p>
           </div>
           <button
@@ -850,7 +931,7 @@ function OutOfStockModal({
           </button>
         </div>
 
-        <div className="app-scrollbar space-y-5 overflow-y-auto p-5 sm:p-6">
+        <div className="app-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
           <section className="rounded-[24px] bg-[rgba(248,241,232,0.58)] p-4">
             <StepLabel step={1} title="Item agotado" />
             <div className="mt-4 space-y-2">
@@ -899,12 +980,29 @@ function OutOfStockModal({
               </label>
             </div>
 
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-[20px] bg-[var(--surface-base)] p-2">
+              <ReplacementScopeTab
+                active={replacementScope === "same"}
+                count={replacementPools.same.length}
+                label="Misma categoria"
+                onClick={() => setReplacementScope("same")}
+              />
+              <ReplacementScopeTab
+                active={replacementScope === "other"}
+                count={replacementPools.other.length}
+                label="Otras categorias"
+                onClick={() => setReplacementScope("other")}
+              />
+            </div>
+
             {replacementSuggestions.length === 0 ? (
               <div className="mt-4 rounded-[20px] border border-[rgba(197,123,87,0.18)] bg-[rgba(197,123,87,0.08)] px-4 py-3 text-sm leading-6 text-[var(--warning)]">
-                No hay productos activos en esta categoria. Se enviara un aviso para que el cliente cambie o cancele.
+                {replacementScope === "same"
+                  ? "No hay productos activos en esta categoria. Abre otras categorias para recomendar otra opcion del menu."
+                  : "No hay otros productos activos disponibles para recomendar."}
               </div>
             ) : (
-              <div className="mt-4 space-y-2">
+              <div className="app-scrollbar mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
                 {replacementSuggestions.map((item) => {
                   const checked = selectedReplacementIds.includes(item.id);
                   return (
@@ -1005,6 +1103,33 @@ function StepLabel({ step, title }: { step: number; title: string }) {
       <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--text-strong)] text-xs font-semibold text-white">{step}</span>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{title}</p>
     </div>
+  );
+}
+
+function ReplacementScopeTab({
+  active,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`rounded-[16px] px-3 py-2 text-left text-sm font-semibold transition ${
+        active
+          ? "border border-[rgba(197,123,87,0.22)] bg-[rgba(197,123,87,0.1)] text-[var(--text-strong)]"
+          : "border border-transparent text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span>{label}</span>
+      <span className="ml-2 rounded-full bg-[rgba(118,93,71,0.12)] px-2 py-0.5 text-xs">{count}</span>
+    </button>
   );
 }
 
@@ -1131,13 +1256,58 @@ function ActionButton({
   );
 }
 
+function OrderProgressRail({ fulfillmentType, status }: { fulfillmentType: OrderSummary["fulfillmentType"]; status: OrderStatus }) {
+  const steps = [
+    { id: "accepted", label: "Aceptado" },
+    { id: "preparing", label: "Preparando" },
+    { id: "on_the_way", label: fulfillmentType === "delivery" ? "En camino" : "Listo" },
+  ] as const;
+  const currentIndex = getConfirmedStageIndex(status);
+
+  return (
+    <div className="mt-4 rounded-[22px] border border-[rgba(79,122,97,0.18)] bg-[rgba(226,238,231,0.72)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex items-center gap-2 text-sm font-extrabold text-[var(--success)]">
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--success)] text-white">
+            <Check size={16} />
+          </span>
+          {getConfirmedProgressLabel({ status, fulfillmentType })}
+        </div>
+        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--success)]">
+          Estado confirmado
+        </span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {steps.map((step, index) => {
+          const reached = index <= currentIndex;
+          return (
+            <div
+              className={`rounded-2xl border px-3 py-2 text-xs font-bold ${
+                reached
+                  ? "border-[rgba(79,122,97,0.2)] bg-white text-[var(--success)]"
+                  : "border-[rgba(118,93,71,0.08)] bg-[rgba(255,251,246,0.5)] text-[var(--text-faint)]"
+              }`}
+              key={step.id}
+            >
+              <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(79,122,97,0.12)] text-[11px]">
+                {index + 1}
+              </span>
+              {step.label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const palette = {
     new: "bg-[rgba(118,93,71,0.08)] text-[var(--text-soft)]",
     pending_restaurant_confirmation: "bg-[rgba(193,157,98,0.14)] text-[#8a6a3f]",
     needs_customer_replacement: "bg-[rgba(197,123,87,0.12)] text-[var(--warning)]",
     payment_pending_review: "bg-[rgba(97,135,158,0.12)] text-[#46697c]",
-    accepted: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
+    accepted: "bg-[var(--success)] text-white shadow-[0_6px_18px_rgba(79,122,97,0.22)]",
     preparing: "bg-[rgba(132,111,164,0.12)] text-[#65567f]",
     on_the_way: "bg-[rgba(90,111,170,0.12)] text-[#4c5f8f]",
     delivered: "bg-[rgba(118,93,71,0.12)] text-[var(--text-soft)]",
@@ -1273,6 +1443,12 @@ function getOrderStatusLabel(status: OrderStatus) {
   }[status];
 }
 
+function getConfirmedStageIndex(status: OrderStatus) {
+  if (status === "on_the_way") return 2;
+  if (status === "preparing" || status === "payment_pending_review") return 1;
+  return 0;
+}
+
 function getConfirmedProgressLabel(order: Pick<OrderSummary, "status" | "fulfillmentType">) {
   if (order.status === "on_the_way") {
     return order.fulfillmentType === "delivery" ? "Delivery 30 min" : "Pedido listo para recoger";
@@ -1295,6 +1471,15 @@ function getNotificationLabel(status?: OrderDetail["customerNotificationStatus"]
   }
 
   return "pendiente";
+}
+
+function getPaymentProofStatusLabel(status?: string) {
+  if (status === "approved") return "Aprobado";
+  if (status === "review_pending") return "Pendiente de revision";
+  if (status === "stored") return "Guardado";
+  if (status === "received") return "Recibido";
+  if (status === "rejected") return "Rechazado";
+  return "Sin estado";
 }
 
 function getDashboardErrorMessage(error: unknown, fallback: string) {
@@ -1337,6 +1522,18 @@ function formatDateTime(value?: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function resolveCategoryFromMenuItem(menuItems: MenuItem[], menuItemId?: string) {

@@ -6,21 +6,34 @@ Sistema multi-tenant de automatizacion de pedidos por WhatsApp para restaurantes
 
 ## Producto
 
-El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, valida el pedido contra el menu activo, calcula el total, pide datos faltantes, confirma con el cliente y crea una orden final visible en dashboard.
+42day recibe mensajes de clientes por WhatsApp, interpreta el pedido con reglas y apoyo LLM acotado, construye un `draft_order`, calcula el total en backend, confirma con el cliente y deja una `order` lista para revision del restaurante desde dashboard.
+
+## Alcance congelado para demos
+
+El objetivo inmediato no es produccion completa. Es una version `demo-ready` para:
+
+- mostrar menu real,
+- tomar pedidos guiados y pedidos naturales simples,
+- persistir conversaciones y drafts,
+- cerrar checkout basico,
+- crear ordenes pendientes de confirmacion,
+- operar aceptacion, agotados y reintentos desde dashboard,
+- demostrar handoff humano.
 
 ## Principios
 
 - El modelo no calcula precios.
 - El modelo no decide disponibilidad final.
-- El modelo solo extrae estructura desde mensajes libres.
+- El modelo no devuelve IDs canonicos ni crea entidades.
 - Todo pedido primero existe como `draft_order`.
-- Siempre hay confirmacion final antes de crear una `order`.
+- Siempre hay confirmacion del cliente antes de crear `order`.
+- Toda orden queda pendiente de revision del restaurante.
 - Debe existir fallback a humano.
-- El flujo guiado debe existir aunque exista flujo semantico.
-- Transferencia bancaria siempre puede requerir intervencion humana para validar pago.
-- La conversacion se cierra explicitamente si el usuario pasa 30 minutos sin responder.
+- El flujo guiado debe existir aunque exista parser semantico.
+- La transferencia requiere intervencion humana en MVP/demo-ready.
+- La conversacion expira a los 30 minutos sin respuesta.
 
-## Decisiones actuales
+## Decisiones cerradas
 
 | Tema | Decision |
 | --- | --- |
@@ -29,35 +42,38 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 | Backend API | Cloudflare Workers + Hono |
 | Dashboard | React + Vite dentro de `apps/dashboard` |
 | Base de datos | Supabase Postgres |
-| ORM recomendado | Drizzle |
-| Tenant isolation | Schemas separados por tenant, mas schema global/control |
+| Tenant isolation | Schemas separados por tenant mas schema global `control` |
 | WhatsApp durante desarrollo | Numero demo de Meta Developers |
-| WhatsApp futuro | Preparar modelo para agregar clientes nuevos rapidamente |
-| Menu MVP | Menu del dia como producto principal, con productos, combos, promociones y precios |
-| Sedes MVP | Una sede por restaurante |
-| Entrega V1 | Domicilio y pickup |
-| Domicilio | Precio fijo inicial por restaurante |
-| Pagos V1 | Efectivo y transferencia |
-| Transferencia | Crear orden `payment_pending_review`, almacenar comprobante y generar alerta/intervencion humana |
-| Combos | Relacionados con productos existentes mediante componentes del combo |
-| Comprobantes | Almacenar archivos en Supabase Storage y metadata en Postgres |
-| Tono del bot | Espanol casual, diario, simple y ligeramente amistoso |
-| Roles dashboard | `encargado`, `trabajador` |
-| Confirmacion | Botones interactivos y texto libre |
-| Timeout | 30 minutos sin respuesta cierran la sesion/draft activo |
-| Conversacion natural V1 | Deterministico primero, LLM solo para interpretar pedidos libres o frases multi-entidad ambiguas |
-| t-router | Vendorizado temporalmente como workspace `packages/t-router`; objetivo futuro: dependencia versionada desde GitHub |
+| Sedes en demo-ready | Una sede por restaurante |
+| Fulfillment | Delivery y pickup |
+| Delivery fee | Fijo por sede |
+| Pagos | Efectivo y transferencia |
+| Transferencia | Se pide solo despues de que el restaurante acepta disponibilidad |
+| Confirmacion operativa | Siempre manual por restaurante |
+| Conversacion natural | Deterministico primero, LLM solo como parser acotado |
+| LLM inicial | Gemini via `packages/t-router` |
+| Timeout | 30 minutos |
+| Dashboard data access | Solo via `apps/api`, no directo a Supabase desde frontend |
+| Roles operativos | `encargado`, `trabajador` |
 
-## Alcance dashboard V1
+## Estado real actual
 
-- Ver ordenes.
-- Ver alertas de intervencion humana.
-- Recibir notificaciones operativas.
-- Subir menu.
-- CRUD completo de productos con precios.
-- CRUD de combos.
-- CRUD de promociones.
-- Gestionar menu del dia.
+Ya implementado:
+
+- webhook de WhatsApp,
+- persistencia de customers, conversations, messages y addresses,
+- menu real desde Supabase,
+- flujo de draft -> checkout -> orden,
+- estados de revision del restaurante y reemplazos,
+- dashboard para pedidos, agotados y progreso operativo,
+- consola admin de restaurantes y miembros.
+
+Todavia incompleto:
+
+- validacion fuerte de configurables contra `product_options`,
+- flujo completo de comprobantes de transferencia,
+- consola humana de alertas y timeline de conversacion,
+- pruebas automatizadas conversacionales amplias.
 
 ## Modulos backend
 
@@ -66,13 +82,14 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 - `tenant_resolver`
 - `conversation_service`
 - `draft_order_service`
-- `guided_flow_engine`
 - `semantic_parser`
 - `validation_engine`
 - `pricing_engine`
 - `order_service`
 - `handoff_service`
 - `dashboard_api`
+
+Nota: `guided_flow_engine`, `validation_engine` y `pricing_engine` existen como modulos nominales, pero hoy la mayor parte de la orquestacion real vive en `message_router` y `draft_order_service`.
 
 ## Estados de conversacion
 
@@ -85,6 +102,8 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 - `awaiting_payment_method`
 - `awaiting_transfer_proof`
 - `awaiting_confirmation`
+- `awaiting_restaurant_confirmation`
+- `awaiting_replacement_selection`
 - `manual`
 - `completed`
 - `expired`
@@ -101,6 +120,8 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 ## Estados de order
 
 - `new`
+- `pending_restaurant_confirmation`
+- `needs_customer_replacement`
 - `payment_pending_review`
 - `accepted`
 - `preparing`
@@ -108,13 +129,13 @@ El sistema recibe mensajes de clientes por WhatsApp, guia o interpreta pedidos, 
 - `delivered`
 - `cancelled`
 
-## Non-goals MVP
+## Non-goals por ahora
 
-- OCR de menus.
-- Reconciliacion automatica de pagos.
-- Analitica avanzada.
-- Audio/voz.
-- Inventario.
-- Multi-idioma.
-- POS.
-- Optimizacion de rutas.
+- OCR robusto de menus en produccion,
+- reconciliacion automatica de pagos,
+- inventario,
+- POS,
+- cobertura geoespacial avanzada,
+- multi-idioma,
+- analitica avanzada,
+- voz/audio.

@@ -2,7 +2,14 @@
 
 ## Estado actual
 
-El repo ya tiene implementacion inicial de API, dashboard, persistencia conversacional y flujo guiado.
+El repo ya tiene:
+
+- API sobre Cloudflare Workers,
+- dashboard operativo,
+- persistencia conversacional,
+- flujo guiado,
+- fallback LLM acotado,
+- modulo de pedidos y agotados.
 
 ## Requisitos recomendados
 
@@ -21,8 +28,6 @@ corepack pnpm install
 
 ## Instalacion inicial
 
-Cuando se empiece implementacion:
-
 ```bash
 pnpm install
 ```
@@ -35,13 +40,37 @@ corepack pnpm install
 
 ## Variables de entorno
 
+El repo tiene tres capas de configuracion local:
+
+- `.env` en la raiz como referencia general del proyecto,
+- `apps/api/.dev.vars` para `wrangler dev`,
+- `apps/dashboard/.env` o `apps/dashboard/.env.local` para Vite.
+
 Copiar:
 
 ```bash
 cp .env.example .env
+cp apps/api/.dev.vars.example apps/api/.dev.vars
+cp apps/dashboard/.env.example apps/dashboard/.env
 ```
 
-Completar:
+Completar al menos estas variables en `apps/api/.dev.vars`:
+
+```txt
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+Completar al menos estas variables en `apps/dashboard/.env`:
+
+```txt
+VITE_API_BASE_URL
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+Variables del proyecto raiz (`.env`):
 
 ```txt
 META_VERIFY_TOKEN
@@ -52,11 +81,13 @@ SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
-OPENAI_API_KEY
 GEMINI_API_KEY
 GEMINI_MODEL
 AI_CONFIG_ENCRYPTION_KEY
+OPENAI_API_KEY
 ```
+
+`OPENAI_API_KEY` hoy es opcional y legado. El proveedor activo del flujo actual es Gemini.
 
 ## Supabase
 
@@ -94,7 +125,7 @@ Recomendacion: usar staging en Cloudflare Workers para pruebas reales de Meta.
 
 ## Primer smoke test
 
-Cuando exista implementacion:
+Con la implementacion actual:
 
 1. `GET /health` responde ok.
 2. Meta verifica `GET /webhooks/whatsapp`.
@@ -102,7 +133,21 @@ Cuando exista implementacion:
 4. Confirmar que aparece en `webhook_events`.
 5. Confirmar que aparece en `messages`.
 6. Confirmar que se resolvio tenant demo.
-7. Confirmar que se envio respuesta automatica basica.
+7. Confirmar que se envio saludo con menu real.
+
+## Levantar servicios rapido
+
+Desde la raiz:
+
+```bash
+python scripts/dev_services.py --start
+```
+
+Ver estado:
+
+```bash
+python scripts/dev_services.py --status
+```
 
 ## Guia completa
 

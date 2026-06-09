@@ -1,0 +1,392 @@
+import type {
+  Conversation,
+  DraftOrder,
+  MenuItem,
+  OrderLineItemOptionTextInput,
+  OrderLineItemResolvedOption,
+  ProductOption,
+  TodayMenuPayload,
+} from "@42day/types";
+import { updateConversationState } from "../conversations/service";
+import {
+  buildManualHandoffMessage,
+  buildProductConfigurationPrompt,
+} from "../../modules/message-router/response-composer";
+import { addMenuItemToDraftOrder, getOrCreateActiveDraftOrder } from "../draft-orders/service";
+import { resolveProductConfiguration, shouldPersistConfigurationSnapshot, splitConfigurationAnswerTexts, buildOrderLineItemOptionsSnapshot, type ProductConfigurationSource, type ProductConfigurationResolution } from "../product-configurator/service";
+import { detectSignals } from "../../modules/message-router/signal-detector";
+import { sendAndLogText } from "./outbound";
+import type { ConfigurableItemCandidate, PendingProductConfigurationContext } from "./context";
+import { loadCurrentMenu } from "./helpers";
+import { handleClarification, moveToManual } from "./manual-handoff";
+import { continueAfterItemAdded } from "./checkout";
+import type { RouteInboundMessageInput } from "./types";
+
+export async function tryHandlePendingProductConfiguration(input: RouteInboundMessageInput): Promise<boolean> {
+  const menu = await loadCurrentMenu(input);
+  const pending = readPendingProductConfiguration(input.conversation);
+  if (!pending) {
+    return false;
+  }
+
+  const selectedItem = menu.items.find((item) => item.id === pending.menuItemId);
+  if (!selectedItem) {
+    await moveToManual(input, {
+      type: "validation_failed_repeatedly",
+      manualReason: "pending_product_configuration_missing_menu_item",
+      title: "Configuracion pendiente sin producto",
+      description: "El producto pendiente por configurar ya no pudo resolverse en el menu actual.",
+      responseText: buildManualHandoffMessage(),
+    });
+    return true;
+  }
+
+  const option = selectedItem.product?.options?.find((entry) => entry.id === pending.pendingOptionId);
+  if (!option) {
+    await moveToManual(input, {
+      type: "validation_failed_repeatedly",
+      manualReason: "pending_product_configuration_missing_option",
+      title: "Configuracion pendiente sin opcion",
+      description: "La opcion pendiente por configurar ya no existe o no pudo cargarse.",
+      responseText: buildManualHandoffMessage(),
+    });
+    return true;
+  }
+
+  const answerText = input.message.text?.trim() ?? "";
+  const rawOptionTexts = mapConfigurationAnswerToRawOptionTexts(option, answerText);
+  if (rawOptionTexts.length === 0) {
+    await handleClarification(
+      input,
+      buildProductConfigurationPrompt(selectedItem.displayName ?? selectedItem.product?.name ?? "tu producto", option),
+      "product_configuration_unresolved",
+    );
+    return true;
+  }
+
+  const resolution = resolveProductConfiguration({
+    menuItem: selectedItem,
+    source: pending.source,
+    rawOptionTexts,
+    freeTextNotes: pending.notes,
+    existingResolvedOptions: pending.resolvedOptions,
+    forcedOptionId: option.id,
+  });
+
+  const mergedRawOptionTexts = [...pending.rawOptionTexts, ...rawOptionTexts];
+
+  if (resolution.status === "resolved") {
+    const notes = uniqueNotes([...pending.notes, ...resolution.freeTextNotes]);
+    let draft = await addSelectedItem(input, {
+      menu,
+      selectedItem,
+      quantity: pending.quantity,
+      options: shouldPersistConfigurationSnapshot({
+        menuItem: selectedItem,
+        resolution,
+      })
+        ? buildOrderLineItemOptionsSnapshot({
+            ...resolution,
+            rawOptionTexts: mergedRawOptionTexts,
+            freeTextNotes: notes,
+          })
+        : undefined,
+      notes: notes.join("; ") || undefined,
+      unitPrice: resolution.pricing.resolvedUnitPrice,
+    });
+
+    let lastSelectedItem = selectedItem;
+    const queuedResult = await processQueuedConfiguredItems(input, {
+      menu,
+      queuedItems: pending.queuedItems ?? [],
+    });
+    if (queuedResult.kind === "prompted") {
+      return true;
+    }
+    if (queuedResult.kind === "added") {
+      draft = queuedResult.draft ?? draft;
+      lastSelectedItem = queuedResult.lastSelectedItem ?? lastSelectedItem;
+    }
+
+    await continueAfterItemAdded(input, {
+      menu,
+      draft,
+      selectedItem: lastSelectedItem,
+      quantity: pending.quantity,
+      signals: detectSignals({
+        message: input.message,
+        state: input.conversation.state,
+      }),
+    });
+    return true;
+  }
+
+  if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
+    await persistPendingProductConfiguration(input, {
+      menu,
+      selectedItem,
+      quantity: pending.quantity,
+      source: pending.source,
+      rawItemText: pending.rawItemText,
+      rawOptionTexts: mergedRawOptionTexts,
+      notes: uniqueNotes([...pending.notes, ...resolution.freeTextNotes]),
+      resolution,
+      queuedItems: pending.queuedItems,
+    });
+    return true;
+  }
+
+  await moveToManual(input, {
+    type: "validation_failed_repeatedly",
+    manualReason: "product_configuration_unresolved",
+    title: "Producto requiere configuracion manual",
+    description: "El bot no logro completar la configuracion del producto despues de varios intentos.",
+    responseText: buildManualHandoffMessage(),
+  });
+  return true;
+}
+
+export async function persistPendingProductConfiguration(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  selectedItem: MenuItem;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts: OrderLineItemOptionTextInput[];
+  notes: string[];
+  resolution: ProductConfigurationResolution;
+  queuedItems?: ConfigurableItemCandidate[];
+}): Promise<void> {
+  const nextOption = payload.resolution.nextOption;
+  if (!nextOption?.id) {
+    throw new Error("product_configuration.next_option_missing");
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_product_configuration",
+    context: {
+      ...input.conversation.context,
+      pendingConfig: {
+        id: crypto.randomUUID(),
+        menuItemId: payload.selectedItem.id,
+        productId: payload.selectedItem.productId ?? payload.selectedItem.product?.id,
+        quantity: payload.quantity,
+        source: payload.source,
+        rawItemText: payload.rawItemText,
+        rawOptionTexts: payload.rawOptionTexts,
+        notes: payload.notes,
+        resolvedOptions: payload.resolution.resolvedOptions,
+        pendingOptionId: nextOption.id,
+        pendingOptionName: nextOption.name,
+        pendingOptionType: nextOption.type,
+        invalidValueTexts: payload.resolution.invalidValueTexts,
+        ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
+        startedAt: new Date().toISOString(),
+        queuedItems: payload.queuedItems,
+      } satisfies PendingProductConfigurationContext,
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(
+    input,
+    buildProductConfigurationPrompt(
+      payload.selectedItem.displayName ?? payload.selectedItem.product?.name ?? "tu producto",
+      nextOption,
+      {
+        invalidValueTexts: payload.resolution.invalidValueTexts,
+        ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
+      },
+    ),
+  );
+}
+
+function readPendingProductConfiguration(conversation: Conversation): PendingProductConfigurationContext | null {
+  const candidate = conversation.context?.pendingConfig;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const pending = candidate as Partial<PendingProductConfigurationContext>;
+  if (!pending.menuItemId || !pending.pendingOptionId || !pending.source) {
+    return null;
+  }
+
+  return {
+    id: pending.id ?? crypto.randomUUID(),
+    menuItemId: pending.menuItemId,
+    productId: pending.productId,
+    quantity: Math.max(1, Math.round(pending.quantity ?? 1)),
+    source: pending.source,
+    rawItemText: pending.rawItemText,
+    rawOptionTexts: Array.isArray(pending.rawOptionTexts) ? pending.rawOptionTexts : [],
+    notes: Array.isArray(pending.notes) ? pending.notes.filter((entry): entry is string => typeof entry === "string") : [],
+    resolvedOptions: Array.isArray(pending.resolvedOptions) ? pending.resolvedOptions : [],
+    pendingOptionId: pending.pendingOptionId,
+    pendingOptionName: pending.pendingOptionName ?? "",
+    pendingOptionType: pending.pendingOptionType ?? "single",
+    invalidValueTexts: Array.isArray(pending.invalidValueTexts) ? pending.invalidValueTexts.filter((entry): entry is string => typeof entry === "string") : undefined,
+    ambiguousValueTexts: Array.isArray(pending.ambiguousValueTexts) ? pending.ambiguousValueTexts.filter((entry): entry is string => typeof entry === "string") : undefined,
+    startedAt: pending.startedAt ?? new Date().toISOString(),
+    queuedItems: Array.isArray(pending.queuedItems) ? pending.queuedItems : undefined,
+  };
+}
+
+function mapConfigurationAnswerToRawOptionTexts(option: ProductOption, answerText: string): OrderLineItemOptionTextInput[] {
+  const normalized = answerText.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  if (option.type === "text") {
+    return [{ groupText: option.name, valueText: normalized }];
+  }
+
+  const activeValues = option.values.filter((value) => value.isActive);
+  return splitConfigurationAnswerTexts(normalized).map((entry) => {
+    const numeric = Number(entry);
+    const selectedByIndex =
+      Number.isInteger(numeric) && numeric >= 1 && numeric <= activeValues.length
+        ? activeValues[numeric - 1]?.name
+        : undefined;
+
+    return {
+      groupText: option.name,
+      valueText: selectedByIndex ?? entry,
+    };
+  });
+}
+
+function uniqueNotes(notes: string[]): string[] {
+  return Array.from(new Set(notes.map((entry) => entry.trim()).filter(Boolean)));
+}
+
+// Local helpers shared with order-flow branch
+async function addSelectedItem(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  selectedItem: MenuItem;
+  quantity: number;
+  options?: ReturnType<typeof buildOrderLineItemOptionsSnapshot>;
+  notes?: string;
+  unitPrice?: number;
+}): Promise<DraftOrder> {
+  const draft = await getOrCreateActiveDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversation: input.conversation,
+    customerId: input.conversation.customerId,
+    locationId: payload.menu.location?.id,
+    deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
+  });
+
+  return addMenuItemToDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    draftOrderId: draft.id,
+    menuItem: payload.selectedItem,
+    quantity: payload.quantity,
+    options: payload.options,
+    notes: payload.notes,
+    unitPrice: payload.unitPrice,
+    deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
+  });
+}
+
+async function processQueuedConfiguredItems(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  queuedItems: ConfigurableItemCandidate[];
+}): Promise<{ kind: "added"; draft?: DraftOrder; lastSelectedItem?: MenuItem } | { kind: "prompted" }> {
+  let latestDraft: DraftOrder | undefined;
+  let lastSelectedItem: MenuItem | undefined;
+
+  for (const [index, candidate] of payload.queuedItems.entries()) {
+    const selectedItem = payload.menu.items.find((item) => item.id === candidate.menuItemId);
+    if (!selectedItem) {
+      continue;
+    }
+
+    const stageResult = await stageConfiguredItemSelection(input, {
+      menu: payload.menu,
+      selectedItem,
+      quantity: candidate.quantity,
+      source: candidate.source,
+      rawItemText: candidate.rawItemText,
+      rawOptionTexts: candidate.rawOptionTexts,
+      notes: candidate.notes,
+      queuedItems: payload.queuedItems.slice(index + 1),
+    });
+    if (stageResult.kind === "prompted") {
+      return { kind: "prompted" };
+    }
+
+    latestDraft = stageResult.draft;
+    lastSelectedItem = selectedItem;
+  }
+
+  return { kind: "added", draft: latestDraft, lastSelectedItem };
+}
+
+async function stageConfiguredItemSelection(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  selectedItem: MenuItem;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts?: OrderLineItemOptionTextInput[];
+  notes?: string[];
+  queuedItems?: ConfigurableItemCandidate[];
+}): Promise<{ kind: "added"; draft: DraftOrder } | { kind: "prompted" }> {
+  const notes = uniqueNotes(payload.notes ?? []);
+  const resolution = resolveProductConfiguration({
+    menuItem: payload.selectedItem,
+    source: payload.source,
+    rawOptionTexts: payload.rawOptionTexts,
+    freeTextNotes: notes,
+  });
+
+  if (resolution.status === "resolved") {
+    return {
+      kind: "added",
+      draft: await addSelectedItem(input, {
+        menu: payload.menu,
+        selectedItem: payload.selectedItem,
+        quantity: payload.quantity,
+        options: shouldPersistConfigurationSnapshot({
+          menuItem: payload.selectedItem,
+          resolution,
+        })
+          ? buildOrderLineItemOptionsSnapshot(resolution)
+          : undefined,
+        notes: notes.join("; ") || undefined,
+        unitPrice: resolution.pricing.resolvedUnitPrice,
+      }),
+    };
+  }
+
+  if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
+    await persistPendingProductConfiguration(input, {
+      menu: payload.menu,
+      selectedItem: payload.selectedItem,
+      quantity: payload.quantity,
+      source: payload.source,
+      rawItemText: payload.rawItemText,
+      rawOptionTexts: resolution.rawOptionTexts,
+      notes,
+      resolution,
+      queuedItems: payload.queuedItems,
+    });
+    return { kind: "prompted" };
+  }
+
+  await moveToManual(input, {
+    type: "validation_failed_repeatedly",
+    manualReason: "product_configuration_unresolved",
+    title: "Producto requiere revision",
+    description: "El producto tiene configuracion pendiente que el bot no logro resolver.",
+    responseText: buildManualHandoffMessage(),
+  });
+  return { kind: "prompted" };
+}

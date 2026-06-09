@@ -9,6 +9,7 @@ import type {
   OrdersDashboardPayload,
   OrderStatus,
   Product,
+  PublicCartaPayload,
   RejectOutOfStockOrderRequest,
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
@@ -58,6 +59,53 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const token = await getAccessToken();
+  const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const backendError = payload?.error;
+    throw new DashboardApiError(
+      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      response.status,
+      path,
+      backendError,
+    );
+  }
+
+  return response.blob();
+}
+
+async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const backendError = payload?.error;
+    throw new DashboardApiError(
+      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      response.status,
+      path,
+      backendError,
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export type DashboardTenant = {
   id: string;
   name: string;
@@ -69,9 +117,98 @@ export type DashboardMe = {
   user: {
     id: string;
     email?: string;
+    app_metadata?: {
+      role?: string;
+      system_admin?: boolean;
+    };
   };
   tenants: DashboardTenant[];
 };
+
+export type AdminOverview = {
+  activeRestaurantCount: number;
+};
+
+export type AdminRestaurantStatus = "active" | "inactive" | "suspended";
+
+export type AdminRestaurantMember = {
+  userId: string;
+  email?: string;
+  name?: string;
+  role: "encargado" | "trabajador";
+  status: "active" | "inactive";
+  createdAt?: string;
+  lastSignInAt?: string;
+};
+
+export type AdminRestaurant = {
+  id: string;
+  name: string;
+  slug: string;
+  schemaName: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  cartaUrlPath: string;
+  defaultPassword: string;
+  location?: {
+    id: string;
+    name: string;
+    address?: string;
+    phone?: string;
+    deliveryFeeFixed: number;
+    pickupEnabled: boolean;
+    deliveryEnabled: boolean;
+    automationEnabled: boolean;
+    transferPaymentInstructions?: string;
+    isActive: boolean;
+  };
+  members: AdminRestaurantMember[];
+  metrics: {
+    activeProductCount: number;
+    todayMenuItemCount: number;
+    ordersTodayCount: number;
+    pendingOrderCount: number;
+    completedTodayCount: number;
+    revenueToday: number;
+    lastOrderAt?: string;
+  };
+};
+
+export type CreateAdminRestaurantPayload = {
+  name: string;
+  slug?: string;
+  timezone?: string;
+  currency?: string;
+  status?: AdminRestaurantStatus;
+  automationEnabled?: boolean;
+  locationName?: string;
+  locationAddress?: string;
+  locationPhone?: string;
+  deliveryFeeFixed?: number;
+  ownerEmail?: string;
+  ownerName?: string;
+  ownerPassword?: string;
+};
+
+export type UpdateAdminRestaurantPayload = Partial<{
+  name: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: number;
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  locationAutomationEnabled: boolean;
+  transferPaymentInstructions: string;
+}>;
 
 export type DashboardDiagnostics = {
   tenant: string;
@@ -86,6 +223,7 @@ export type DetectedMenuProduct = {
   description?: string;
   basePrice: number;
   category?: string;
+  emoji?: string;
   confidence?: number;
 };
 
@@ -97,6 +235,73 @@ export function getMe() {
   return request<DashboardMe>("/me");
 }
 
+export function getAdminOverview() {
+  return request<AdminOverview>("/admin/overview");
+}
+
+export function listAdminRestaurants() {
+  return request<{ restaurants: AdminRestaurant[] }>("/admin/restaurants");
+}
+
+export function createAdminRestaurant(payload: CreateAdminRestaurantPayload) {
+  return request<{ restaurant: AdminRestaurant; owner?: AdminRestaurantMember; temporaryPassword?: string }>("/admin/restaurants", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminRestaurant(restaurantId: string, payload: UpdateAdminRestaurantPayload) {
+  return request<{ restaurant?: AdminRestaurant }>(`/admin/restaurants/${restaurantId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminRestaurant(restaurantId: string) {
+  return request<{ ok: true }>(`/admin/restaurants/${restaurantId}`, {
+    method: "DELETE",
+  });
+}
+
+export function createAdminRestaurantMember(
+  restaurantId: string,
+  payload: {
+    email: string;
+    name?: string;
+    role?: AdminRestaurantMember["role"];
+    password?: string;
+  },
+) {
+  return request<{ member: AdminRestaurantMember; temporaryPassword: string }>(`/admin/restaurants/${restaurantId}/members`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminRestaurantMember(
+  restaurantId: string,
+  userId: string,
+  payload: Partial<Pick<AdminRestaurantMember, "name" | "role" | "status">>,
+) {
+  return request<{ restaurant?: AdminRestaurant }>(`/admin/restaurants/${restaurantId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminRestaurantMember(restaurantId: string, userId: string) {
+  return request<{ ok: true }>(`/admin/restaurants/${restaurantId}/members/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+export function resetAdminRestaurantMemberPassword(restaurantId: string, userId: string, password?: string) {
+  return request<{ temporaryPassword: string }>(`/admin/restaurants/${restaurantId}/members/${userId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function getDiagnostics(tenantSlug: string) {
   return request<DashboardDiagnostics>(`/${tenantSlug}/diagnostics`);
 }
@@ -105,12 +310,26 @@ export function getTodayMenu(tenantSlug: string) {
   return request<TodayMenuPayload>(`/${tenantSlug}/menu/today`);
 }
 
+export function getPublicCarta(tenantSlug: string) {
+  return publicRequest<PublicCartaPayload>(`/public/${tenantSlug}/carta`);
+}
+
 export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {
   return request<OrdersDashboardPayload>(`/${tenantSlug}/orders?bucket=${bucket}`);
 }
 
 export function getOrder(tenantSlug: string, orderId: string) {
   return request<OrderDetail>(`/${tenantSlug}/orders/${orderId}`);
+}
+
+export function getOrderPaymentProof(tenantSlug: string, orderId: string) {
+  return requestBlob(`/${tenantSlug}/orders/${orderId}/payment-proof`);
+}
+
+export function confirmOrderPaymentProof(tenantSlug: string, orderId: string) {
+  return request(`/${tenantSlug}/orders/${orderId}/payment-proof/confirm`, {
+    method: "POST",
+  });
 }
 
 export function updateOrderStatus(

@@ -51,6 +51,9 @@ function normalizeMessage(rawMessage: Record<string, unknown>, phoneNumberId: st
   const type = normalizeMessageType(rawMessage.type);
   const text = extractText(rawMessage, type);
   const mediaId = extractMediaId(rawMessage, type);
+  const mediaCaption = extractMediaCaption(rawMessage, type);
+  const mediaMimeType = extractMediaMimeType(rawMessage, type);
+  const mediaFilename = extractMediaFilename(rawMessage, type);
   const location = extractLocation(rawMessage, type);
 
   return {
@@ -63,6 +66,9 @@ function normalizeMessage(rawMessage: Record<string, unknown>, phoneNumberId: st
     type,
     text,
     mediaId,
+    mediaCaption,
+    mediaMimeType,
+    mediaFilename,
     location,
     raw: rawMessage,
   };
@@ -126,6 +132,33 @@ function extractMediaId(rawMessage: Record<string, unknown>, type: WhatsAppMessa
 
   const media = rawMessage[type] as { id?: unknown } | undefined;
   return typeof media?.id === "string" ? media.id : undefined;
+}
+
+function extractMediaCaption(rawMessage: Record<string, unknown>, type: WhatsAppMessageType): string | undefined {
+  if (type !== "image" && type !== "document") {
+    return undefined;
+  }
+
+  const media = rawMessage[type] as { caption?: unknown } | undefined;
+  return typeof media?.caption === "string" ? media.caption : undefined;
+}
+
+function extractMediaMimeType(rawMessage: Record<string, unknown>, type: WhatsAppMessageType): string | undefined {
+  if (type !== "image" && type !== "document" && type !== "audio") {
+    return undefined;
+  }
+
+  const media = rawMessage[type] as { mime_type?: unknown } | undefined;
+  return typeof media?.mime_type === "string" ? media.mime_type : undefined;
+}
+
+function extractMediaFilename(rawMessage: Record<string, unknown>, type: WhatsAppMessageType): string | undefined {
+  if (type !== "document") {
+    return undefined;
+  }
+
+  const media = rawMessage[type] as { filename?: unknown } | undefined;
+  return typeof media?.filename === "string" ? media.filename : undefined;
 }
 
 function extractLocation(rawMessage: Record<string, unknown>, type: WhatsAppMessageType) {

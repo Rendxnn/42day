@@ -8,7 +8,7 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "echo \"No tests configured yet\""
+    "test": "node --test --experimental-strip-types --experimental-specifier-resolution=node test/**/*.test.mjs"
   },
   "dependencies": {
     "@42day/config": "workspace:*",

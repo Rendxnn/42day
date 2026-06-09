@@ -2,15 +2,19 @@ import type { NormalizedInboundMessage, OutboundMessageResult } from "@42day/typ
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 import type { ApiBindings } from "../../lib/bindings";
 
+type MessageLogRow = {
+  id: string;
+};
+
 export async function logInboundMessage(input: {
   env: ApiBindings;
   schemaName: string;
   conversationId: string;
   message: NormalizedInboundMessage;
-}): Promise<void> {
+}): Promise<{ id: string }> {
   const client = createSupabaseRestClient(input.env);
 
-  await client.insert({
+  const [logged] = await client.insertReturning<MessageLogRow>({
     schema: input.schemaName,
     table: "messages",
     rows: {
@@ -24,6 +28,12 @@ export async function logInboundMessage(input: {
       status: "logged",
     },
   });
+
+  if (!logged) {
+    throw new Error("message_log.inbound_insert_failed");
+  }
+
+  return logged;
 }
 
 export async function logOutboundTextMessage(input: {

@@ -42,6 +42,11 @@ export type SupabaseRestClient = {
     table: string;
     query: Record<string, string | number | boolean | undefined>;
   }) => Promise<void>;
+  rpc: <T = Record<string, unknown>>(input: {
+    schema: string;
+    functionName: string;
+    args?: Record<string, unknown>;
+  }) => Promise<T>;
   uploadObject: (input: {
     bucket: string;
     path: string;
@@ -190,6 +195,20 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         const errorText = await response.text().catch(() => "");
         throw new SupabaseRestError(`supabase_delete_failed:${input.schema}.${input.table}`, response.status, errorText);
       }
+    },
+
+    async rpc<T = Record<string, unknown>>(input: {
+      schema: string;
+      functionName: string;
+      args?: Record<string, unknown>;
+    }) {
+      const response = await fetch(`${baseUrl}/rest/v1/rpc/${input.functionName}`, {
+        method: "POST",
+        headers: buildHeaders(env, input.schema),
+        body: JSON.stringify(input.args ?? {}),
+      });
+
+      return parseResponse<T>(response, `supabase_rpc_failed:${input.schema}.${input.functionName}`);
     },
 
     async uploadObject(input) {

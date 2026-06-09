@@ -4,162 +4,209 @@
 
 Espanol casual, diario, simple y ligeramente amistoso.
 
-Ejemplo actual:
+Debe evitar:
 
-```txt
-Hola, soy el asistente de pedidos de Restaurante Demo. Como vas?
-
-Este es el menu de hoy de Restaurante Demo:
-1. Menu del dia - $...
-2. Sopa del dia - $...
-
-Escribeme que quieres pedir.
-```
-
-Evitar:
-
-- frases muy roboticas,
-- textos largos,
+- frases roboticas,
+- parrafos largos,
 - lenguaje tecnico,
-- promesas que dependan de humano o cocina,
-- pedir al usuario que use numeros para decisiones binarias si puede responder natural.
+- prometer preparacion antes de que el restaurante confirme,
+- obligar al usuario a contestar solo con numeros.
 
-El sistema puede mostrar numeros como referencia de productos del menu, pero no debe depender de numeros para entender fulfillment, pago o confirmacion.
+## Punto de entrada
 
-## Entrada inicial
+Cuando llega un mensaje nuevo:
 
-Cuando llega un mensaje nuevo y no hay conversacion activa:
+1. se resuelve tenant,
+2. se crea o reutiliza customer,
+3. se crea o reutiliza conversacion activa,
+4. se registra el inbound,
+5. se enruta segun estado actual y senales del mensaje.
 
-1. resolver tenant,
-2. crear o encontrar customer por telefono,
-3. crear conversacion,
-4. cargar menu del dia,
-5. responder saludo + menu disponible + una pregunta abierta corta.
+## Flow A: saludo o menu
 
-El usuario debe poder escribir:
+Estado actual implementado:
 
-```txt
-2 menu del dia con sopa de frijoles
-quiero dos almuerzos a domicilio
-uno para recoger y pago en efectivo
-asesor
-```
+1. si no hay pedido activo, el bot carga el menu publicado del dia,
+2. responde con saludo + menu + pregunta abierta,
+3. deja la conversacion en `awaiting_guided_item_selection`.
 
-## Flow A: pedido guiado deterministico
+El usuario puede seguir por:
 
-1. Usuario saluda, pide menu o escribe un producto.
-2. Bot muestra items del menu del dia si aun no los mostro.
-3. Usuario selecciona item.
-4. Bot pide variantes obligatorias si el producto es configurable.
-5. Bot infiere cantidad o pregunta cantidad si falta.
-6. Bot permite agregar mas items o continuar.
-7. Bot pregunta si es domicilio o pickup con lenguaje natural.
-8. Si es domicilio, bot pide direccion o ubicacion.
-9. Bot pide metodo de pago con pregunta natural.
-10. Bot calcula total.
-11. Bot muestra resumen.
-12. Usuario confirma con texto o boton.
-13. Backend crea `order` en `pending_restaurant_confirmation`.
-14. Bot informa que el restaurante revisa el pedido.
-15. Restaurante acepta o devuelve por agotado desde dashboard.
-16. Backend notifica al cliente por WhatsApp.
+- numero del producto,
+- nombre,
+- alias,
+- frase natural simple,
+- pedido mas libre si el parser semantico ayuda.
 
-## Flow B: pedido libre con fallback LLM
+## Flow B: seleccion de productos
 
-1. Usuario escribe pedido natural.
-2. Backend carga menu activo.
-3. Backend primero corre normalizador, detector y matcher deterministico.
-4. Si el pedido tiene configurables, multiples entidades o texto ambiguo que el matcher no resuelve con confianza, llama parser semantico.
-5. Parser devuelve candidato estructurado sin precios ni decisiones finales.
-6. Validacion deterministica revisa candidato.
-7. Si faltan datos, bot pregunta solo por lo faltante.
-8. Si hay ambiguedad, bot pide aclaracion corta.
-9. Si esta listo, pricing calcula total.
-10. Bot muestra resumen.
-11. Usuario confirma.
-12. Backend crea `order` en `pending_restaurant_confirmation`.
-13. Bot informa que el restaurante revisa el pedido.
-14. Restaurante acepta o devuelve por agotado desde dashboard.
-15. Backend notifica al cliente por WhatsApp.
+### Camino deterministico
 
-El LLM no calcula precios, no inventa productos y no decide disponibilidad.
+Resuelve hoy:
 
-## Flow C: ver menu
+- seleccion numerica,
+- match por texto o alias,
+- cantidades simples,
+- frases multi-item simples separadas por `y`, `ademas`, `tambien` o coma.
 
-1. Usuario pide menu.
-2. Bot muestra menu del dia en texto corto.
-3. Bot pregunta que quiere pedir.
+Cuando agrega item:
 
-No debe obligar a elegir entre modos. El usuario puede pedir por numero, por nombre o con frase natural.
+1. crea o reutiliza `draft_order`,
+2. si el producto tiene configurables requeridos faltantes, entra a `awaiting_product_configuration`,
+3. si no faltan configurables, agrega items,
+4. recalcula subtotal,
+5. deja la conversacion en `awaiting_more_items`,
+6. pregunta si desea agregar algo mas o seguir con entrega.
 
-## Flow D: transferencia
+### Camino con IA
 
-1. Usuario elige transferencia, incluso con typos como `trasnferencia`.
-2. El pedido queda pendiente de confirmacion del restaurante despues de que el cliente confirma el resumen.
-3. Cuando el restaurante acepta disponibilidad, el bot muestra datos de transferencia configurados por tenant.
-4. Bot indica que envie comprobante cuando pague.
-5. Cuando llega imagen/documento/texto de pago:
-   - registrar mensaje,
-   - almacenar comprobante si hay archivo,
-   - crear o mantener orden en `payment_pending_review`,
-   - crear alerta humana,
-   - poner conversacion en `manual`.
-6. Restaurante verifica y continua manualmente desde dashboard.
+Si el mensaje parece pedido libre o edicion libre:
 
-Decision MVP: la transferencia no se valida automaticamente.
+1. el router intenta parser semantico,
+2. el parser devuelve textos, cantidades, posibles opciones y confianza,
+3. el backend intenta resolver eso contra el menu real y contra configurables reales,
+4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
+5. si puede aplicar el cambio, actualiza el draft,
+6. si no puede, vuelve a aclaracion o camino deterministico.
 
-## Confirmacion
+El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
 
-Se soportan dos vias:
+## Flow B1: aclaracion de configurables
 
-- botones interactivos: `Confirmar`, `Cambiar`, `Cancelar`.
-- texto libre: `si`, `confirmo`, `listo`, `no`, `cancelar`.
+Estado actual implementado:
 
-Tambien debe aceptar frases naturales:
+1. cuando un producto reconocido tiene configurables requeridos faltantes o ambiguos, la conversacion pasa a `awaiting_product_configuration`,
+2. el backend pregunta una sola opcion faltante por turno,
+3. intenta resolver la respuesta solo contra la opcion pendiente,
+4. si completa todas las opciones requeridas, agrega el item al draft con precio final resuelto,
+5. si supera el umbral de aclaraciones, deriva a `manual`.
+
+## Flow C: checkout
+
+Secuencia actual:
+
+1. `awaiting_more_items`
+2. `awaiting_fulfillment_type`
+3. `awaiting_address` si es delivery
+4. `awaiting_payment_method`
+5. `awaiting_confirmation`
+6. crear `order`
+7. pasar a `awaiting_restaurant_confirmation`
+
+El backend intenta capturar multiples senales en un mismo mensaje cuando son claras.
+
+Ejemplos que debe tolerar:
 
 ```txt
+quiero otro jugo y seguimos
+pickup y pago en efectivo
+domicilio, te mando ubicacion
 si, esta bien
-dale
-confirmado
-mejor cambiemos la direccion
-no, asi no
 ```
 
-La orden final solo se crea si:
+## Flow D: confirmacion del cliente
 
-- draft esta valido,
-- total fue calculado por backend,
-- usuario confirmo,
-- tenant/sede sigue activo.
+Se soporta por texto libre.
 
-Despues de la confirmacion del cliente, la orden queda pendiente de confirmacion del restaurante. El bot no promete preparacion hasta que el restaurante acepte la orden desde dashboard.
+Confirmacion positiva:
 
-## Timeout de 30 minutos
+- `si`
+- `dale`
+- `confirmo`
+- `listo`
+- `ok`
 
-Si el usuario no responde durante 30 minutos:
+Cambio o rechazo:
 
-1. conversacion pasa a `expired`,
-2. draft pasa a `expired`,
-3. bot puede enviar un cierre simple si el sistema tiene permiso operativo:
+- `no`
+- `cancelar`
+- `cambiemos`
+- `quita uno`
+- `agrega otra bebida`
 
-```txt
-Cerramos este pedido porque paso un rato sin respuesta. Cuando quieras, escribenos de nuevo y arrancamos otro.
-```
+Cuando el cliente confirma:
 
-Si el usuario escribe despues:
+1. el backend valida que el draft tenga lo minimo,
+2. crea `orders` y `order_items`,
+3. crea alerta operativa de confirmacion,
+4. deja la conversacion en `awaiting_restaurant_confirmation`,
+5. informa que el restaurante revisa el pedido.
 
-- se crea una nueva conversacion,
-- no se reutiliza el draft expirado,
-- se puede usar historial solo como referencia, no como pedido activo.
+## Flow E: confirmacion del restaurante
 
-## Reglas de cambio de estado
+Estado actual implementado:
 
-Estados principales:
+1. el dashboard lista pedidos pendientes,
+2. el restaurante puede aceptar,
+3. o reportar agotado desde el detalle.
+
+Si acepta:
+
+- la orden pasa a `accepted`,
+- si el pago es efectivo, la conversacion pasa a `completed`,
+- si el pago es transferencia, la conversacion pasa a `awaiting_transfer_proof`,
+- el backend notifica al cliente por WhatsApp.
+
+## Flow F: agotados y reemplazos
+
+Estado actual implementado:
+
+1. el restaurante marca un item agotado,
+2. selecciona alternativas activas,
+3. la orden pasa a `needs_customer_replacement`,
+4. la conversacion pasa a `awaiting_replacement_selection`,
+5. el cliente puede responder con numero, nombre claro o `cancelar`.
+
+Si el cliente elige reemplazo:
+
+- se actualizan `order_items` y draft relacionado,
+- se recalculan totales,
+- la orden vuelve a `pending_restaurant_confirmation`,
+- la conversacion vuelve a `awaiting_restaurant_confirmation`.
+
+Si cancela:
+
+- la orden queda `cancelled`,
+- el draft queda `cancelled`,
+- la conversacion queda `completed`.
+
+## Flow G: transferencia
+
+### Estado actual implementado
+
+1. el cliente puede elegir `transferencia`,
+2. la orden igual queda `pending_restaurant_confirmation` hasta que el restaurante revise,
+3. cuando el restaurante acepta, el cliente recibe instrucciones de pago y la conversacion queda en `awaiting_transfer_proof`,
+4. si llega una imagen o documento, el backend descarga el archivo real desde Meta, lo sube a `payment-proofs`, lo enlaza a la orden y mueve la orden a `payment_pending_review`,
+5. despues crea alerta operativa y la conversacion pasa a `manual`,
+6. si el cliente solo escribe algo como `ya pague` sin adjunto, el bot sigue pidiendo imagen o PDF,
+7. si llega audio u otro formato no soportado, el bot pide imagen o PDF y mantiene `awaiting_transfer_proof`.
+
+## Handoff humano
+
+La conversacion pasa a `manual` cuando:
+
+- el usuario pide asesor,
+- llega un comprobante de transferencia procesable,
+- hay ambiguedad repetida,
+- hay error tecnico,
+- el caso operativo ya no debe seguir automatico.
+
+## Timeout
+
+Si pasan 30 minutos sin respuesta:
+
+- la conversacion expira,
+- el draft activo expira,
+- un mensaje posterior abre una nueva conversacion.
+
+## Estados de conversacion
 
 ```txt
 new
 awaiting_mode_selection
 awaiting_guided_item_selection
+awaiting_product_configuration
 awaiting_more_items
 awaiting_fulfillment_type
 awaiting_address
@@ -173,42 +220,31 @@ completed
 expired
 ```
 
-Reglas:
-
-- `manual` detiene auto-respuestas y debe mantener contexto visible para dashboard.
-- `awaiting_restaurant_confirmation` evita crear otro pedido mientras el restaurante revisa.
-- `awaiting_replacement_selection` espera que el cliente elija reemplazo o cancele cuando hubo agotado.
-- `completed` no acepta cambios al pedido; cambios posteriores son nueva conversacion o manejo humano.
-- `expired` no se reactiva.
-- si no hay menu activo, ir a handoff o responder que el restaurante aun no publico menu.
-
-## Balance deterministico vs LLM
+## Balance deterministico vs IA
 
 Deterministico:
 
 - saludo,
-- pedir menu,
-- asesor/humano,
-- payment method,
-- delivery/pickup,
-- confirmacion/cancelacion,
-- ubicacion WhatsApp,
+- menu,
+- fulfillment,
+- pago,
+- confirmacion,
+- ubicacion,
 - comprobante por tipo de mensaje,
 - cantidades simples,
 - producto por numero o alias.
 
-LLM:
+IA:
 
-- pedido libre con varios productos,
-- opciones configurables expresadas en lenguaje natural,
-- notas del pedido,
-- direccion con ruido,
-- texto que queda en zona gris despues del matcher deterministico.
+- pedido libre multi-producto,
+- edicion libre del draft,
+- opciones y notas expresadas en lenguaje natural,
+- frases mixtas donde el deterministico no alcanza.
 
 Humano:
 
-- transferencia pendiente de validar,
-- solicitud explicita de asesor,
-- ambiguedad despues de 2 aclaraciones,
-- reclamos o condiciones especiales no soportadas,
-- cambios sobre orden ya confirmada.
+- validacion de transferencia,
+- rechazo o reenvio de comprobante de transferencia,
+- reclamos o casos especiales,
+- ambiguedad repetida,
+- cambios posteriores a una orden ya confirmada por el restaurante.

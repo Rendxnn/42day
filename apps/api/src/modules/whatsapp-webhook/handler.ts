@@ -70,7 +70,7 @@ async function handleInboundMessage(env: ApiBindings, message: NormalizedInbound
     customerId: customer.id,
   });
 
-  await logInboundMessage({
+  const loggedMessage = await logInboundMessage({
     env,
     schemaName: tenant.schemaName,
     conversationId: conversation.id,
@@ -89,5 +89,6 @@ async function handleInboundMessage(env: ApiBindings, message: NormalizedInbound
     tenant,
     conversation,
     message,
+    loggedMessageId: loggedMessage.id,
   });
 }

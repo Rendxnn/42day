@@ -1,0 +1,62 @@
+import type { SemanticParserResult } from "../../modules/semantic-parser/semantic-parser";
+import type { ResponseRoutingTrace, RouteInboundMessageInput } from "./types";
+
+export function markLlmAttempt(input: RouteInboundMessageInput): void {
+  input.routingTrace = {
+    ...(input.routingTrace ?? {}),
+    llm: {
+      attempted: true,
+      used: false,
+      outcome: "skipped_or_failed",
+      provider: "gemini",
+    },
+  };
+}
+
+export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
+  used: boolean;
+  outcome: NonNullable<ResponseRoutingTrace["llm"]>["outcome"];
+  reason?: string;
+  parsed?: SemanticParserResult;
+}): void {
+  input.routingTrace = {
+    ...(input.routingTrace ?? {}),
+    responseSource: payload.used ? "llm" : "deterministic_after_llm_fallback",
+    responseReason: payload.reason,
+    llm: {
+      attempted: true,
+      used: payload.used,
+      outcome: payload.outcome,
+      provider: "gemini",
+      reason: payload.reason,
+      intent: payload.parsed?.intent,
+      confidence: payload.parsed?.confidence,
+      itemCount: payload.parsed?.items.length,
+      editActionCount: payload.parsed?.editActions?.length,
+    },
+  };
+}
+
+export function buildOutboundRoutingMetadata(input: RouteInboundMessageInput): Record<string, unknown> {
+  const trace = input.routingTrace ?? {
+    responseSource: "deterministic",
+    responseReason: "default",
+  };
+  const responseSource =
+    trace.responseSource ??
+    (trace.llm?.attempted && !trace.llm.used ? "deterministic_after_llm_fallback" : "deterministic");
+
+  return {
+    routing: {
+      responseSource,
+      responseReason: trace.responseReason ?? null,
+      decidedAt: new Date().toISOString(),
+      conversationState: input.conversation.state,
+      inboundProviderMessageId: input.message.providerMessageId ?? null,
+      llm: trace.llm ?? {
+        attempted: false,
+        used: false,
+      },
+    },
+  };
+}

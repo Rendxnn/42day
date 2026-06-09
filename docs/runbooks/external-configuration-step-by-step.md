@@ -404,6 +404,13 @@ Opcionales por ahora:
 corepack pnpm --filter @42day/api exec wrangler secret put APP_BASE_URL --env staging
 corepack pnpm --filter @42day/api exec wrangler secret put SUPABASE_ANON_KEY --env staging
 corepack pnpm --filter @42day/api exec wrangler secret put DATABASE_URL --env staging
+corepack pnpm --filter @42day/api exec wrangler secret put GEMINI_API_KEY --env staging
+corepack pnpm --filter @42day/api exec wrangler secret put GEMINI_MODEL --env staging
+```
+
+Opcional legado:
+
+```bash
 corepack pnpm --filter @42day/api exec wrangler secret put OPENAI_API_KEY --env staging
 ```
 

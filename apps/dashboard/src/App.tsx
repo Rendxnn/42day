@@ -1,50 +1,76 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { MenuItem, OrderSummary, Product } from "@42day/types";
+import type { MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload } from "@42day/types";
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
   analyzeMenuImage,
+  createAdminRestaurant,
+  createAdminRestaurantMember,
   createProduct,
   DashboardApiError,
+  deleteAdminRestaurant,
+  deleteAdminRestaurantMember,
   deleteMenuItem,
   deleteProduct,
+  getAdminOverview,
   getDiagnostics,
   getMe,
+  getPublicCarta,
   getTodayMenu,
   listOrders,
+  listAdminRestaurants,
+  resetAdminRestaurantMemberPassword,
   updateMenuItem,
+  updateAdminRestaurant,
+  updateAdminRestaurantMember,
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { DashboardTenant, DetectedMenuProduct } from "./api";
-import { authConfigured, getSession, onAuthStateChange, signIn, signOut } from "./auth";
+import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, DetectedMenuProduct } from "./api";
+import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
   Camera,
+  Bell,
   Check,
   ChefHat,
   ClipboardList,
+  Copy,
   Clock,
   Edit3,
+  ExternalLink,
   Home,
-  ImagePlus,
   LayoutGrid,
   List,
   Loader2,
+  MapPin,
+  Power,
   Plus,
+  QrCode,
   Search,
   SearchCheck,
   Sparkles,
+  Store,
   Trash2,
   UploadCloud,
   Utensils,
+  UserPlus,
+  Users,
   X,
 } from "lucide-react";
 import { OrdersView } from "./orders";
+import unicodeEmojiData from "emojibase-data/meta/unicode.json";
+import QRCode from "qrcode";
 
 type View = "menu" | "orders" | "summary" | "catalog" | "upload";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
 type ProductFormValue = Partial<Product> & { imageFile?: File };
+type DashboardNotification = {
+  id: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+};
 
 const fallbackTenants: DashboardTenant[] = [
   { id: "local-demo", name: "Restaurante Demo", slug: "demo", schemaName: "tenant_demo" },
@@ -150,6 +176,56 @@ const viewCopy: Record<View, { eyebrow: string; title: string; description: stri
 };
 
 let toastTimer = 0;
+const notifiableOrderStatuses = new Set<OrderSummary["status"]>([
+  "new",
+  "pending_restaurant_confirmation",
+  "needs_customer_replacement",
+]);
+
+const foodEmojiRules: Array<{ emoji: string; terms: string[] }> = [
+  { emoji: "☕", terms: ["cafe", "capuccino", "cappuccino", "espresso", "latte", "tinto", "mocca", "mocha"] },
+  { emoji: "🥤", terms: ["gaseosa", "soda", "coca cola", "coca-cola", "pepsi", "limonada", "malteada"] },
+  { emoji: "🧃", terms: ["jugo", "zumo", "guarapo", "chicha", "avena", "batido", "smoothie"] },
+  { emoji: "🍺", terms: ["cerveza", "pola"] },
+  { emoji: "🍷", terms: ["vino", "sangria"] },
+  { emoji: "💧", terms: ["agua"] },
+  { emoji: "🍵", terms: ["te", "aromatica", "infusion", "matcha"] },
+  { emoji: "🥣", terms: ["sopa", "crema", "caldo", "consome", "ajiaco", "sancocho"] },
+  { emoji: "🍳", terms: ["huevo", "omelette", "omelet", "perico", "desayuno"] },
+  { emoji: "🥞", terms: ["pancake", "waffle", "hotcake"] },
+  { emoji: "🥐", terms: ["croissant", "pan", "tostada", "sanduche", "sandwich"] },
+  { emoji: "🍔", terms: ["hamburguesa", "burger"] },
+  { emoji: "🍕", terms: ["pizza"] },
+  { emoji: "🌮", terms: ["taco", "burrito", "quesadilla"] },
+  { emoji: "🫓", terms: ["arepa"] },
+  { emoji: "🥟", terms: ["empanada", "pastel", "pastelito"] },
+  { emoji: "🍝", terms: ["pasta", "spaghetti", "espagueti", "lasagna", "lasana", "ravioli"] },
+  { emoji: "🍚", terms: ["arroz", "chaufa", "risotto"] },
+  { emoji: "🥩", terms: ["carne", "res", "bistec", "lomo", "churrasco", "costilla", "punta de anca"] },
+  { emoji: "🍗", terms: ["pollo", "gallina", "alitas", "pechuga"] },
+  { emoji: "🐟", terms: ["pescado", "tilapia", "salmon", "atun", "trucha", "mojarra"] },
+  { emoji: "🦐", terms: ["camaron", "langostino", "mariscos", "ceviche"] },
+  { emoji: "🐷", terms: ["cerdo", "tocino", "chicharron", "costilla de cerdo"] },
+  { emoji: "🍟", terms: ["papa", "papas", "francesa", "criolla", "yuca", "patacon"] },
+  { emoji: "🥗", terms: ["ensalada", "vegetariano", "vegetal", "verdura"] },
+  { emoji: "🍰", terms: ["torta", "pastel", "postre", "cheesecake", "brownie"] },
+  { emoji: "🍦", terms: ["helado", "gelato"] },
+  { emoji: "🍌", terms: ["maduro", "platano"] },
+  { emoji: "🥑", terms: ["aguacate"] },
+  { emoji: "🫘", terms: ["frijol", "frijoles"] },
+];
+const availableProductEmojis = Array.from(new Set([
+  ...foodEmojiRules.map((rule) => rule.emoji),
+  "🍽️",
+  "🥘",
+  "🍛",
+  "🥪",
+  "🥛",
+  "🍊",
+  "🍓",
+  "🍫",
+  ...unicodeEmojiData,
+]));
 
 function getFallbackProducts(tenantSlug: string): Product[] {
   if (tenantSlug === "arepas") {
@@ -238,6 +314,103 @@ function normalizeCategorySection(category?: string): CategorySectionId {
   return "adicion";
 }
 
+function normalizeSearchText(value?: string) {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function inferProductEmoji(input: Pick<Product, "description" | "name">) {
+  const text = normalizeSearchText(`${input.name} ${input.description ?? ""}`);
+  const matchedRule = foodEmojiRules.find((rule) => rule.terms.some((term) => text.includes(normalizeSearchText(term))));
+
+  if (matchedRule) return matchedRule.emoji;
+
+  return "🍽️";
+}
+
+function createEmptyCompositeOption(sortOrder: number): ProductOption {
+  return {
+    name: "",
+    type: "single",
+    isRequired: true,
+    minSelect: 1,
+    maxSelect: 1,
+    sortOrder,
+    displayMode: "buttons",
+    values: [
+      { name: "", priceDelta: 0, isActive: true, sortOrder: 0 },
+      { name: "", priceDelta: 0, isActive: true, sortOrder: 10 },
+    ],
+  };
+}
+
+function createDefaultCompositeOptions(): ProductOption[] {
+  return [
+    {
+      ...createEmptyCompositeOption(0),
+      name: "Acompanante",
+      values: [
+        { name: "Yuca", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Platano", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Papa", priceDelta: 0, isActive: true, sortOrder: 20 },
+      ],
+    },
+    {
+      ...createEmptyCompositeOption(10),
+      name: "Principio",
+      values: [
+        { name: "Frijoles", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Lentejas", priceDelta: 0, isActive: true, sortOrder: 10 },
+      ],
+    },
+    {
+      ...createEmptyCompositeOption(20),
+      name: "Ensalada",
+      values: [
+        { name: "Ensalada de la casa", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Ensalada cesar", priceDelta: 0, isActive: true, sortOrder: 10 },
+      ],
+    },
+  ];
+}
+
+function createCompositeProductDraft(): Partial<Product> {
+  return {
+    name: "Almuerzo del dia",
+    description: "Producto compuesto con componentes configurables.",
+    basePrice: 0,
+    category: "almuerzos",
+    isActive: true,
+    productType: "composite",
+    options: createDefaultCompositeOptions(),
+  };
+}
+
+function normalizeProductOptions(options?: ProductOption[]) {
+  return (options ?? [])
+    .map((option, optionIndex) => ({
+      ...option,
+      name: option.name.trim(),
+      description: option.description?.trim(),
+      sortOrder: option.sortOrder ?? optionIndex * 10,
+      minSelect: Number(option.minSelect ?? (option.isRequired ? 1 : 0)),
+      maxSelect: Number(option.maxSelect ?? 1),
+      values: option.values
+        .map((value, valueIndex) => ({
+          ...value,
+          name: value.name.trim(),
+          description: value.description?.trim(),
+          priceDelta: Number(value.priceDelta ?? 0),
+          isActive: value.isActive ?? true,
+          sortOrder: value.sortOrder ?? valueIndex * 10,
+        }))
+        .filter((value) => value.name.length > 0),
+    }))
+    .filter((option) => option.name.length > 0 && option.values.length > 0);
+}
+
 function groupByCategorySection<T>(items: T[], getCategory: (item: T) => string | undefined) {
   const groups = new Map(
     categorySections.map((section) => [section.id, { ...section, items: [] as T[] }]),
@@ -270,7 +443,91 @@ function formatDateTime(value?: string) {
   }).format(new Date(value));
 }
 
+function keepSessionStableByUser(current: Session | null, next: Session | null) {
+  if (!next) return null;
+  return current?.user.id === next.user.id ? current : next;
+}
+
+function isNotifiableOrder(order: OrderSummary) {
+  return notifiableOrderStatuses.has(order.status);
+}
+
+function getOrderNotificationTitle(order: OrderSummary) {
+  if (order.status === "needs_customer_replacement") {
+    return "Pedido esperando respuesta del cliente";
+  }
+
+  if (order.status === "pending_restaurant_confirmation") {
+    return "Nuevo pedido por confirmar";
+  }
+
+  return "Nuevo movimiento de pedido";
+}
+
+function getOrderNotificationDetail(order: OrderSummary) {
+  const customer = order.customerName || order.customerPhone || "Cliente sin nombre";
+  return `${customer} - ${formatPrice(order.total)} - ${formatDateTime(order.createdAt)}`;
+}
+
+function playNotificationSound() {
+  type WindowWithWebkitAudio = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+  const AudioCtor = window.AudioContext ?? (window as WindowWithWebkitAudio).webkitAudioContext;
+  if (!AudioCtor) return;
+
+  try {
+    const context = new AudioCtor();
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.16, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.3);
+    oscillator.addEventListener("ended", () => void context.close());
+  } catch {
+    // Browsers can block audio until the first user gesture.
+  }
+}
+
+function showBrowserNotification(title: string, detail: string) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  new Notification(title, { body: detail });
+}
+
+function isPublicCartaRoute() {
+  return window.location.pathname === "/carta" || window.location.pathname.startsWith("/carta/");
+}
+
+function getPublicCartaTenantSlug() {
+  const params = new URLSearchParams(window.location.search);
+  const queryTenant = params.get("tenant") || params.get("restaurante");
+  if (queryTenant) return queryTenant;
+
+  const [, route, tenantSlug] = window.location.pathname.split("/");
+  if (route === "carta" && tenantSlug) return tenantSlug;
+
+  return "demo";
+}
+
+function getPublicCartaUrl(tenantSlug: string) {
+  const url = new URL("/carta", window.location.origin);
+  url.searchParams.set("tenant", tenantSlug || "demo");
+  return url.toString();
+}
+
 export function App() {
+  return isPublicCartaRoute() ? <PublicCartaPage /> : <DashboardApp />;
+}
+
+function DashboardApp() {
   const [activeView, setActiveView] = useState<View>("menu");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -279,12 +536,19 @@ export function App() {
   const [tenantError, setTenantError] = useState("");
   const [tenantSlug, setTenantSlug] = useState("");
   const [tenants, setTenants] = useState<DashboardTenant[]>([]);
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
   const [imageColumnReady, setImageColumnReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
   const [lastUpdated, setLastUpdated] = useState("hace 2 min");
   const [toast, setToast] = useState("");
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const seenNotificationOrderIdsRef = useRef<Set<string>>(new Set());
+  const notificationsBootstrappedRef = useRef(false);
 
   useEffect(() => {
     if (!authConfigured) {
@@ -297,7 +561,7 @@ export function App() {
     getSession()
       .then((currentSession) => {
         if (!mounted) return;
-        setSession(currentSession);
+        setSession((current) => keepSessionStableByUser(current, currentSession));
       })
       .finally(() => {
         if (mounted) {
@@ -306,7 +570,7 @@ export function App() {
       });
 
     const unsubscribe = onAuthStateChange((nextSession) => {
-      setSession(nextSession);
+      setSession((current) => keepSessionStableByUser(current, nextSession));
       setAuthLoading(false);
     });
 
@@ -320,6 +584,8 @@ export function App() {
     if (!session) {
       setTenants([]);
       setTenantSlug("");
+      setIsSystemAdmin(false);
+      setAdminOverview(null);
       setTenantLoading(false);
       setTenantError("");
       return;
@@ -330,9 +596,22 @@ export function App() {
     setTenantError("");
 
     getMe()
-      .then((payload) => {
+      .then(async (payload) => {
         if (!active) return;
+        const nextIsSystemAdmin = payload.user.app_metadata?.system_admin === true
+          || payload.user.app_metadata?.role === "system_admin";
+        setIsSystemAdmin(nextIsSystemAdmin);
         setTenants(payload.tenants);
+
+        if (nextIsSystemAdmin) {
+          const overview = await getAdminOverview();
+          if (!active) return;
+          setAdminOverview(overview);
+          setTenantSlug("");
+          return;
+        }
+
+        setAdminOverview(null);
         setTenantSlug((current) => current || payload.tenants[0]?.slug || "");
       })
       .catch((error: unknown) => {
@@ -344,6 +623,8 @@ export function App() {
             : "No se pudo consultar /dashboard/me.";
         setTenants([]);
         setTenantSlug("");
+        setIsSystemAdmin(false);
+        setAdminOverview(null);
         setTenantError(message);
       })
       .finally(() => {
@@ -378,6 +659,86 @@ export function App() {
       .catch(() => setImageColumnReady(false));
   }, [tenantSlug]);
 
+  useEffect(() => {
+    const tenantSchema = tenants.find((tenant) => tenant.slug === tenantSlug)?.schemaName;
+
+    if (!tenantSlug || isSystemAdmin) {
+      seenNotificationOrderIdsRef.current = new Set();
+      notificationsBootstrappedRef.current = false;
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+      setNotificationsOpen(false);
+      return;
+    }
+
+    let active = true;
+
+    async function checkForNewOrders() {
+      try {
+        const payload = await listOrders(tenantSlug, "all");
+        if (!active) return;
+
+        const relevantOrders = payload.orders.filter(isNotifiableOrder);
+        const knownIds = seenNotificationOrderIdsRef.current;
+        const freshOrders = relevantOrders.filter((order) => !knownIds.has(order.id));
+
+        relevantOrders.forEach((order) => knownIds.add(order.id));
+
+        if (!notificationsBootstrappedRef.current) {
+          notificationsBootstrappedRef.current = true;
+          return;
+        }
+
+        if (freshOrders.length === 0) return;
+
+        const nextNotifications = freshOrders
+          .map((order) => ({
+            id: order.id,
+            title: getOrderNotificationTitle(order),
+            detail: getOrderNotificationDetail(order),
+            createdAt: order.createdAt,
+          }))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const firstNotification = nextNotifications[0];
+        if (!firstNotification) return;
+
+        setNotifications((current) => [...nextNotifications, ...current].slice(0, 8));
+        setUnreadNotificationCount((current) => current + nextNotifications.length);
+        notify(nextNotifications.length === 1 ? firstNotification.title : `${nextNotifications.length} pedidos nuevos requieren revision`);
+        playNotificationSound();
+        showBrowserNotification(firstNotification.title, firstNotification.detail);
+      } catch {
+        // The order board already exposes offline state; notifications should stay quiet on transient failures.
+      }
+    }
+
+    void checkForNewOrders();
+    const realtimeChannel = supabase && tenantSchema
+      ? supabase
+          .channel(`dashboard-orders:${tenantSlug}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: tenantSchema, table: "orders" },
+            () => void checkForNewOrders(),
+          )
+          .on(
+            "postgres_changes",
+            { event: "UPDATE", schema: tenantSchema, table: "orders" },
+            () => void checkForNewOrders(),
+          )
+          .subscribe()
+      : null;
+    const intervalId = window.setInterval(() => void checkForNewOrders(), 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      if (realtimeChannel && supabase) {
+        void supabase.removeChannel(realtimeChannel);
+      }
+    };
+  }, [isSystemAdmin, tenantSlug, tenants]);
+
   const activeItems = items.filter((item) => item.isAvailable);
   const menuIsActive = activeItems.length > 0;
   const activeTenant = tenants.find((tenant) => tenant.slug === tenantSlug) ?? tenants[0] ?? null;
@@ -398,8 +759,24 @@ export function App() {
     setSession(null);
     setTenants([]);
     setTenantSlug("");
+    setIsSystemAdmin(false);
+    setAdminOverview(null);
     setProducts(fallbackProducts);
     setItems(fallbackItems);
+    setNotifications([]);
+    setUnreadNotificationCount(0);
+    setNotificationsOpen(false);
+    seenNotificationOrderIdsRef.current = new Set();
+    notificationsBootstrappedRef.current = false;
+  }
+
+  function toggleNotifications() {
+    setNotificationsOpen((current) => !current);
+    setUnreadNotificationCount(0);
+
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
   }
 
   function notify(message: string) {
@@ -456,7 +833,19 @@ export function App() {
       const imageUrl = product.imageFile && imageColumnReady
         ? (await uploadProductImage(tenantSlug, product.imageFile)).publicUrl
         : product.imageUrl;
-      const payload = { ...product, imageFile: undefined, imageUrl };
+      const emoji = product.emoji || inferProductEmoji({
+        name: product.name ?? "Producto",
+        description: product.description,
+      });
+      const productType = product.productType ?? "simple";
+      const payload = {
+        ...product,
+        emoji,
+        productType,
+        options: productType === "composite" ? normalizeProductOptions(product.options) : [],
+        imageFile: undefined,
+        imageUrl,
+      };
       const persisted = product.id ? await updateProduct(tenantSlug, product.id, payload) : await createProduct(tenantSlug, payload);
 
       setProducts((current) => (product.id ? current.map((item) => (item.id === product.id ? persisted : item)) : [persisted, ...current]));
@@ -496,6 +885,10 @@ export function App() {
     return <TenantErrorScreen error={tenantError} onLogout={handleLogout} />;
   }
 
+  if (isSystemAdmin && adminOverview) {
+    return <AdminOverviewScreen overview={adminOverview} onLogout={handleLogout} />;
+  }
+
   if (tenants.length === 0) {
     return <NoTenantScreen onLogout={handleLogout} />;
   }
@@ -514,13 +907,14 @@ export function App() {
             <Header
               activeView={activeView}
               menuIsActive={menuIsActive}
+              notifications={notifications}
+              notificationsOpen={notificationsOpen}
               saveStatus={saveStatus}
               tenantName={activeTenant?.name ?? fallbackTenants[0]?.name ?? "Restaurante"}
-              tenantSlug={tenantSlug}
-              tenants={tenants}
+              unreadNotificationCount={unreadNotificationCount}
               viewCopy={activeViewCopy}
               onLogout={() => void handleLogout()}
-              onTenantChange={setTenantSlug}
+              onToggleNotifications={toggleNotifications}
             />
             <div className="px-4 pb-28 pt-2 sm:px-6 lg:px-8 lg:pb-10">
               {activeView === "menu" && (
@@ -567,6 +961,7 @@ export function App() {
                         description: product.description ?? "Detectado automaticamente desde imagen del menu.",
                         basePrice: product.basePrice,
                         category: product.category,
+                        emoji: product.emoji,
                         isActive: true,
                       });
                     }
@@ -584,25 +979,220 @@ export function App() {
   );
 }
 
+function PublicCartaPage() {
+  const tenantSlug = getPublicCartaTenantSlug();
+  const [payload, setPayload] = useState<PublicCartaPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+
+    getPublicCarta(tenantSlug)
+      .then((nextPayload) => {
+        if (!active) return;
+        setPayload(nextPayload);
+      })
+      .catch((requestError: unknown) => {
+        if (!active) return;
+        setError(requestError instanceof Error ? requestError.message : "No se pudo cargar la carta.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tenantSlug]);
+
+  const groups = useMemo(
+    () => groupByCategorySection(payload?.items ?? [], (item) => item.product?.category ?? item.displayName),
+    [payload?.items],
+  );
+  const totalItems = payload?.items.length ?? 0;
+
+  return (
+    <div className="min-h-screen bg-[#edf2f7] text-[var(--text-strong)]">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(197,123,87,0.20),transparent_24%),radial-gradient(circle_at_90%_20%,rgba(32,26,22,0.12),transparent_28%),linear-gradient(180deg,#f7fafc_0%,#edf2f7_52%,#dfe8f2_100%)]" />
+      <main className="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        <section className="overflow-hidden rounded-[36px] border border-white/70 bg-[rgba(255,255,255,0.62)] shadow-[0_28px_90px_rgba(37,31,26,0.16)] backdrop-blur-xl">
+          <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_390px] lg:p-8">
+            <div className="flex min-h-[360px] flex-col justify-between rounded-[32px] bg-[linear-gradient(145deg,#211b17_0%,#342a24_58%,#4a3429_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_70px_rgba(32,24,18,0.28)] sm:p-8">
+              <div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.58)]">
+                  <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">42day carta</span>
+                  <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">{totalItems} platos visibles</span>
+                </div>
+                <h1 className="app-display mt-8 max-w-3xl text-[3.7rem] leading-[0.9] tracking-[-0.06em] sm:text-[5.4rem]">
+                  {payload?.tenant.name ?? "Carta del restaurante"}
+                </h1>
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-[rgba(246,236,223,0.72)] sm:text-base">
+                  Carta digital de lectura. Consulta platos disponibles, precios y componentes antes de ordenar en el restaurante.
+                </p>
+              </div>
+              <div className="mt-10 flex flex-wrap items-center gap-3 text-sm text-[rgba(246,236,223,0.72)]">
+                {payload?.location?.name && (
+                  <span className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(255,248,240,0.08)] px-4 py-3">
+                    <MapPin size={16} />
+                    {payload.location.name}
+                  </span>
+                )}
+                {payload?.menu?.name && (
+                  <span className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(255,248,240,0.08)] px-4 py-3">
+                    <Utensils size={16} />
+                    {payload.menu.name}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[32px] border border-[rgba(118,93,71,0.12)] bg-[#f8fafc] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+              <div className="rounded-[28px] bg-[#1f1b18] p-4 text-[var(--text-on-dark)] shadow-[0_24px_60px_rgba(32,24,18,0.22)]">
+                <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(160deg,#2c2520,#191511)] p-5">
+                  <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[rgba(197,123,87,0.22)] blur-2xl" />
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Hoy en carta</p>
+                  <p className="app-display mt-4 text-[4.5rem] leading-none">{totalItems}</p>
+                  <p className="mt-3 text-sm leading-6 text-[rgba(246,236,223,0.68)]">
+                    Productos publicados y disponibles para clientes en sitio.
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {groups.slice(0, 4).map((group) => (
+                    <div className="rounded-[20px] bg-[rgba(255,248,240,0.08)] p-4" key={group.id}>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.46)]">{group.label}</p>
+                      <p className="mt-3 text-2xl font-semibold">{group.items.length}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {loading ? (
+          <PublicCartaState title="Cargando carta" description="Estamos preparando la carta digital del restaurante." />
+        ) : error ? (
+          <PublicCartaState title="No se pudo cargar la carta" description={error} />
+        ) : groups.length === 0 ? (
+          <PublicCartaState title="Carta sin platos visibles" description="El restaurante aun no tiene productos publicados para mostrar en esta carta." />
+        ) : (
+          <div className="mt-6 space-y-8 pb-12">
+            {groups.map((group) => (
+              <section key={group.id}>
+                <div className="mb-4 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[var(--text-faint)]">{group.label}</p>
+                    <h2 className="app-display mt-2 text-[2.8rem] leading-none text-[var(--text-strong)]">{group.items.length} opciones</h2>
+                  </div>
+                </div>
+                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {group.items.map((item) => (
+                    <PublicCartaCard item={item} key={item.id} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function PublicCartaState({ description, title }: { description: string; title: string }) {
+  return (
+    <div className="mt-6 rounded-[32px] border border-white/70 bg-[rgba(255,255,255,0.7)] px-6 py-16 text-center shadow-[0_20px_60px_rgba(37,31,26,0.08)] backdrop-blur">
+      <p className="app-display text-[2.8rem] leading-none text-[var(--text-strong)]">{title}</p>
+      <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-soft)]">{description}</p>
+    </div>
+  );
+}
+
+function PublicCartaCard({ item }: { item: MenuItem }) {
+  const product = item.product;
+  const name = item.displayName ?? product?.name ?? "Producto";
+  const price = item.priceOverride ?? product?.basePrice ?? 0;
+  const activeOptions = product?.options
+    ?.map((option) => ({
+      ...option,
+      values: option.values.filter((value) => value.isActive),
+    }))
+    .filter((option) => option.values.length > 0) ?? [];
+
+  return (
+    <article className="group overflow-hidden rounded-[34px] border border-white/80 bg-[rgba(255,255,255,0.78)] shadow-[0_24px_70px_rgba(37,31,26,0.13)] backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_90px_rgba(37,31,26,0.18)]">
+      <div className="relative aspect-[4/3] overflow-hidden bg-[#dfe8f2]">
+        {product?.imageUrl ? (
+          <img alt={name} className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" src={product.imageUrl} />
+        ) : (
+          <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.52),transparent_56%),linear-gradient(140deg,#f8fafc,#dbe6f0)]">
+            <span className="text-[5rem] drop-shadow-[0_18px_32px_rgba(32,26,22,0.14)]" role="img" aria-label={name}>
+              {product?.emoji || inferProductEmoji({ name, description: product?.description })}
+            </span>
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[rgba(21,17,14,0.72)] via-[rgba(21,17,14,0.18)] to-transparent p-5">
+          <span className="inline-flex rounded-full bg-[rgba(255,250,244,0.16)] px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-white/90 backdrop-blur">
+            {product?.category || "carta"}
+          </span>
+        </div>
+      </div>
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="text-lg font-extrabold tracking-[-0.02em] text-[var(--text-strong)]">{name}</h3>
+          <p className="shrink-0 rounded-2xl bg-[#201a16] px-3 py-2 text-sm font-extrabold text-white">{formatPrice(price)}</p>
+        </div>
+        {product?.description && (
+          <p className="mt-3 line-clamp-3 text-sm leading-6 text-[var(--text-soft)]">{product.description}</p>
+        )}
+        {product?.productType === "composite" && activeOptions.length > 0 && (
+          <div className="mt-4 rounded-[24px] bg-[#edf2f7] p-4">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[var(--text-faint)]">Opciones del plato</p>
+            <div className="mt-3 space-y-3">
+              {activeOptions.map((option) => (
+                <div key={option.id ?? option.name}>
+                  <p className="text-xs font-extrabold text-[var(--text-strong)]">{option.name}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {option.values.map((value) => (
+                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)] shadow-sm" key={value.id ?? value.name}>
+                        {value.name}{value.priceDelta > 0 ? ` +${formatPrice(value.priceDelta)}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function Header({
   activeView,
   menuIsActive,
-  onTenantChange,
+  notifications,
+  notificationsOpen,
   onLogout,
+  onToggleNotifications,
   saveStatus,
   tenantName,
-  tenantSlug,
-  tenants,
+  unreadNotificationCount,
   viewCopy,
 }: {
   activeView: View;
   menuIsActive: boolean;
-  onTenantChange: (tenantSlug: string) => void;
+  notifications: DashboardNotification[];
+  notificationsOpen: boolean;
   onLogout: () => void;
+  onToggleNotifications: () => void;
   saveStatus: SaveStatus;
   tenantName: string;
-  tenantSlug: string;
-  tenants: DashboardTenant[];
+  unreadNotificationCount: number;
   viewCopy: { eyebrow: string; title: string; description: string };
 }) {
   return (
@@ -635,17 +1225,16 @@ function Header({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="h-12 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)] outline-none transition focus:border-[rgba(255,242,227,0.22)] focus:bg-[rgba(255,248,240,0.1)] focus:ring-4 focus:ring-[rgba(255,242,227,0.08)]"
-            onChange={(event) => onTenantChange(event.target.value)}
-            value={tenantSlug}
-          >
-            {tenants.map((tenant) => (
-              <option key={tenant.slug} value={tenant.slug}>
-                {tenant.name}
-              </option>
-            ))}
-          </select>
+          <div className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)]">
+            <ChefHat size={16} />
+            {tenantName}
+          </div>
+          <NotificationBell
+            notifications={notifications}
+            open={notificationsOpen}
+            unreadCount={unreadNotificationCount}
+            onToggle={onToggleNotifications}
+          />
           <SaveIndicator menuIsActive={menuIsActive} status={saveStatus} />
           <button
             className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
@@ -657,6 +1246,67 @@ function Header({
         </div>
       </div>
     </header>
+  );
+}
+
+function NotificationBell({
+  notifications,
+  onToggle,
+  open,
+  unreadCount,
+}: {
+  notifications: DashboardNotification[];
+  onToggle: () => void;
+  open: boolean;
+  unreadCount: number;
+}) {
+  return (
+    <div className="relative">
+      <button
+        aria-expanded={open}
+        aria-label={unreadCount > 0 ? `${unreadCount} notificaciones nuevas` : "Abrir notificaciones"}
+        className={`relative inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold transition ${
+          open
+            ? "border-[rgba(213,192,154,0.34)] bg-[rgba(255,248,240,0.13)] text-[var(--text-on-dark)]"
+            : "border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[rgba(246,236,223,0.82)] hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+        }`}
+        onClick={onToggle}
+        type="button"
+      >
+        <Bell size={17} />
+        {unreadCount > 0 ? (
+          <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full bg-[#c57b57] px-1.5 text-[10px] font-extrabold leading-none text-white shadow-[0_8px_22px_rgba(197,123,87,0.36)]">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div className="app-panel absolute right-0 z-30 mt-3 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-[24px]">
+          <div className="border-b border-[var(--border)] px-4 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">Notificaciones</p>
+            <h2 className="mt-1 text-base font-extrabold text-[var(--text-strong)]">Pedidos en tiempo real</h2>
+          </div>
+          <div className="max-h-80 space-y-2 overflow-y-auto p-3 app-scrollbar">
+            {notifications.length > 0 ? (
+              notifications.map((notification) => (
+                <div
+                  className="rounded-2xl border border-[rgba(118,93,71,0.14)] bg-[rgba(255,255,255,0.46)] p-3"
+                  key={notification.id}
+                >
+                  <p className="text-sm font-extrabold text-[var(--text-strong)]">{notification.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-soft)]">{notification.detail}</p>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[rgba(118,93,71,0.22)] p-4 text-sm leading-6 text-[var(--text-soft)]">
+                No hay pedidos nuevos desde que abriste el dashboard.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -786,7 +1436,7 @@ function TodayMenu(props: {
   const groups = groupMenuItemsByOrderType(props.items);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-6 pb-28 lg:pb-32">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px]">
         <div className="rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.5)]">
@@ -896,8 +1546,12 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-3">
-            {item.product?.imageUrl && <ProductImage imageUrl={item.product.imageUrl} name={name} />}
-            {!item.product?.imageUrl && <ProductImage name={name} />}
+            <ProductImage
+              description={item.product?.description}
+              emoji={item.product?.emoji}
+              imageUrl={item.product?.imageUrl}
+              name={name}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className={`truncate text-sm font-semibold ${item.isAvailable ? "text-[var(--text-strong)]" : "text-[var(--text-soft)]"}`}>{name}</h3>
@@ -1008,18 +1662,21 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
 
   return (
     <Modal title="Agregar desde catalogo" onClose={props.onClose}>
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" size={17} />
-        <input
-          autoFocus
-          className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] pl-11 pr-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar plato..."
-          value={query}
-        />
-      </div>
-      <div className="app-panel-muted mt-3 rounded-2xl px-3 py-2 text-sm font-semibold text-[var(--text-soft)]">
-        {selectedProductIds.length} seleccionados
+      <div className="sticky top-0 z-20 -mx-5 -mt-5 border-b border-[rgba(118,93,71,0.1)] bg-[var(--panel)] px-5 pb-4 pt-5 shadow-[0_14px_30px_rgba(20,14,10,0.08)] sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" size={17} />
+          <input
+            autoFocus
+            className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] pl-11 pr-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-[var(--panel-strong)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar plato..."
+            value={query}
+          />
+        </div>
+        <div className="app-panel-muted mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-[var(--text-soft)]">
+          <span>{selectedProductIds.length} seleccionados</span>
+          <span className="text-xs text-[var(--text-faint)]">{availableProducts.length} disponibles</span>
+        </div>
       </div>
       <div className="app-scrollbar mt-4 max-h-[420px] space-y-3 overflow-y-auto">
         {groupedProducts.length === 0 && (
@@ -1053,7 +1710,12 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
                       onClick={() => toggleSelect(product.id)}
                       type="button"
                     >
-                      <ProductImage imageUrl={product.imageUrl} name={product.name} />
+                      <ProductImage
+                        description={product.description}
+                        emoji={product.emoji}
+                        imageUrl={product.imageUrl}
+                        name={product.name}
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-[var(--text-strong)]">{product.name}</p>
                         <p className="mt-1 line-clamp-2 text-sm text-[var(--text-soft)]">{product.description}</p>
@@ -1264,6 +1926,8 @@ function Summary({
         </div>
       </div>
 
+      <PublicCartaShareCard tenantSlug={tenantSlug} />
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_420px]">
         <div className="app-panel rounded-[28px] p-6">
           <div className="flex items-center justify-between gap-3">
@@ -1319,6 +1983,98 @@ function Summary({
         </div>
       </div>
     </section>
+  );
+}
+
+function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
+  const cartaUrl = getPublicCartaUrl(tenantSlug);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toDataURL(cartaUrl, {
+      color: {
+        dark: "#201a16",
+        light: "#edf2f7",
+      },
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 320,
+    })
+      .then((dataUrl) => {
+        if (active) setQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (active) setQrDataUrl("");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [cartaUrl]);
+
+  async function copyCartaUrl() {
+    try {
+      await navigator.clipboard.writeText(cartaUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="app-panel overflow-hidden rounded-[30px]">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="p-6 sm:p-7">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+            <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface-base)] px-3 py-1.5">
+              <QrCode size={14} />
+              Carta publica
+            </span>
+            <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-1.5 text-[var(--warning)]">Solo lectura</span>
+          </div>
+          <h3 className="app-display mt-5 text-[3rem] leading-none text-[var(--text-strong)]">QR para clientes en mesa</h3>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--text-soft)]">
+            Este QR abre la carta publica del restaurante. Los clientes solo pueden consultar platos, precios y componentes; no pueden editar productos ni agregar al menu.
+          </p>
+          <div className="mt-6 rounded-[22px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-4 py-3 text-sm font-semibold text-[var(--text-soft)]">
+            <span className="block truncate">{cartaUrl}</span>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <a
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923]"
+              href={cartaUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink size={17} />
+              Abrir carta
+            </a>
+            <button
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-5 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+              onClick={() => void copyCartaUrl()}
+              type="button"
+            >
+              <Copy size={17} />
+              {copied ? "Link copiado" : "Copiar link"}
+            </button>
+          </div>
+        </div>
+        <div className="grid place-items-center bg-[linear-gradient(145deg,#201a16,#443228)] p-6">
+          <div className="rounded-[30px] bg-[#edf2f7] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+            {qrDataUrl ? (
+              <img alt="QR de la carta publica" className="h-56 w-56 rounded-[20px]" src={qrDataUrl} />
+            ) : (
+              <div className="grid h-56 w-56 place-items-center rounded-[20px] bg-white text-sm font-semibold text-[var(--text-soft)]">
+                Generando QR...
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1575,10 +2331,18 @@ function Catalog({
             <Plus size={17} />
             Nuevo producto
           </button>
+          <button
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923]"
+            onClick={() => setModalProduct(createCompositeProductDraft())}
+            type="button"
+          >
+            <Plus size={17} />
+            Nuevo compuesto
+          </button>
         </div>
       </div>
 
-      <div className="app-panel-muted flex flex-wrap items-center justify-between gap-3 rounded-[24px] px-4 py-3">
+      <div className="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-[min(760px,calc(100vw-2rem))] -translate-x-1/2 flex-wrap items-center justify-between gap-3 rounded-[24px] border border-[rgba(255,242,227,0.16)] bg-[rgba(237,242,247,0.94)] px-4 py-3 text-[var(--text-strong)] shadow-[0_22px_70px_rgba(20,14,10,0.3)] backdrop-blur-xl lg:bottom-7">
         <p className="text-sm font-semibold text-[var(--text-soft)]">
           {selectedProductIds.length} seleccionados
           {selectedProductIds.length > selectedAddableIds.length ? ` · ${selectedProductIds.length - selectedAddableIds.length} ya estan en menu` : ""}
@@ -1701,8 +2465,14 @@ function ProductCard({
         {product.imageUrl ? (
           <img alt={product.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" src={product.imageUrl} />
         ) : (
-          <div className="grid h-full w-full place-items-center text-[var(--text-faint)]">
-            <ImagePlus size={26} />
+          <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.38),transparent_58%),linear-gradient(135deg,rgba(223,231,240,0.96),rgba(216,228,241,0.86))]">
+            <span
+              aria-label={`Emoji sugerido para ${product.name}`}
+              className="text-[4.4rem] drop-shadow-[0_14px_28px_rgba(20,14,10,0.16)]"
+              role="img"
+            >
+              {product.emoji || inferProductEmoji(product)}
+            </span>
           </div>
         )}
         <button
@@ -1723,6 +2493,11 @@ function ProductCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-[var(--text-strong)]">{product.name}</h3>
+            {product.productType === "composite" ? (
+              <span className="mt-2 inline-flex rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-1 text-xs font-semibold text-[var(--warning)]">
+                Producto compuesto · {product.options?.length ?? 0} grupos
+              </span>
+            ) : null}
             <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--text-soft)]">{product.description}</p>
           </div>
           <p className="shrink-0 text-sm font-semibold text-[var(--text-strong)]">{formatPrice(product.basePrice)}</p>
@@ -1778,13 +2553,23 @@ function ProductListRow({
     <article className={`rounded-[24px] border px-4 py-4 transition ${isSelected ? "border-[rgba(197,123,87,0.28)] bg-[rgba(228,215,198,0.92)]" : "border-[rgba(118,93,71,0.1)] bg-[rgba(226,214,198,0.82)]"}`}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0 flex items-start gap-4">
-          <ProductImage imageUrl={product.imageUrl} name={product.name} />
+          <ProductImage
+            description={product.description}
+            emoji={product.emoji}
+            imageUrl={product.imageUrl}
+            name={product.name}
+          />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="truncate text-base font-semibold text-[var(--text-strong)]">{product.name}</h3>
               <span className="rounded-full bg-[rgba(118,93,71,0.08)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
                 {product.category || "sin categoria"}
               </span>
+              {product.productType === "composite" ? (
+                <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--warning)]">
+                  Compuesto · {product.options?.length ?? 0}
+                </span>
+              ) : null}
             </div>
             {product.description ? (
               <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--text-soft)]">{product.description}</p>
@@ -1860,6 +2645,286 @@ function CategorySelect({
   );
 }
 
+function EmojiSelect({
+  description,
+  name,
+  onChange,
+  value,
+}: {
+  description?: string;
+  name: string;
+  onChange: (emoji: string) => void;
+  value?: string;
+}) {
+  const suggestedEmoji = inferProductEmoji({ description, name });
+  const selectedEmoji = value || suggestedEmoji;
+  const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...availableProductEmojis]));
+  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 36);
+
+  return (
+    <div className="rounded-[22px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Emoji</p>
+          <p className="mt-1 text-xs text-[var(--text-soft)]">Sugerido por nombre y descripcion</p>
+        </div>
+        <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--panel-strong)] text-[1.5rem] ring-1 ring-[rgba(118,93,71,0.1)]">
+          {selectedEmoji}
+        </span>
+      </div>
+      <select
+        aria-label={`Seleccionar emoji para ${name}`}
+        className="mb-3 h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-4 text-xl outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+        onChange={(event) => onChange(event.target.value)}
+        value={selectedEmoji}
+      >
+        {options.map((emoji) => (
+          <option key={emoji} value={emoji}>
+            {emoji}
+          </option>
+        ))}
+      </select>
+      <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-12">
+        {quickOptions.map((emoji) => (
+          <button
+            aria-label={`Seleccionar emoji ${emoji}`}
+            className={`grid h-9 w-9 place-items-center rounded-xl text-[1.25rem] transition ${
+              selectedEmoji === emoji
+                ? "bg-[var(--text-strong)] shadow-[0_8px_20px_rgba(20,14,10,0.18)]"
+                : "bg-[var(--panel-strong)] hover:bg-white"
+            }`}
+            key={emoji}
+            onClick={() => onChange(emoji)}
+            type="button"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactEmojiSelect({
+  description,
+  name,
+  onChange,
+  value,
+}: {
+  description?: string;
+  name: string;
+  onChange: (emoji: string) => void;
+  value?: string;
+}) {
+  const suggestedEmoji = inferProductEmoji({ description, name });
+  const selectedEmoji = value || suggestedEmoji;
+  const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...availableProductEmojis]));
+
+  return (
+    <select
+      aria-label={`Emoji para ${name}`}
+      className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-center text-xl outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+      onChange={(event) => onChange(event.target.value)}
+      value={selectedEmoji}
+    >
+      {options.map((emoji) => (
+        <option key={emoji} value={emoji}>
+          {emoji}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ProductTypeSelector({ onChange, value }: { onChange: (value: Product["productType"]) => void; value: Product["productType"] }) {
+  const options = [
+    {
+      id: "simple" as const,
+      title: "Producto simple",
+      copy: "Plato fijo sin selecciones internas.",
+    },
+    {
+      id: "composite" as const,
+      title: "Producto compuesto",
+      copy: "Plato con grupos de componentes para elegir.",
+    },
+  ];
+
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Tipo de producto</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options.map((option) => {
+          const active = value === option.id;
+          return (
+            <button
+              className={`rounded-[22px] border px-4 py-4 text-left transition ${
+                active
+                  ? "border-[rgba(197,123,87,0.28)] bg-[rgba(197,123,87,0.1)] text-[var(--text-strong)]"
+                  : "border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"
+              }`}
+              key={option.id}
+              onClick={() => onChange(option.id)}
+              type="button"
+            >
+              <p className="text-sm font-extrabold">{option.title}</p>
+              <p className="mt-2 text-xs leading-5">{option.copy}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CompositeOptionsEditor({ onChange, options }: { onChange: (options: ProductOption[]) => void; options: ProductOption[] }) {
+  function updateOption(index: number, patch: Partial<ProductOption>) {
+    onChange(options.map((option, optionIndex) => (optionIndex === index ? { ...option, ...patch } : option)));
+  }
+
+  function updateValue(optionIndex: number, valueIndex: number, patch: Partial<ProductOption["values"][number]>) {
+    onChange(options.map((option, currentOptionIndex) => {
+      if (currentOptionIndex !== optionIndex) return option;
+      return {
+        ...option,
+        values: option.values.map((value, currentValueIndex) => (
+          currentValueIndex === valueIndex ? { ...value, ...patch } : value
+        )),
+      };
+    }));
+  }
+
+  function addValue(optionIndex: number) {
+    onChange(options.map((option, currentOptionIndex) => {
+      if (currentOptionIndex !== optionIndex) return option;
+      return {
+        ...option,
+        values: [
+          ...option.values,
+          { name: "", priceDelta: 0, isActive: true, sortOrder: option.values.length * 10 },
+        ],
+      };
+    }));
+  }
+
+  function removeValue(optionIndex: number, valueIndex: number) {
+    onChange(options.map((option, currentOptionIndex) => {
+      if (currentOptionIndex !== optionIndex) return option;
+      return {
+        ...option,
+        values: option.values.filter((_, currentValueIndex) => currentValueIndex !== valueIndex),
+      };
+    }));
+  }
+
+  return (
+    <section className="rounded-[26px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Componentes del plato</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
+            Crea grupos como acompanante, principio o ensalada. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige.
+          </p>
+        </div>
+        <button
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923]"
+          onClick={() => onChange([...options, createEmptyCompositeOption(options.length * 10)])}
+          type="button"
+        >
+          <Plus size={16} />
+          Agregar grupo
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        {options.length === 0 ? (
+          <div className="rounded-[22px] border border-dashed border-[rgba(118,93,71,0.22)] px-4 py-8 text-center text-sm leading-6 text-[var(--text-soft)]">
+            Agrega al menos un grupo para convertir este producto en compuesto.
+          </div>
+        ) : null}
+
+        {options.map((option, optionIndex) => (
+          <article className="rounded-[24px] border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-4" key={`${option.name}-${optionIndex}`}>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px_130px_auto]">
+              <TextInput
+                label="Grupo"
+                onChange={(value) => updateOption(optionIndex, { name: value })}
+                placeholder="Ej. Acompanante"
+                value={option.name}
+              />
+              <TextInput
+                label="Min"
+                onChange={(value) => updateOption(optionIndex, { minSelect: Number(value), isRequired: Number(value) > 0 })}
+                placeholder="1"
+                type="number"
+                value={String(option.minSelect)}
+              />
+              <TextInput
+                label="Max"
+                onChange={(value) => updateOption(optionIndex, { maxSelect: Number(value) })}
+                placeholder="1"
+                type="number"
+                value={String(option.maxSelect)}
+              />
+              <button
+                className="self-end inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(180,94,84,0.18)] px-3 text-sm font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
+                onClick={() => onChange(options.filter((_, currentIndex) => currentIndex !== optionIndex))}
+                type="button"
+              >
+                Quitar
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {option.values.map((value, valueIndex) => (
+                <div className="grid gap-2 rounded-[18px] bg-[var(--surface-base)] p-3 sm:grid-cols-[minmax(0,1fr)_120px_auto_auto]" key={`${value.name}-${valueIndex}`}>
+                  <input
+                    className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                    onChange={(event) => updateValue(optionIndex, valueIndex, { name: event.target.value })}
+                    placeholder="Ej. Yuca"
+                    value={value.name}
+                  />
+                  <input
+                    className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                    onChange={(event) => updateValue(optionIndex, valueIndex, { priceDelta: Number(event.target.value) })}
+                    placeholder="+ COP"
+                    type="number"
+                    value={String(value.priceDelta)}
+                  />
+                  <label className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)]">
+                    <input
+                      checked={value.isActive}
+                      onChange={(event) => updateValue(optionIndex, valueIndex, { isActive: event.target.checked })}
+                      type="checkbox"
+                    />
+                    Activo
+                  </label>
+                  <button
+                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(180,94,84,0.18)] px-3 text-sm font-semibold text-[#8c4e47]"
+                    onClick={() => removeValue(optionIndex, valueIndex)}
+                    type="button"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              className="mt-3 inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-muted)]"
+              onClick={() => addValue(optionIndex)}
+              type="button"
+            >
+              <Plus size={15} />
+              Agregar opcion
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ProductModal({
   imageColumnReady,
   initialProduct,
@@ -1871,19 +2936,46 @@ function ProductModal({
   onClose: () => void;
   onSave: (product: ProductFormValue) => Promise<void>;
 }) {
-  const [form, setForm] = useState<ProductFormValue>(initialProduct);
+  const [form, setForm] = useState<ProductFormValue>(() => {
+    const productType = initialProduct.productType ?? "simple";
+    return {
+      ...initialProduct,
+      productType,
+      category: initialProduct.category ?? (productType === "composite" ? "almuerzos" : "adiciones"),
+      isActive: initialProduct.isActive ?? true,
+      options: productType === "composite" && (!initialProduct.options || initialProduct.options.length === 0)
+        ? createDefaultCompositeOptions()
+        : initialProduct.options,
+    };
+  });
   const [previewUrl, setPreviewUrl] = useState(initialProduct.imageUrl ?? "");
   const [isSaving, setIsSaving] = useState(false);
+  const productType = form.productType ?? "simple";
+  const modalTitle = form.id
+    ? "Editar producto"
+    : productType === "composite"
+      ? "Nuevo producto compuesto"
+      : "Nuevo producto";
 
   return (
-    <Modal title={form.id ? "Editar producto" : "Nuevo producto"} onClose={onClose}>
+    <Modal title={modalTitle} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={async (event) => {
           event.preventDefault();
           setIsSaving(true);
           try {
-            await onSave({ ...form, basePrice: Number(form.basePrice ?? 0), isActive: form.isActive ?? true });
+            await onSave({
+              ...form,
+              basePrice: Number(form.basePrice ?? 0),
+              emoji: form.emoji || inferProductEmoji({
+                name: form.name ?? "Producto",
+                description: form.description,
+              }),
+              options: form.productType === "composite" ? normalizeProductOptions(form.options) : [],
+              productType: form.productType ?? "simple",
+              isActive: form.isActive ?? true,
+            });
           } finally {
             setIsSaving(false);
           }
@@ -1892,11 +2984,41 @@ function ProductModal({
         <TextInput label="Nombre" onChange={(value) => setForm({ ...form, name: value })} placeholder="Ej. Almuerzo ejecutivo" value={form.name ?? ""} />
         <TextInput label="Precio base" onChange={(value) => setForm({ ...form, basePrice: Number(value) })} placeholder="22000" type="number" value={String(form.basePrice ?? "")} />
         <label className="block">
+          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Categoria</span>
+          <CategorySelect
+            disabled={false}
+            onChange={(category) => setForm({ ...form, category })}
+            value={form.category}
+          />
+        </label>
+        <ProductTypeSelector
+          onChange={(productType) => setForm({
+            ...form,
+            productType,
+            options: productType === "composite" && (!form.options || form.options.length === 0)
+              ? createDefaultCompositeOptions()
+              : form.options,
+          })}
+          value={productType}
+        />
+        <EmojiSelect
+          description={form.description}
+          name={form.name ?? "Producto"}
+          onChange={(emoji) => setForm({ ...form, emoji })}
+          value={form.emoji}
+        />
+        <label className="block">
           <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Imagen</span>
           <div className="rounded-[22px] border border-dashed border-[rgba(118,93,71,0.18)] bg-[rgba(248,241,232,0.72)] p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="shrink-0">
-                <ProductImage imageUrl={previewUrl} name={form.name ?? "Producto"} large />
+                <ProductImage
+                  description={form.description}
+                  emoji={form.emoji}
+                  imageUrl={previewUrl}
+                  large
+                  name={form.name ?? "Producto"}
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <input
@@ -1921,6 +3043,12 @@ function ProductModal({
           </div>
         </label>
         <TextInput label="Descripcion" onChange={(value) => setForm({ ...form, description: value })} placeholder="Descripcion corta para WhatsApp" value={form.description ?? ""} />
+        {productType === "composite" && (
+          <CompositeOptionsEditor
+            options={form.options ?? []}
+            onChange={(options) => setForm({ ...form, options })}
+          />
+        )}
         <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
           <button
             className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(248,241,232,0.6)]"
@@ -1959,6 +3087,16 @@ function SmartUpload({
   const [results, setResults] = useState<DetectedMenuProduct[]>([]);
   const [error, setError] = useState("");
 
+  function updateDetectedProduct(index: number, patch: Partial<DetectedMenuProduct>) {
+    setResults((current) => current.map((product, entryIndex) => (
+      entryIndex === index ? { ...product, ...patch } : product
+    )));
+  }
+
+  function removeDetectedProduct(index: number) {
+    setResults((current) => current.filter((_, entryIndex) => entryIndex !== index));
+  }
+
   function readFile(file?: File) {
     if (!file) return;
     setSelectedFile(file);
@@ -1973,7 +3111,13 @@ function SmartUpload({
     setError("");
     try {
       const payload = await onAnalyze(selectedFile);
-      setResults(payload.products);
+      setResults(payload.products.map((product) => ({
+        ...product,
+        emoji: product.emoji || inferProductEmoji({
+          name: product.name,
+          description: product.description,
+        }),
+      })));
       onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
     } catch (analysisError) {
       setError(analysisError instanceof Error && analysisError.message === "gemini_quota_exhausted"
@@ -1985,10 +3129,29 @@ function SmartUpload({
   }
 
   async function importResults() {
+    const sanitizedResults = results
+      .map((product) => ({
+        ...product,
+        name: product.name.trim(),
+        description: product.description?.trim(),
+        basePrice: Number(product.basePrice ?? 0),
+        category: product.category?.trim(),
+        emoji: product.emoji || inferProductEmoji({
+          name: product.name,
+          description: product.description,
+        }),
+      }))
+      .filter((product) => product.name && product.basePrice > 0);
+
+    if (sanitizedResults.length === 0) {
+      setError("No hay productos validos para confirmar. Revisa nombre y precio.");
+      return;
+    }
+
     setIsImporting(true);
     setError("");
     try {
-      await onCreateProducts(results);
+      await onCreateProducts(sanitizedResults);
       setResults([]);
       onNotify("Productos agregados al catalogo");
     } catch {
@@ -2025,6 +3188,12 @@ function SmartUpload({
         </label>
 
         <div className="app-panel rounded-[28px] p-5">
+          <div className="mb-4 rounded-[22px] border border-[rgba(137,164,196,0.18)] bg-[var(--surface-pending)] px-4 py-4">
+            <p className="text-sm font-semibold text-[var(--text-strong)]">Deteccion recomendada: 30 platos o menos</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
+              El analisis devuelve hasta 30 productos por imagen. Para menus grandes, toma varias fotos divididas por seccion.
+            </p>
+          </div>
           <button
             className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!selectedFile || isAnalyzing}
@@ -2041,22 +3210,89 @@ function SmartUpload({
           )}
           <div className="mt-4 space-y-2">
             {results.length === 0 && (
-              <div className="rounded-[22px] bg-[rgba(248,241,232,0.72)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
+              <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
                 <Camera className="mx-auto mb-3 text-[var(--text-faint)]" size={22} />
                 Los productos detectados apareceran aqui con su precio y categoria sugerida.
               </div>
             )}
-            {results.map((item) => (
-              <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.86)] p-4" key={item.name}>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-semibold text-[var(--text-strong)]">{item.name}</p>
-                  <p className="shrink-0 text-sm font-semibold text-[var(--text-strong)]">{formatPrice(item.basePrice)}</p>
+            {results.length > 0 && (
+              <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-strong)]">Edicion rapida</p>
+                    <p className="mt-1 text-xs text-[var(--text-faint)]">{results.length} productos detectados</p>
+                  </div>
+                  <span className="rounded-full bg-[var(--panel-strong)] px-3 py-1 text-xs font-semibold text-[var(--text-soft)]">
+                    Revisa antes de confirmar
+                  </span>
                 </div>
-                {item.description && <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{item.description}</p>}
-                <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
-                  {item.category ?? "sin categoria"}
-                  {item.confidence !== undefined ? ` - confianza ${Math.round(item.confidence * 100)}%` : ""}
-                </p>
+              </div>
+            )}
+            {results.map((item, index) => (
+              <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-4" key={`${item.name}-${index}`}>
+                <div className="grid gap-3">
+                  <div className="grid gap-3 sm:grid-cols-[76px_minmax(0,1fr)_140px]">
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Emoji</span>
+                      <CompactEmojiSelect
+                        description={item.description}
+                        name={item.name}
+                        onChange={(emoji) => updateDetectedProduct(index, { emoji })}
+                        value={item.emoji}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Producto</span>
+                      <input
+                        className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                        onChange={(event) => updateDetectedProduct(index, { name: event.target.value })}
+                        value={item.name}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Precio</span>
+                      <input
+                        className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                        min="0"
+                        onChange={(event) => updateDetectedProduct(index, { basePrice: Number(event.target.value) })}
+                        type="number"
+                        value={Number(item.basePrice ?? 0)}
+                      />
+                    </label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Categoria</span>
+                      <CategorySelect
+                        disabled={false}
+                        onChange={(category) => updateDetectedProduct(index, { category })}
+                        value={item.category}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Descripcion</span>
+                      <input
+                        className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                        onChange={(event) => updateDetectedProduct(index, { description: event.target.value })}
+                        placeholder="Descripcion corta para WhatsApp"
+                        value={item.description ?? ""}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+                      {item.confidence !== undefined ? `Confianza ${Math.round(item.confidence * 100)}%` : "Producto detectado"}
+                    </p>
+                    <button
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[rgba(180,94,84,0.18)] px-3 text-xs font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
+                      onClick={() => removeDetectedProduct(index)}
+                      type="button"
+                    >
+                      <Trash2 size={14} />
+                      Quitar
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -2067,8 +3303,8 @@ function SmartUpload({
               onClick={() => void importResults()}
               type="button"
             >
-              {isImporting ? <Loader2 className="animate-spin" size={17} /> : <Plus size={17} />}
-              {isImporting ? "Guardando resultados" : "Agregar al catalogo"}
+              {isImporting ? <Loader2 className="animate-spin" size={17} /> : <Check size={17} />}
+              {isImporting ? "Guardando resultados" : "Confirmar productos"}
             </button>
           )}
         </div>
@@ -2209,6 +3445,1106 @@ function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
   );
 }
 
+type AdminRestaurantCreateForm = {
+  name: string;
+  slug: string;
+  ownerEmail: string;
+  ownerName: string;
+  ownerPassword: string;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: string;
+};
+
+type AdminRestaurantEditForm = {
+  name: string;
+  status: AdminRestaurantStatus;
+  timezone: string;
+  currency: string;
+  automationEnabled: boolean;
+  locationName: string;
+  locationAddress: string;
+  locationPhone: string;
+  deliveryFeeFixed: string;
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  locationAutomationEnabled: boolean;
+  transferPaymentInstructions: string;
+};
+
+type AdminMemberForm = {
+  email: string;
+  name: string;
+  role: AdminRestaurantMember["role"];
+  password: string;
+};
+
+type AdminSection = "overview" | "settings" | "users";
+
+const emptyAdminRestaurantCreateForm: AdminRestaurantCreateForm = {
+  name: "",
+  slug: "",
+  ownerEmail: "",
+  ownerName: "",
+  ownerPassword: "",
+  locationName: "Sede principal",
+  locationAddress: "",
+  locationPhone: "",
+  deliveryFeeFixed: "0",
+};
+
+const emptyAdminMemberForm: AdminMemberForm = {
+  email: "",
+  name: "",
+  role: "encargado",
+  password: "",
+};
+
+const adminStatusCopy: Record<AdminRestaurantStatus, { label: string; description: string; className: string }> = {
+  active: {
+    label: "Activo",
+    description: "Opera normalmente y aparece en accesos publicos.",
+    className: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
+  },
+  suspended: {
+    label: "Pausado",
+    description: "Acceso conservado, operacion y automatizacion detenidas.",
+    className: "bg-[rgba(158,108,72,0.14)] text-[var(--warning)]",
+  },
+  inactive: {
+    label: "Inactivo",
+    description: "Retirado de operacion diaria sin borrar datos historicos.",
+    className: "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]",
+  },
+};
+
+function buildAdminRestaurantEditForm(restaurant: AdminRestaurant): AdminRestaurantEditForm {
+  return {
+    name: restaurant.name,
+    status: restaurant.status,
+    timezone: restaurant.timezone,
+    currency: restaurant.currency,
+    automationEnabled: restaurant.automationEnabled,
+    locationName: restaurant.location?.name ?? "Sede principal",
+    locationAddress: restaurant.location?.address ?? "",
+    locationPhone: restaurant.location?.phone ?? "",
+    deliveryFeeFixed: String(restaurant.location?.deliveryFeeFixed ?? 0),
+    pickupEnabled: restaurant.location?.pickupEnabled ?? true,
+    deliveryEnabled: restaurant.location?.deliveryEnabled ?? true,
+    locationAutomationEnabled: restaurant.location?.automationEnabled ?? true,
+    transferPaymentInstructions: restaurant.location?.transferPaymentInstructions ?? "",
+  };
+}
+
+function getAdminErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof DashboardApiError) return error.backendError ?? error.message;
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
+
+function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; onLogout: () => Promise<void> }) {
+  const [restaurants, setRestaurants] = useState<AdminRestaurant[]>([]);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
+  const [restaurantSearch, setRestaurantSearch] = useState("");
+  const [adminSection, setAdminSection] = useState<AdminSection>("overview");
+  const [createForm, setCreateForm] = useState<AdminRestaurantCreateForm>(emptyAdminRestaurantCreateForm);
+  const [editForm, setEditForm] = useState<AdminRestaurantEditForm | null>(null);
+  const [memberForm, setMemberForm] = useState<AdminMemberForm>(emptyAdminMemberForm);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState<{ label: string; password: string } | null>(null);
+
+  const selectedRestaurant = useMemo(
+    () => restaurants.find((restaurant) => restaurant.id === selectedRestaurantId) ?? restaurants[0],
+    [restaurants, selectedRestaurantId],
+  );
+  const activeRestaurantCount = restaurants.length > 0
+    ? restaurants.filter((restaurant) => restaurant.status === "active").length
+    : overview.activeRestaurantCount;
+  const suspendedRestaurantCount = restaurants.filter((restaurant) => restaurant.status === "suspended").length;
+  const inactiveRestaurantCount = restaurants.filter((restaurant) => restaurant.status === "inactive").length;
+  const totalMemberCount = restaurants.reduce((sum, restaurant) => sum + restaurant.members.length, 0);
+  const totalOrdersToday = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.ordersTodayCount, 0);
+  const totalPendingOrders = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.pendingOrderCount, 0);
+  const totalRevenueToday = restaurants.reduce((sum, restaurant) => sum + restaurant.metrics.revenueToday, 0);
+  const filteredRestaurants = useMemo(() => {
+    const query = restaurantSearch.trim().toLowerCase();
+    if (!query) return restaurants;
+    return restaurants.filter((restaurant) => (
+      restaurant.name.toLowerCase().includes(query)
+      || restaurant.slug.toLowerCase().includes(query)
+      || restaurant.schemaName.toLowerCase().includes(query)
+      || restaurant.members.some((member) => (
+        (member.email ?? "").toLowerCase().includes(query)
+        || (member.name ?? "").toLowerCase().includes(query)
+      ))
+    ));
+  }, [restaurantSearch, restaurants]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRestaurants() {
+      setIsLoading(true);
+      try {
+        const payload = await listAdminRestaurants();
+        if (!mounted) return;
+        setRestaurants(payload.restaurants);
+        setSelectedRestaurantId((current) => (
+          current && payload.restaurants.some((restaurant) => restaurant.id === current)
+            ? current
+            : payload.restaurants[0]?.id ?? ""
+        ));
+        setError("");
+      } catch (loadError) {
+        if (!mounted) return;
+        setError(getAdminErrorMessage(loadError, "No se pudieron cargar los restaurantes."));
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    }
+
+    void loadRestaurants();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedRestaurant) {
+      setEditForm(buildAdminRestaurantEditForm(selectedRestaurant));
+    }
+  }, [selectedRestaurant]);
+
+  async function reloadRestaurants(nextSelectedId?: string) {
+    const payload = await listAdminRestaurants();
+    setRestaurants(payload.restaurants);
+    setSelectedRestaurantId((current) => {
+      const preferred = nextSelectedId ?? current;
+      if (preferred && payload.restaurants.some((restaurant) => restaurant.id === preferred)) return preferred;
+      return payload.restaurants[0]?.id ?? "";
+    });
+    return payload.restaurants;
+  }
+
+  async function handleCreateRestaurant(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!createForm.name.trim()) {
+      setError("El nombre del restaurante es obligatorio.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await createAdminRestaurant({
+        name: createForm.name.trim(),
+        slug: createForm.slug.trim() || undefined,
+        ownerEmail: createForm.ownerEmail.trim() || undefined,
+        ownerName: createForm.ownerName.trim() || undefined,
+        ownerPassword: createForm.ownerPassword || undefined,
+        locationName: createForm.locationName.trim() || "Sede principal",
+        locationAddress: createForm.locationAddress.trim() || undefined,
+        locationPhone: createForm.locationPhone.trim() || undefined,
+        deliveryFeeFixed: Number(createForm.deliveryFeeFixed || 0),
+      });
+      await reloadRestaurants(payload.restaurant.id);
+      setCreateForm(emptyAdminRestaurantCreateForm);
+      setNotice(`Restaurante creado: ${payload.restaurant.name}`);
+      if (payload.temporaryPassword) {
+        setPasswordNotice({
+          label: payload.owner?.email ? `Owner ${payload.owner.email}` : "Owner inicial",
+          password: payload.temporaryPassword,
+        });
+      }
+    } catch (createError) {
+      setError(getAdminErrorMessage(createError, "No se pudo crear el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSaveRestaurant() {
+    if (!selectedRestaurant || !editForm) return;
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await updateAdminRestaurant(selectedRestaurant.id, {
+        name: editForm.name.trim(),
+        status: editForm.status,
+        timezone: editForm.timezone.trim() || "America/Bogota",
+        currency: editForm.currency.trim() || "COP",
+        automationEnabled: editForm.automationEnabled,
+        locationName: editForm.locationName.trim() || "Sede principal",
+        locationAddress: editForm.locationAddress.trim(),
+        locationPhone: editForm.locationPhone.trim(),
+        deliveryFeeFixed: Number(editForm.deliveryFeeFixed || 0),
+        pickupEnabled: editForm.pickupEnabled,
+        deliveryEnabled: editForm.deliveryEnabled,
+        locationAutomationEnabled: editForm.locationAutomationEnabled,
+        transferPaymentInstructions: editForm.transferPaymentInstructions.trim(),
+      });
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice("Restaurante actualizado.");
+    } catch (saveError) {
+      setError(getAdminErrorMessage(saveError, "No se pudo actualizar el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRestaurantStatus(status: AdminRestaurantStatus) {
+    if (!selectedRestaurant) return;
+    setEditForm((current) => current ? { ...current, status, automationEnabled: status === "active" ? current.automationEnabled : false } : current);
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await updateAdminRestaurant(selectedRestaurant.id, {
+        status,
+        automationEnabled: status === "active" ? selectedRestaurant.automationEnabled : false,
+      });
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice(status === "active" ? "Restaurante reactivado." : "Restaurante pausado.");
+    } catch (statusError) {
+      setError(getAdminErrorMessage(statusError, "No se pudo cambiar el estado del restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteRestaurant() {
+    if (!selectedRestaurant) return;
+    const confirmed = window.confirm(`Esto inactiva ${selectedRestaurant.name}, sus usuarios y canales. Los datos historicos se conservan. Continuar?`);
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      await deleteAdminRestaurant(selectedRestaurant.id);
+      await reloadRestaurants();
+      setNotice("Restaurante inactivado.");
+    } catch (deleteError) {
+      setError(getAdminErrorMessage(deleteError, "No se pudo inactivar el restaurante."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleCreateMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedRestaurant || !memberForm.email.trim()) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await createAdminRestaurantMember(selectedRestaurant.id, {
+        email: memberForm.email.trim(),
+        name: memberForm.name.trim() || undefined,
+        role: memberForm.role,
+        password: memberForm.password || undefined,
+      });
+      await reloadRestaurants(selectedRestaurant.id);
+      setMemberForm(emptyAdminMemberForm);
+      setPasswordNotice({
+        label: payload.member.email ?? memberForm.email,
+        password: payload.temporaryPassword,
+      });
+      setNotice("Miembro agregado al restaurante.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo agregar el miembro."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleUpdateMember(member: AdminRestaurantMember, patch: Partial<Pick<AdminRestaurantMember, "role" | "status" | "name">>) {
+    if (!selectedRestaurant) return;
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await updateAdminRestaurantMember(selectedRestaurant.id, member.userId, patch);
+      if (payload.restaurant) {
+        setRestaurants((current) => current.map((restaurant) => (
+          restaurant.id === payload.restaurant?.id ? payload.restaurant : restaurant
+        )));
+      } else {
+        await reloadRestaurants(selectedRestaurant.id);
+      }
+      setNotice("Usuario actualizado.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo actualizar el usuario."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRemoveMember(member: AdminRestaurantMember) {
+    if (!selectedRestaurant) return;
+    const confirmed = window.confirm(`Quitar acceso a ${member.email ?? member.userId}?`);
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      await deleteAdminRestaurantMember(selectedRestaurant.id, member.userId);
+      await reloadRestaurants(selectedRestaurant.id);
+      setNotice("Usuario inactivado.");
+    } catch (memberError) {
+      setError(getAdminErrorMessage(memberError, "No se pudo inactivar el usuario."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleResetMemberPassword(member: AdminRestaurantMember) {
+    if (!selectedRestaurant) return;
+    const requestedPassword = window.prompt(
+      `Nueva contrasena para ${member.email ?? member.userId}`,
+      selectedRestaurant.defaultPassword,
+    );
+    if (requestedPassword === null) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = await resetAdminRestaurantMemberPassword(
+        selectedRestaurant.id,
+        member.userId,
+        requestedPassword.trim() || undefined,
+      );
+      setPasswordNotice({
+        label: member.email ?? member.userId,
+        password: payload.temporaryPassword,
+      });
+      setNotice("Contrasena restablecida.");
+    } catch (passwordError) {
+      setError(getAdminErrorMessage(passwordError, "No se pudo restablecer la contrasena."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function copyToClipboard(value: string) {
+    await navigator.clipboard?.writeText(value).catch(() => undefined);
+    setNotice("Copiado al portapapeles.");
+  }
+
+  return (
+    <div className="min-h-screen px-3 py-3 sm:px-4">
+      <main className="mx-auto min-h-[calc(100vh-1.5rem)] w-full max-w-[1480px] rounded-[26px] border border-[var(--shell-border)] bg-[rgba(32,28,25,0.96)] p-4 text-[var(--text-on-dark)] shadow-[0_28px_90px_rgba(0,0,0,0.28)] sm:p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--shell-border)] pb-5">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Administrador 42day</p>
+            <h1 className="mt-2 text-2xl font-extrabold text-[var(--text-on-dark)] sm:text-3xl">Gestion de restaurantes</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[rgba(246,236,223,0.68)]">
+              Consola central para alta, usuarios, estado operativo, metricas y configuracion de cada restaurante.
+            </p>
+          </div>
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+            onClick={() => void onLogout()}
+            type="button"
+          >
+            Salir
+          </button>
+        </header>
+
+        <section className="grid gap-3 py-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <AdminMetricCard icon={<Store size={18} />} label="Restaurantes activos" value={String(activeRestaurantCount)} />
+          <AdminMetricCard icon={<Power size={18} />} label="Pausados" value={String(suspendedRestaurantCount)} />
+          <AdminMetricCard icon={<Users size={18} />} label="Usuarios vinculados" value={String(totalMemberCount)} />
+          <AdminMetricCard icon={<ClipboardList size={18} />} label="Pedidos hoy" value={String(totalOrdersToday)} />
+          <AdminMetricCard icon={<Bell size={18} />} label="Pendientes hoy" value={String(totalPendingOrders)} />
+          <AdminMetricCard icon={<Utensils size={18} />} label="Ingresos hoy" value={formatPrice(totalRevenueToday)} />
+          <AdminMetricCard icon={<Trash2 size={18} />} label="Inactivos" value={String(inactiveRestaurantCount)} />
+        </section>
+
+        {(error || notice || passwordNotice) && (
+          <section className="mb-6 grid gap-3">
+            {error && (
+              <div className="rounded-[22px] border border-[rgba(180,94,84,0.2)] bg-[rgba(190,110,95,0.12)] px-4 py-3 text-sm font-semibold text-[#f3b7aa]">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="rounded-[22px] border border-[rgba(119,162,126,0.2)] bg-[rgba(79,122,97,0.13)] px-4 py-3 text-sm font-semibold text-[#cbe5d2]">
+                {notice}
+              </div>
+            )}
+            {passwordNotice && (
+              <div className="rounded-[24px] border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Contrasena temporal</p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--text-on-dark)]">{passwordNotice.label}</p>
+                    <p className="mt-1 rounded-2xl bg-[rgba(14,11,9,0.32)] px-3 py-2 font-mono text-sm text-[rgba(246,236,223,0.9)]">
+                      {passwordNotice.password}
+                    </p>
+                  </div>
+                  <button
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-4 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
+                    onClick={() => void copyToClipboard(passwordNotice.password)}
+                    type="button"
+                  >
+                    <Copy size={16} />
+                    Copiar
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+          <aside className="app-panel overflow-hidden rounded-[24px]">
+            <div className="border-b border-[rgba(118,93,71,0.12)] p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Restaurantes</p>
+                  <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{restaurants.length} clientes</h2>
+                </div>
+                {isLoading && <Loader2 className="animate-spin text-[var(--text-soft)]" size={18} />}
+              </div>
+              <label className="mt-4 flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3">
+                <Search size={16} className="text-[var(--text-faint)]" />
+                <input
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-strong)] outline-none placeholder:text-[var(--text-faint)]"
+                  onChange={(event) => setRestaurantSearch(event.target.value)}
+                  placeholder="Buscar por nombre, slug, schema o usuario"
+                  value={restaurantSearch}
+                />
+              </label>
+            </div>
+
+            <div className="app-scrollbar max-h-[calc(100vh-390px)] min-h-[260px] overflow-y-auto p-3">
+              {filteredRestaurants.length === 0 && !isLoading ? (
+                <div className="rounded-[18px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
+                  No hay restaurantes para ese filtro.
+                </div>
+              ) : filteredRestaurants.map((restaurant) => (
+                <button
+                  className={`w-full rounded-[18px] border p-3 text-left transition ${
+                    selectedRestaurant?.id === restaurant.id
+                      ? "border-[rgba(197,123,87,0.38)] bg-[rgba(236,222,205,0.92)] shadow-[inset_4px_0_0_rgba(197,123,87,0.72)]"
+                      : "border-transparent bg-transparent hover:border-[rgba(118,93,71,0.1)] hover:bg-[rgba(255,251,246,0.7)]"
+                  }`}
+                  key={restaurant.id}
+                  onClick={() => setSelectedRestaurantId(restaurant.id)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[var(--text-strong)]">{restaurant.name}</p>
+                      <p className="mt-1 truncate text-xs font-semibold text-[var(--text-faint)]">{restaurant.slug}</p>
+                    </div>
+                    <AdminStatusBadge status={restaurant.status} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-bold text-[var(--text-soft)]">
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.members.length} usuarios</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.metrics.ordersTodayCount} pedidos</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.automationEnabled ? "Auto ON" : "Auto OFF"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <details className="border-t border-[rgba(118,93,71,0.12)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-sm font-bold text-[var(--text-strong)] sm:px-5">
+                <span className="inline-flex items-center gap-2">
+                  <UserPlus size={16} />
+                  Crear restaurante
+                </span>
+                <Plus size={16} className="text-[var(--text-faint)]" />
+              </summary>
+              <form className="grid gap-4 border-t border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.42)] p-4 sm:p-5" onSubmit={(event) => void handleCreateRestaurant(event)}>
+                <AdminTextInput
+                  label="Nombre restaurante"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, name: value }))}
+                  placeholder="Ej. Arepas del Parque"
+                  value={createForm.name}
+                />
+                <AdminTextInput
+                  label="Slug publico"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, slug: value }))}
+                  placeholder="arepas-del-parque"
+                  value={createForm.slug}
+                />
+                <AdminTextInput
+                  label="Owner email"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerEmail: value }))}
+                  placeholder="admin@restaurante.com"
+                  value={createForm.ownerEmail}
+                />
+                <AdminTextInput
+                  label="Owner nombre"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerName: value }))}
+                  placeholder="Encargado"
+                  value={createForm.ownerName}
+                />
+                <AdminTextInput
+                  label="Contrasena inicial"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, ownerPassword: value }))}
+                  placeholder="vacio usa slug_42*password"
+                  type="password"
+                  value={createForm.ownerPassword}
+                />
+                <AdminTextInput
+                  label="Sede"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationName: value }))}
+                  placeholder="Sede principal"
+                  value={createForm.locationName}
+                />
+                <AdminTextInput
+                  label="Direccion"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationAddress: value }))}
+                  placeholder="Direccion comercial"
+                  value={createForm.locationAddress}
+                />
+                <AdminTextInput
+                  label="Telefono sede"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, locationPhone: value }))}
+                  placeholder="+57..."
+                  value={createForm.locationPhone}
+                />
+                <AdminTextInput
+                  label="Domicilio fijo"
+                  onChange={(value) => setCreateForm((current) => ({ ...current, deliveryFeeFixed: value }))}
+                  placeholder="0"
+                  type="number"
+                  value={createForm.deliveryFeeFixed}
+                />
+              <button
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSaving}
+                type="submit"
+              >
+                {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                Crear restaurante
+              </button>
+            </form>
+            </details>
+          </aside>
+
+          <section className="app-panel min-h-[720px] overflow-hidden rounded-[24px]">
+            {!selectedRestaurant || !editForm ? (
+              <div className="grid min-h-[720px] place-items-center p-8 text-center">
+                <div>
+                  <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--surface-base)] text-[var(--text-soft)]">
+                    <Store size={20} />
+                  </span>
+                  <h2 className="mt-5 text-2xl font-extrabold text-[var(--text-strong)]">Sin restaurante seleccionado</h2>
+                  <p className="mt-3 max-w-md text-sm leading-7 text-[var(--text-soft)]">
+                    Crea o selecciona un restaurante para editar informacion, usuarios y comportamiento operativo.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 sm:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <AdminStatusBadge status={selectedRestaurant.status} />
+                        <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
+                          {selectedRestaurant.slug}
+                        </span>
+                        <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
+                          {selectedRestaurant.automationEnabled ? "Automatizacion ON" : "Automatizacion OFF"}
+                        </span>
+                      </div>
+                      <h2 className="mt-3 truncate text-3xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.name}</h2>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-soft)]">
+                        {adminStatusCopy[selectedRestaurant.status].description}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        href={selectedRestaurant.cartaUrlPath}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <ExternalLink size={16} />
+                        Carta publica
+                      </a>
+                      <button
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        onClick={() => void copyToClipboard(selectedRestaurant.defaultPassword)}
+                        type="button"
+                      >
+                        <Copy size={16} />
+                        Password default
+                      </button>
+                    </div>
+                  </div>
+
+                  <nav className="mt-5 flex flex-wrap gap-2 rounded-[18px] bg-[var(--surface-base)] p-2">
+                    {[
+                      { id: "overview" as const, label: "Resumen", icon: ClipboardList },
+                      { id: "settings" as const, label: "Ajustes", icon: Power },
+                      { id: "users" as const, label: "Usuarios", icon: Users },
+                    ].map((tab) => {
+                      const Icon = tab.icon;
+                      const active = adminSection === tab.id;
+                      return (
+                        <button
+                          className={`inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-bold transition sm:flex-none ${
+                            active
+                              ? "bg-[var(--panel-strong)] text-[var(--text-strong)] shadow-sm"
+                              : "text-[var(--text-soft)] hover:bg-[rgba(255,251,246,0.55)]"
+                          }`}
+                          key={tab.id}
+                          onClick={() => setAdminSection(tab.id)}
+                          type="button"
+                        >
+                          <Icon size={16} />
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </div>
+
+                {adminSection === "overview" && (
+                  <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_330px]">
+                    <div className="p-5 sm:p-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Comportamiento de hoy</p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <AdminBehaviorMetric label="Productos activos" value={String(selectedRestaurant.metrics.activeProductCount)} />
+                        <AdminBehaviorMetric label="Platos en menu" value={String(selectedRestaurant.metrics.todayMenuItemCount)} />
+                        <AdminBehaviorMetric label="Pedidos hoy" value={String(selectedRestaurant.metrics.ordersTodayCount)} />
+                        <AdminBehaviorMetric label="Pendientes" value={String(selectedRestaurant.metrics.pendingOrderCount)} />
+                        <AdminBehaviorMetric label="Completados" value={String(selectedRestaurant.metrics.completedTodayCount)} />
+                        <AdminBehaviorMetric label="Ingresos hoy" value={formatPrice(selectedRestaurant.metrics.revenueToday)} />
+                      </div>
+
+                      <div className="mt-6 grid gap-4 md:grid-cols-3">
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Canales</p>
+                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">
+                            {selectedRestaurant.location?.pickupEnabled ? "Pickup activo" : "Pickup apagado"}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--text-strong)]">
+                            {selectedRestaurant.location?.deliveryEnabled ? "Domicilio activo" : "Domicilio apagado"}
+                          </p>
+                        </div>
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Sede</p>
+                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">{selectedRestaurant.location?.name ?? "Sede principal"}</p>
+                          <p className="mt-1 text-sm text-[var(--text-soft)]">{selectedRestaurant.location?.phone || "Sin telefono"}</p>
+                        </div>
+                        <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Usuarios</p>
+                          <p className="mt-3 text-2xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.members.length}</p>
+                          <p className="text-sm text-[var(--text-soft)]">vinculados al restaurante</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <aside className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Resumen tecnico</p>
+                      <div className="mt-4 space-y-3 text-sm text-[var(--text-soft)]">
+                        <AdminInfoLine label="Tenant ID" value={selectedRestaurant.id} />
+                        <AdminInfoLine label="Schema" value={selectedRestaurant.schemaName} />
+                        <AdminInfoLine label="Carta" value={selectedRestaurant.cartaUrlPath} />
+                        <AdminInfoLine label="Ultimo pedido" value={formatDateTime(selectedRestaurant.metrics.lastOrderAt)} />
+                        <AdminInfoLine label="Creado" value={formatDateTime(selectedRestaurant.createdAt)} />
+                        <AdminInfoLine label="Actualizado" value={formatDateTime(selectedRestaurant.updatedAt)} />
+                      </div>
+                    </aside>
+                  </div>
+                )}
+
+                {adminSection === "settings" && (
+                  <div className="p-5 sm:p-6">
+                    <div className="max-w-5xl">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Configuracion operativa</p>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <AdminTextInput
+                          label="Nombre"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, name: value } : current)}
+                          placeholder="Nombre comercial"
+                          value={editForm.name}
+                        />
+                        <AdminSelect
+                          label="Estado"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, status: value as AdminRestaurantStatus } : current)}
+                          value={editForm.status}
+                        >
+                          <option value="active">Activo</option>
+                          <option value="suspended">Pausado</option>
+                          <option value="inactive">Inactivo</option>
+                        </AdminSelect>
+                        <AdminTextInput
+                          label="Zona horaria"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, timezone: value } : current)}
+                          placeholder="America/Bogota"
+                          value={editForm.timezone}
+                        />
+                        <AdminTextInput
+                          label="Moneda"
+                          onChange={(value) => setEditForm((current) => current ? { ...current, currency: value } : current)}
+                          placeholder="COP"
+                          value={editForm.currency}
+                        />
+                      </div>
+
+                      <div className="mt-5 grid gap-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] p-4 md:grid-cols-3">
+                        <AdminToggle
+                          checked={editForm.automationEnabled}
+                          label="Automatizacion tenant"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, automationEnabled: checked } : current)}
+                        />
+                        <AdminToggle
+                          checked={editForm.pickupEnabled}
+                          label="Recoger en local"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, pickupEnabled: checked } : current)}
+                        />
+                        <AdminToggle
+                          checked={editForm.deliveryEnabled}
+                          label="Domicilio"
+                          onChange={(checked) => setEditForm((current) => current ? { ...current, deliveryEnabled: checked } : current)}
+                        />
+                      </div>
+
+                      <div className="mt-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Informacion del restaurante</p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <AdminTextInput
+                            label="Nombre sede"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationName: value } : current)}
+                            placeholder="Sede principal"
+                            value={editForm.locationName}
+                          />
+                          <AdminTextInput
+                            label="Telefono"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationPhone: value } : current)}
+                            placeholder="+57..."
+                            value={editForm.locationPhone}
+                          />
+                          <AdminTextInput
+                            label="Direccion"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, locationAddress: value } : current)}
+                            placeholder="Direccion comercial"
+                            value={editForm.locationAddress}
+                          />
+                          <AdminTextInput
+                            label="Domicilio fijo"
+                            onChange={(value) => setEditForm((current) => current ? { ...current, deliveryFeeFixed: value } : current)}
+                            placeholder="0"
+                            type="number"
+                            value={editForm.deliveryFeeFixed}
+                          />
+                        </div>
+                        <label className="mt-4 block">
+                          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Instrucciones transferencia</span>
+                          <textarea
+                            className="min-h-24 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 py-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+                            onChange={(event) => setEditForm((current) => current ? { ...current, transferPaymentInstructions: event.target.value } : current)}
+                            placeholder="Cuenta, banco o instrucciones de pago..."
+                            value={editForm.transferPaymentInstructions}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap gap-3">
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={isSaving}
+                          onClick={() => void handleSaveRestaurant()}
+                          type="button"
+                        >
+                          {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                          Guardar cambios
+                        </button>
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(158,108,72,0.24)] px-5 text-sm font-semibold text-[var(--warning)] transition hover:bg-[rgba(158,108,72,0.08)]"
+                          onClick={() => void handleRestaurantStatus(selectedRestaurant.status === "active" ? "suspended" : "active")}
+                          type="button"
+                        >
+                          <Power size={16} />
+                          {selectedRestaurant.status === "active" ? "Pausar" : "Reactivar"}
+                        </button>
+                        <button
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.24)] px-5 text-sm font-semibold text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+                          onClick={() => void handleDeleteRestaurant()}
+                          type="button"
+                        >
+                          <Trash2 size={16} />
+                          Borrar acceso
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === "users" && (
+                  <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="p-5 sm:p-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Usuarios</p>
+                          <h3 className="mt-2 text-lg font-semibold text-[var(--text-strong)]">{selectedRestaurant.members.length} miembros</h3>
+                        </div>
+                        <Users className="text-[var(--text-faint)]" size={18} />
+                      </div>
+                    <div className="mt-4 space-y-3">
+                      {selectedRestaurant.members.length === 0 ? (
+                        <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
+                          Este restaurante aun no tiene usuarios.
+                        </div>
+                      ) : selectedRestaurant.members.map((member) => (
+                        <AdminMemberRow
+                          isSaving={isSaving}
+                          key={member.userId}
+                          member={member}
+                          onRemove={() => void handleRemoveMember(member)}
+                          onResetPassword={() => void handleResetMemberPassword(member)}
+                          onUpdate={(patch) => void handleUpdateMember(member, patch)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <form className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0 sm:p-6" onSubmit={(event) => void handleCreateMember(event)}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Nuevo miembro</p>
+                    <h3 className="mt-2 text-lg font-bold text-[var(--text-strong)]">Agregar usuario</h3>
+                    <div className="mt-5 space-y-4">
+                      <AdminTextInput
+                        label="Correo"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, email: value }))}
+                        placeholder="usuario@restaurante.com"
+                        value={memberForm.email}
+                      />
+                      <AdminTextInput
+                        label="Nombre"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, name: value }))}
+                        placeholder="Nombre visible"
+                        value={memberForm.name}
+                      />
+                      <AdminSelect
+                        label="Rol"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, role: value as AdminRestaurantMember["role"] }))}
+                        value={memberForm.role}
+                      >
+                        <option value="encargado">Encargado</option>
+                        <option value="trabajador">Trabajador</option>
+                      </AdminSelect>
+                      <AdminTextInput
+                        label="Contrasena"
+                        onChange={(value) => setMemberForm((current) => ({ ...current, password: value }))}
+                        placeholder={selectedRestaurant.defaultPassword}
+                        type="password"
+                        value={memberForm.password}
+                      />
+                    </div>
+                    <button
+                      className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isSaving}
+                      type="submit"
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
+                      Agregar miembro
+                    </button>
+                  </form>
+                </div>
+                )}
+              </>
+            )}
+          </section>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AdminMetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-[18px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.045)] px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgba(246,236,223,0.48)]">{label}</p>
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-[rgba(255,248,240,0.08)] text-[rgba(246,236,223,0.72)]">{icon}</span>
+      </div>
+      <p className="mt-2 truncate text-2xl font-extrabold text-[var(--text-on-dark)]">{value}</p>
+    </div>
+  );
+}
+
+function AdminBehaviorMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-2 truncate text-lg font-bold text-[var(--text-strong)]">{value}</p>
+    </div>
+  );
+}
+
+function AdminTextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{props.label}</span>
+      <input
+        className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+        onChange={(event) => props.onChange(event.target.value)}
+        placeholder={props.placeholder}
+        type={props.type ?? "text"}
+        value={props.value}
+      />
+    </label>
+  );
+}
+
+function AdminSelect({
+  children,
+  label,
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{label}</span>
+      <select
+        className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
+function AdminToggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`flex min-h-14 items-center justify-between gap-3 rounded-2xl border px-4 text-left text-sm font-semibold transition ${
+        checked
+          ? "border-[rgba(79,122,97,0.18)] bg-[rgba(79,122,97,0.1)] text-[var(--success)]"
+          : "border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.56)] text-[var(--text-soft)]"
+      }`}
+      onClick={() => onChange(!checked)}
+      type="button"
+    >
+      {label}
+      <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-[var(--success)]" : "bg-[var(--text-faint)]"}`} />
+    </button>
+  );
+}
+
+function AdminStatusBadge({ status }: { status: AdminRestaurantStatus }) {
+  return (
+    <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${adminStatusCopy[status].className}`}>
+      {adminStatusCopy[status].label}
+    </span>
+  );
+}
+
+function AdminInfoLine({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="rounded-2xl bg-[rgba(255,251,246,0.62)] px-3 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-1 break-all text-xs font-semibold text-[var(--text-strong)]">{value || "sin dato"}</p>
+    </div>
+  );
+}
+
+function AdminMemberRow({
+  isSaving,
+  member,
+  onRemove,
+  onResetPassword,
+  onUpdate,
+}: {
+  isSaving: boolean;
+  member: AdminRestaurantMember;
+  onRemove: () => void;
+  onResetPassword: () => void;
+  onUpdate: (patch: Partial<Pick<AdminRestaurantMember, "role" | "status" | "name">>) => void;
+}) {
+  return (
+    <article className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.72)] p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-bold text-[var(--text-strong)]">{member.email ?? member.userId}</p>
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+              member.status === "active"
+                ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
+                : "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]"
+            }`}>
+              {member.status === "active" ? "Activo" : "Inactivo"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
+            {member.name || "Sin nombre"} · Ultimo ingreso {formatDateTime(member.lastSignInAt)}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-10 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none"
+            disabled={isSaving}
+            onChange={(event) => onUpdate({ role: event.target.value as AdminRestaurantMember["role"] })}
+            value={member.role}
+          >
+            <option value="encargado">Encargado</option>
+            <option value="trabajador">Trabajador</option>
+          </select>
+          <button
+            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            disabled={isSaving}
+            onClick={() => onUpdate({ status: member.status === "active" ? "inactive" : "active" })}
+            type="button"
+          >
+            {member.status === "active" ? "Pausar" : "Activar"}
+          </button>
+          <button
+            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            disabled={isSaving}
+            onClick={onResetPassword}
+            type="button"
+          >
+            Reset password
+          </button>
+          <button
+            className="grid h-10 w-10 place-items-center rounded-2xl border border-[rgba(180,94,84,0.2)] text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+            disabled={isSaving}
+            onClick={onRemove}
+            title="Quitar acceso"
+            type="button"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function Modal({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.55)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
@@ -2303,13 +4639,36 @@ function TextInput(props: { label: string; onChange: (value: string) => void; pl
   );
 }
 
-function ProductImage({ imageUrl, large = false, name }: { imageUrl?: string; large?: boolean; name: string }) {
+function ProductImage({
+  description,
+  emoji,
+  imageUrl,
+  large = false,
+  name,
+}: {
+  description?: string;
+  emoji?: string;
+  imageUrl?: string;
+  large?: boolean;
+  name: string;
+}) {
   const size = large ? "h-24 w-24 rounded-[22px]" : "h-16 w-16 rounded-[18px]";
 
   if (!imageUrl) {
+    const resolvedEmoji = emoji || inferProductEmoji({ description, name });
+
     return (
-      <div className={`grid shrink-0 place-items-center bg-[rgba(118,93,71,0.08)] text-[var(--text-faint)] ${size}`}>
-        <ImagePlus size={large ? 26 : 20} />
+      <div
+        className={`grid shrink-0 place-items-center bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.52),transparent_42%),linear-gradient(135deg,var(--surface-base),var(--surface-strong))] ring-1 ring-[rgba(118,93,71,0.1)] ${size}`}
+        title={`Emoji del producto: ${resolvedEmoji}`}
+      >
+        <span
+          aria-label={`Emoji del producto para ${name}`}
+          className={`${large ? "text-[2.7rem]" : "text-[1.9rem]"} drop-shadow-[0_8px_14px_rgba(20,14,10,0.12)]`}
+          role="img"
+        >
+          {resolvedEmoji}
+        </span>
       </div>
     );
   }

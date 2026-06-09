@@ -2,29 +2,36 @@
 
 ## Objetivo
 
-Permitir que el sistema deje de responder automaticamente cuando el caso necesita una persona.
+Detener la automatizacion cuando el caso ya no debe seguir por bot y dejar contexto suficiente para que una persona continue.
 
-## Casos que activan handoff
+## Estado actual
 
-- usuario pide hablar con asesor,
-- usuario envia comprobante de transferencia,
-- usuario envia reclamo o mensaje fuera del flujo,
-- pedido ambiguo despues de varios intentos,
-- error tecnico que impide continuar,
-- restaurante desactiva automatizacion,
-- pedido con condiciones especiales no soportadas por MVP,
-- cliente pide modificar una orden ya confirmada.
+Hoy el backend ya puede:
 
-## Estados
+- pasar la conversacion a `manual`,
+- guardar `manual_reason`,
+- crear `human_intervention_alerts`,
+- detener auto-respuestas desde ese momento.
+
+## Casos que hoy disparan handoff
+
+- usuario pide asesor,
+- llega un comprobante real de transferencia y queda pendiente revision,
+- llega un comprobante sin orden transferible activa,
+- el parser semantico marca `needsHuman`,
+- la conversacion supera el limite de aclaraciones,
+- falla tecnica en reemplazos u otros caminos operativos.
+
+## Estados y efectos
 
 Cuando se activa handoff:
 
 - `conversations.state = manual`,
-- se crea `human_intervention_alert`,
-- se guarda razon,
-- se detienen respuestas automaticas.
+- se guarda `manual_reason`,
+- se crea una alerta persistente,
+- el router deja de responder automaticamente en mensajes posteriores.
 
-## Tipos de alerta
+## Tipos de alerta operativa
 
 - `support_requested`
 - `transfer_payment_review`
@@ -32,42 +39,46 @@ Cuando se activa handoff:
 - `validation_failed_repeatedly`
 - `technical_error`
 - `order_change_requested`
-- `automation_disabled`
+- `order_pending_confirmation`
 
-## UX esperada en dashboard
+## Gap actual en dashboard
 
-El dashboard debe mostrar:
+La API ya expone alertas y el detalle de pedido ya permite revisar comprobante de transferencia, pero todavia falta una consola humana completa para:
 
-- cliente,
-- telefono,
-- ultima conversacion,
-- razon de alerta,
-- pedido/draft relacionado,
-- mensajes recientes,
-- boton para marcar como atendida,
-- boton para reactivar automatizacion si aplica.
+- ver alertas en una bandeja dedicada,
+- abrir timeline de conversacion,
+- ver mensajes recientes y contexto,
+- marcar atendida o resuelta desde UI,
+- retomar o reactivar automatizacion con mas control.
 
 ## Reactivar automatizacion
 
-Solo un usuario con rol `encargado` deberia poder reactivar automatizacion para una conversacion manual.
+Decision de producto:
 
-Cuando se reactiva:
+- solo `encargado` deberia poder reactivar automatizacion.
 
-- se registra evento,
-- se define el nuevo estado,
-- normalmente se envia un mensaje corto al cliente.
+Estado actual:
+
+- existe toggle general de automatizacion por tenant/sede,
+- no existe todavia un flujo visual completo para retomar una conversacion manual especifica.
 
 ## Transferencias
 
-Transferencia siempre requiere verificacion humana en MVP.
+Transferencia sigue siendo un caso humano en MVP/demo-ready.
 
-Flujo sugerido:
+Estado actual:
 
-1. bot muestra datos de pago,
-2. cliente envia comprobante,
-3. sistema crea alerta `transfer_payment_review`,
-4. conversacion pasa a `manual`,
-5. encargado/trabajador revisa,
-6. si pago valido, marca orden como `accepted` o continua proceso,
-7. si pago no valido, responde manualmente o pide nuevo comprobante.
+1. restaurante acepta la orden,
+2. el cliente recibe instrucciones de pago,
+3. la conversacion queda en `awaiting_transfer_proof`,
+4. si llega imagen o documento, el backend descarga la media real desde Meta,
+5. sube el archivo a `payment-proofs` y crea `payment_proofs`,
+6. mueve la orden a `payment_pending_review`,
+7. crea alerta `transfer_payment_review` y pasa la conversacion a `manual`,
+8. el detalle de pedido ya permite ver el comprobante y confirmar pago.
 
+Gap actual:
+
+- no existe rechazo formal del comprobante con pedido de reenvio,
+- no existe bandeja humana dedicada de alertas y conversaciones,
+- no existe flujo visual completo para retomar una conversacion `manual` especifica.

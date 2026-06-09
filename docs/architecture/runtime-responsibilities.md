@@ -51,8 +51,7 @@ Vive ahi:
 - tenants,
 - menus,
 - productos,
-- combos,
-- promociones,
+- configurables de producto,
 - conversaciones,
 - mensajes,
 - drafts,
@@ -101,6 +100,11 @@ Ejemplo:
 5. Worker consulta menu en Supabase.
 6. Worker calcula respuesta.
 7. Worker envia mensaje por WhatsApp.
+
+Nota de estado actual:
+
+- la infraestructura y el flujo end-to-end de comprobantes ya estan implementados,
+- el gap demo-ready ya no es el archivo ni el estado de pago, sino la consola humana para atender alertas y conversaciones manuales.
 
 ## Configuracion: codigo vs servicio externo
 
@@ -203,4 +207,3 @@ Razones:
 - el flujo es principalmente HTTP/event-driven,
 - el equipo puede avanzar mas rapido,
 - hay menos infraestructura que mantener.
-

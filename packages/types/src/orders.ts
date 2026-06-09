@@ -1,3 +1,5 @@
+import type { ProductOptionType } from "./menu";
+
 export const draftOrderStatuses = [
   "draft",
   "needs_clarification",
@@ -70,6 +72,61 @@ export type RetryOrderCustomerNotificationRequest = {
   type: OrderCustomerNotificationType;
 };
 
+export type PaymentProofStatus = "received" | "stored" | "review_pending" | "approved" | "rejected";
+
+export type PaymentProofSummary = {
+  id: string;
+  status: PaymentProofStatus;
+  mimeType?: string;
+  fileSize?: number;
+  createdAt: string;
+};
+
+export type OrderLineItemOptionTextInput = {
+  groupText?: string;
+  valueText: string;
+  confidence?: number;
+};
+
+export type OrderLineItemSelectedOptionValue = {
+  valueId?: string;
+  valueCode?: string;
+  valueName: string;
+  priceDelta: number;
+};
+
+export type OrderLineItemResolvedOption = {
+  optionId?: string;
+  optionCode?: string;
+  optionName: string;
+  optionType: ProductOptionType;
+  selectedValues?: OrderLineItemSelectedOptionValue[];
+  textValue?: string;
+  priceDelta: number;
+};
+
+export type OrderLineItemOptionsSnapshot = {
+  mode: "resolved" | "pending_clarification";
+  source: "guided" | "semantic";
+  rawOptionTexts?: OrderLineItemOptionTextInput[];
+  resolvedOptions?: OrderLineItemResolvedOption[];
+  freeTextNotes?: string[];
+  pricing?: {
+    unitBasePrice: number;
+    optionsPriceDelta: number;
+    resolvedUnitPrice: number;
+  };
+  validation?: {
+    status: "resolved" | "needs_clarification" | "invalid";
+    missingRequiredOptionIds?: string[];
+    missingRequiredOptionNames?: string[];
+    invalidValueTexts?: string[];
+    ambiguousValueTexts?: string[];
+    reasons?: string[];
+  };
+  clarificationContextId?: string;
+};
+
 export type OrderLineItem = {
   id?: string;
   productId?: string;
@@ -79,7 +136,7 @@ export type OrderLineItem = {
   name: string;
   quantity: number;
   unitPrice: number;
-  options?: Record<string, unknown>;
+  options?: OrderLineItemOptionsSnapshot;
   notes?: string;
   lineTotal: number;
 };
@@ -168,6 +225,7 @@ export type OrderDetail = OrderSummary & {
   deliveryAddress?: string;
   deliveryAddressId?: string;
   items: OrderLineItem[];
+  paymentProof?: PaymentProofSummary;
 };
 
 export type OrdersDashboardPayload = {

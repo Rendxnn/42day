@@ -1,11 +1,44 @@
+export type ProductType = "simple" | "composite";
+
+export type ProductOptionType = "single" | "multiple" | "text";
+
+export type ProductOptionValue = {
+  id?: string;
+  code?: string;
+  name: string;
+  description?: string;
+  aliases?: string[];
+  priceDelta: number;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type ProductOption = {
+  id?: string;
+  code?: string;
+  name: string;
+  description?: string;
+  aliases?: string[];
+  type: ProductOptionType;
+  isRequired: boolean;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  displayMode?: "list" | "buttons" | "swatches" | "text";
+  values: ProductOptionValue[];
+};
+
 export type Product = {
   id: string;
   name: string;
   description?: string;
   basePrice: number;
   category?: string;
+  emoji?: string;
   imageUrl?: string;
   aliases?: string[];
+  productType?: ProductType;
+  options?: ProductOption[];
   isActive: boolean;
 };
 
@@ -55,4 +88,16 @@ export type TodayMenuPayload = {
   menu?: Menu;
   items: MenuItem[];
   products: Product[];
+};
+
+export type PublicCartaPayload = {
+  tenant: {
+    name: string;
+    slug: string;
+  };
+  requestedDate?: string;
+  generatedAt: string;
+  location?: Location;
+  menu?: Menu;
+  items: MenuItem[];
 };
