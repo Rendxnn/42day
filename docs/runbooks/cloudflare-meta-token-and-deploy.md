@@ -101,16 +101,16 @@ Paso a paso:
 
 ## Comandos manuales
 
-Desde PowerShell en la raiz del repo:
+Desde Bash en la raiz del repo:
 
-```powershell
-corepack pnpm --filter @42day/api exec wrangler secret put META_ACCESS_TOKEN --env staging
-corepack pnpm --filter @42day/api exec wrangler deploy --env staging
+```bash
+bash scripts/bash/Set-MetaAccessToken.sh --environment staging
+bash scripts/bash/Deploy-Api.sh --environment staging
 ```
 
-## Scripts PowerShell listos
+## Scripts listos
 
-Quedaron en:
+Para Windows quedan en:
 
 - [Set-CfWorkerSecret.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Set-CfWorkerSecret.ps1)
 - [Set-MetaAccessToken.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Set-MetaAccessToken.ps1)
@@ -122,21 +122,19 @@ Quedaron en:
 - [Start-LocalStack.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Start-LocalStack.ps1)
 - [Publish-Staging.ps1](/mnt/c/Users/samir/Documents/freelance/42day/scripts/powershell/Publish-Staging.ps1)
 
-Uso recomendado:
+Para Ubuntu quedan en:
 
-```powershell
-.\scripts\powershell\Set-MetaAccessToken.ps1
-.\scripts\powershell\Deploy-Api.ps1
-.\scripts\powershell\Test-ApiHealth.ps1
-```
-
-Flujos rapidos:
-
-```powershell
-.\scripts\powershell\Show-Helpers.ps1
-.\scripts\powershell\Start-LocalStack.ps1
-.\scripts\powershell\Publish-Staging.ps1
-```
+- [Show-Helpers.sh](../../scripts/bash/Show-Helpers.sh)
+- [Install-WorkspaceDeps.sh](../../scripts/bash/Install-WorkspaceDeps.sh)
+- [Set-CfWorkerSecret.sh](../../scripts/bash/Set-CfWorkerSecret.sh)
+- [Set-MetaAccessToken.sh](../../scripts/bash/Set-MetaAccessToken.sh)
+- [Set-GeminiApiKey.sh](../../scripts/bash/Set-GeminiApiKey.sh)
+- [Deploy-Api.sh](../../scripts/bash/Deploy-Api.sh)
+- [Test-ApiHealth.sh](../../scripts/bash/Test-ApiHealth.sh)
+- [Start-ApiDev.sh](../../scripts/bash/Start-ApiDev.sh)
+- [Start-DashboardDev.sh](../../scripts/bash/Start-DashboardDev.sh)
+- [Start-LocalStack.sh](../../scripts/bash/Start-LocalStack.sh)
+- [Publish-Staging.sh](../../scripts/bash/Publish-Staging.sh)
 
 ## Tengo que cambiar el token dentro del deploy?
 

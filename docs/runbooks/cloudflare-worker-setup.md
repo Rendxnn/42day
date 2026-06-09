@@ -122,6 +122,26 @@ curl https://<worker-staging-url>/health
 curl "https://<worker-staging-url>/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=<META_VERIFY_TOKEN>&hub.challenge=test123"
 ```
 
+## 5b. Ver logs en vivo
+
+Desde la raiz del repo:
+
+```bash
+bash scripts/bash/Tail-WorkerLogs.sh --environment staging
+```
+
+Opcionalmente filtra por eventos concretos:
+
+```bash
+bash scripts/bash/Tail-WorkerLogs.sh --environment staging --search whatsapp.webhook.received
+```
+
+Si quieres mirar errores solamente:
+
+```bash
+bash scripts/bash/Tail-WorkerLogs.sh --environment staging --status error
+```
+
 ## 6. Configurar Meta webhook
 
 En Meta Developers:

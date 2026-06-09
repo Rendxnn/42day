@@ -54,6 +54,16 @@ Reiniciar:
 python scripts/dev_services.py --restart
 ```
 
+En Ubuntu tambien puedes usar los wrappers Bash:
+
+```bash
+bash scripts/bash/Show-Helpers.sh
+bash scripts/bash/Install-WorkspaceDeps.sh --force
+bash scripts/bash/Start-LocalStack.sh
+bash scripts/bash/Tail-WorkerLogs.sh --environment staging
+bash scripts/bash/Set-MetaPhoneNumberId.sh --environment staging
+```
+
 URLs locales:
 
 - Dashboard: `http://localhost:5173`
