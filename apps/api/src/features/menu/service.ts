@@ -5,11 +5,15 @@ export { buildMenuText, buildWelcomeMenuText, resolveBusinessDate } from "./pres
 import { resolveBusinessDate } from "./presenter";
 import {
   mapMenuItemRow,
+  mapProductOptionRow,
+  mapProductOptionValueRow,
   mapProductRow,
   selectActiveLocation,
   selectActiveProducts,
   selectAvailableMenuItems,
   selectLatestPublishedMenu,
+  selectProductOptionsByProductIds,
+  selectProductOptionValuesByOptionIds,
   selectPublishedMenuForDate,
 } from "./repository";
 
@@ -43,9 +47,19 @@ export async function loadTodayPublishedMenu(input: {
     : undefined;
   const menu = menuForDate ?? fallbackMenu;
 
-  const products = await selectActiveProducts({
+  const productRows = await selectActiveProducts({
     env: input.env,
     schemaName: input.schemaName,
+  });
+  const productOptions = await selectProductOptionsByProductIds({
+    env: input.env,
+    schemaName: input.schemaName,
+    productIds: productRows.map((product) => product.id),
+  });
+  const optionValues = await selectProductOptionValuesByOptionIds({
+    env: input.env,
+    schemaName: input.schemaName,
+    optionIds: productOptions.map((option) => option.id),
   });
 
   const itemRows = menu
@@ -56,7 +70,22 @@ export async function loadTodayPublishedMenu(input: {
       })
     : [];
 
-  const productById = new Map(products.map((product) => [product.id, mapProductRow(product)]));
+  const valuesByOptionId = new Map<string, ReturnType<typeof mapProductOptionValueRow>[]>();
+  for (const row of optionValues) {
+    const existing = valuesByOptionId.get(row.option_id) ?? [];
+    existing.push(mapProductOptionValueRow(row));
+    valuesByOptionId.set(row.option_id, existing);
+  }
+
+  const optionsByProductId = new Map<string, ReturnType<typeof mapProductOptionRow>[]>();
+  for (const row of productOptions) {
+    const existing = optionsByProductId.get(row.product_id) ?? [];
+    existing.push(mapProductOptionRow(row, valuesByOptionId.get(row.id) ?? []));
+    optionsByProductId.set(row.product_id, existing);
+  }
+
+  const products = productRows.map((product) => mapProductRow(product, optionsByProductId.get(product.id)));
+  const productById = new Map(products.map((product) => [product.id, product]));
 
   return {
     tenantSlug: input.tenantSlug,
@@ -87,6 +116,6 @@ export async function loadTodayPublishedMenu(input: {
         }
       : undefined,
     items: itemRows.map((item) => mapMenuItemRow(item, item.product_id ? productById.get(item.product_id) : undefined)),
-    products: products.map(mapProductRow),
+    products,
   };
 }

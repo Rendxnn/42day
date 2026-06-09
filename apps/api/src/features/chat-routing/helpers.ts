@@ -116,6 +116,7 @@ export function draftReadyForSummary(draft: DraftOrder): draft is DraftOrder & {
 export function isActiveOrderState(state: Conversation["state"]): boolean {
   return [
     "awaiting_guided_item_selection",
+    "awaiting_product_configuration",
     "awaiting_more_items",
     "awaiting_fulfillment_type",
     "awaiting_address",

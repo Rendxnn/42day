@@ -59,6 +59,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const token = await getAccessToken();
+  const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const backendError = payload?.error;
+    throw new DashboardApiError(
+      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      response.status,
+      path,
+      backendError,
+    );
+  }
+
+  return response.blob();
+}
+
 async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}/dashboard${path}`, {
     ...init,
@@ -296,6 +320,16 @@ export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_c
 
 export function getOrder(tenantSlug: string, orderId: string) {
   return request<OrderDetail>(`/${tenantSlug}/orders/${orderId}`);
+}
+
+export function getOrderPaymentProof(tenantSlug: string, orderId: string) {
+  return requestBlob(`/${tenantSlug}/orders/${orderId}/payment-proof`);
+}
+
+export function confirmOrderPaymentProof(tenantSlug: string, orderId: string) {
+  return request(`/${tenantSlug}/orders/${orderId}/payment-proof/confirm`, {
+    method: "POST",
+  });
 }
 
 export function updateOrderStatus(

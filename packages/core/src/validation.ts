@@ -1,4 +1,4 @@
-import type { DraftOrder } from "@42day/types";
+import type { DraftOrder, OrderLineItemOptionsSnapshot } from "@42day/types";
 
 export type DraftValidationResult = {
   ok: boolean;
@@ -10,6 +10,10 @@ export function validateDraftForConfirmation(draft: DraftOrder): DraftValidation
 
   if (draft.items.length === 0) {
     errors.push("draft_order.items_required");
+  }
+
+  if (draft.items.some((item) => itemNeedsConfiguration(item.options))) {
+    errors.push("draft_order.items_require_configuration");
   }
 
   if (!draft.fulfillmentType) {
@@ -32,4 +36,12 @@ export function validateDraftForConfirmation(draft: DraftOrder): DraftValidation
     ok: errors.length === 0,
     errors,
   };
+}
+
+function itemNeedsConfiguration(options: OrderLineItemOptionsSnapshot | undefined): boolean {
+  if (!options?.validation) {
+    return false;
+  }
+
+  return options.validation.status !== "resolved";
 }

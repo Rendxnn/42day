@@ -25,6 +25,9 @@ export type NormalizedInboundMessage = {
   type: WhatsAppMessageType;
   text?: string;
   mediaId?: string;
+  mediaCaption?: string;
+  mediaMimeType?: string;
+  mediaFilename?: string;
   location?: NormalizedWhatsAppLocation;
   raw: unknown;
 };

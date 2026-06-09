@@ -11,7 +11,9 @@ apps/
   api/
     src/
       routes/
+      features/
       modules/
+      shared/
       lib/
     README.md
 
@@ -38,6 +40,7 @@ Backend ejecutado en Cloudflare Workers.
 Debe contener:
 
 - rutas HTTP,
+- features por dominio y flujo,
 - webhook de WhatsApp,
 - endpoints para dashboard,
 - integraciones externas,
@@ -49,6 +52,13 @@ No debe contener:
 - reglas de negocio complejas mezcladas en rutas,
 - logica de pricing duplicada,
 - tipos privados que tambien necesite el dashboard.
+
+Distribucion interna actual recomendada:
+
+- `routes/*`: entrypoints finos.
+- `features/*`: implementacion real por dominio.
+- `modules/*`: fachadas de compatibilidad interna mientras termina el refactor.
+- `shared/*`: errores y utilidades transversales.
 
 ### `apps/dashboard`
 
@@ -141,4 +151,4 @@ El gap principal de frontend ya no es "conectar la UI real". Es cerrar:
 
 - bandeja visual dedicada de alertas,
 - timeline de conversacion y mensajes,
-- revision humana de comprobantes de transferencia.
+- acciones mas completas sobre conversaciones `manual`.

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MenuItem, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
+  confirmOrderPaymentProof,
   DashboardApiError,
   getOrder,
+  getOrderPaymentProof,
   listOrders,
   rejectOrderOutOfStock,
   retryOrderCustomerNotification,
@@ -307,6 +309,33 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
     }
   }
 
+  async function handleViewPaymentProof(order: OrderDetail) {
+    setActionKey(`proof:view:${order.id}`);
+    try {
+      const blob = await getOrderPaymentProof(tenantSlug, order.id);
+      const objectUrl = window.URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, "No se pudo abrir el comprobante."));
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  async function handleConfirmPaymentProof(order: OrderDetail) {
+    setActionKey(`proof:confirm:${order.id}`);
+    try {
+      await confirmOrderPaymentProof(tenantSlug, order.id);
+      onNotify("Pago confirmado y pedido listo para continuar.");
+      await refreshAfterMutation(order.id);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, "No se pudo confirmar el pago."));
+    } finally {
+      setActionKey("");
+    }
+  }
+
   async function handleFinalizeOrder(order: OrderDetail) {
     setActionKey(`status:${order.id}:delivered`);
     try {
@@ -556,9 +585,11 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
               onCancel={() => void handleCancelOrder(selectedOrder)}
+              onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
               onFinalize={() => void handleFinalizeOrder(selectedOrder)}
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
+              onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
               order={selectedOrder}
               selectedSummary={selectedSummary}
             />
@@ -587,9 +618,11 @@ function OrderDetailPanel({
   onAccept,
   onAdvanceConfirmed,
   onCancel,
+  onConfirmPaymentProof,
   onFinalize,
   onOpenRejectModal,
   onRetry,
+  onViewPaymentProof,
   order,
   selectedSummary,
 }: {
@@ -598,9 +631,11 @@ function OrderDetailPanel({
   onAccept: () => void;
   onAdvanceConfirmed: () => void;
   onCancel: () => void;
+  onConfirmPaymentProof: () => void;
   onFinalize: () => void;
   onOpenRejectModal: () => void;
   onRetry: () => void;
+  onViewPaymentProof: () => void;
   order: OrderDetail;
   selectedSummary?: OrderSummary;
 }) {
@@ -608,9 +643,10 @@ function OrderDetailPanel({
   const canAccept = order.status === "pending_restaurant_confirmation";
   const canReject = order.status === "pending_restaurant_confirmation";
   const canRetry = notificationFailed && (order.status === "accepted" || order.status === "needs_customer_replacement");
-  const canAdvanceConfirmed = ["accepted", "payment_pending_review", "preparing"].includes(order.status);
+  const canAdvanceConfirmed = ["accepted", "preparing"].includes(order.status);
   const canFinalize = order.status === "on_the_way";
   const canCancel = !closedStatuses.includes(order.status);
+  const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
   const advanceLabel = order.fulfillmentType === "delivery" ? "Marcar delivery 30 min" : "Marcar listo para recoger";
@@ -662,6 +698,24 @@ function OrderDetailPanel({
                 label={actionKey === `retry:${order.id}` ? "Reenviando..." : "Reenviar WhatsApp"}
                 onClick={onRetry}
                 variant="warning"
+              />
+            )}
+            {order.paymentProof && (
+              <ActionButton
+                active={actionKey === `proof:view:${order.id}`}
+                icon={ClipboardList}
+                label={actionKey === `proof:view:${order.id}` ? "Abriendo..." : "Ver comprobante"}
+                onClick={onViewPaymentProof}
+                variant="secondary"
+              />
+            )}
+            {canConfirmPaymentProof && (
+              <ActionButton
+                active={actionKey === `proof:confirm:${order.id}`}
+                icon={Check}
+                label={actionKey === `proof:confirm:${order.id}` ? "Confirmando pago..." : "Confirmar pago"}
+                onClick={onConfirmPaymentProof}
+                variant="primary"
               />
             )}
             {canAdvanceConfirmed && (
@@ -716,6 +770,15 @@ function OrderDetailPanel({
               <p className="mt-4 rounded-[22px] border border-[rgba(197,123,87,0.18)] bg-[rgba(197,123,87,0.08)] px-4 py-3 text-sm font-medium text-[var(--warning)]">
                 Error de envio al cliente: {order.customerNotificationError}
               </p>
+            )}
+            {order.paymentProof && (
+              <div className="mt-4 rounded-[22px] border border-[rgba(97,135,158,0.18)] bg-[rgba(97,135,158,0.08)] px-4 py-4 text-sm text-[#46697c]">
+                <p className="font-semibold text-[#2d5369]">Comprobante de transferencia</p>
+                <p className="mt-2">Estado: {getPaymentProofStatusLabel(order.paymentProof.status)}</p>
+                <p className="mt-1">Recibido: {formatDateTime(order.paymentProof.createdAt)}</p>
+                {order.paymentProof.mimeType && <p className="mt-1">Formato: {order.paymentProof.mimeType}</p>}
+                {order.paymentProof.fileSize !== undefined && <p className="mt-1">Tamano: {formatFileSize(order.paymentProof.fileSize)}</p>}
+              </div>
             )}
           </section>
 
@@ -1410,6 +1473,15 @@ function getNotificationLabel(status?: OrderDetail["customerNotificationStatus"]
   return "pendiente";
 }
 
+function getPaymentProofStatusLabel(status?: string) {
+  if (status === "approved") return "Aprobado";
+  if (status === "review_pending") return "Pendiente de revision";
+  if (status === "stored") return "Guardado";
+  if (status === "received") return "Recibido";
+  if (status === "rejected") return "Rechazado";
+  return "Sin estado";
+}
+
 function getDashboardErrorMessage(error: unknown, fallback: string) {
   if (error instanceof DashboardApiError) {
     if (error.backendError === "order_module_unavailable") {
@@ -1450,6 +1522,18 @@ function formatDateTime(value?: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function resolveCategoryFromMenuItem(menuItems: MenuItem[], menuItemId?: string) {

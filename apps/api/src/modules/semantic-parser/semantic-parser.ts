@@ -70,6 +70,8 @@ export async function parseFreeFormOrder(input: {
         "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
         "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
         "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
+        "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
+        "No conviertas una nota libre en valor de catalogo si el usuario no lo dijo claramente.",
       ].join("\n"),
       input: [
         {
@@ -97,6 +99,18 @@ function summarizeMenu(menu: TodayMenuPayload): Record<string, unknown> {
             name: item.product.name,
             aliases: item.product.aliases ?? [],
             category: item.product.category,
+            options: item.product.options?.slice(0, 4).map((option) => ({
+              name: option.name,
+              type: option.type,
+              required: option.isRequired,
+              values:
+                option.type === "text"
+                  ? undefined
+                  : option.values
+                    .filter((value) => value.isActive)
+                    .slice(0, 6)
+                    .map((value) => value.name),
+            })),
           }
         : undefined,
     })),

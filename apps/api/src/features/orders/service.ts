@@ -1,4 +1,12 @@
-import type { DraftOrder, HumanInterventionType, Order, OrderLineItem, OrderStatus, OutOfStockReplacementOption } from "@42day/types";
+import type {
+  DraftOrder,
+  HumanInterventionType,
+  Order,
+  OrderLineItem,
+  OrderLineItemOptionsSnapshot,
+  OrderStatus,
+  OutOfStockReplacementOption,
+} from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
@@ -43,7 +51,7 @@ type OrderItemRow = {
   name_snapshot: string;
   quantity: number;
   unit_price: number;
-  options_snapshot?: Record<string, unknown> | null;
+  options_snapshot?: OrderLineItemOptionsSnapshot | null;
   notes?: string | null;
   line_total: number;
 };
@@ -79,7 +87,7 @@ type DraftOrderItemRow = {
   name_snapshot: string;
   quantity: number;
   unit_price: number;
-  options_snapshot?: Record<string, unknown> | null;
+  options_snapshot?: OrderLineItemOptionsSnapshot | null;
   notes?: string | null;
   line_total: number;
 };

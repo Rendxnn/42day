@@ -1,4 +1,4 @@
-import type { MenuItem, Product } from "@42day/types";
+import type { MenuItem, Product, ProductOption, ProductOptionValue } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
@@ -34,6 +34,33 @@ export type ProductRow = {
   image_url?: string | null;
   aliases?: unknown;
   is_active: boolean;
+};
+
+export type ProductOptionRow = {
+  id: string;
+  product_id: string;
+  code?: string | null;
+  name: string;
+  description?: string | null;
+  aliases?: unknown;
+  type: "single" | "multiple" | "text";
+  is_required: boolean;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+  display_mode?: "list" | "buttons" | "swatches" | "text" | null;
+};
+
+export type ProductOptionValueRow = {
+  id: string;
+  option_id: string;
+  code?: string | null;
+  name: string;
+  description?: string | null;
+  aliases?: unknown;
+  price_delta: number;
+  is_active: boolean;
+  sort_order: number;
 };
 
 export type MenuItemRow = {
@@ -122,6 +149,46 @@ export async function selectActiveProducts(input: {
   });
 }
 
+export async function selectProductOptionsByProductIds(input: {
+  env: ApiBindings;
+  schemaName: string;
+  productIds: string[];
+}): Promise<ProductOptionRow[]> {
+  if (input.productIds.length === 0) {
+    return [];
+  }
+
+  return createSupabaseRestClient(input.env).select<ProductOptionRow>({
+    schema: input.schemaName,
+    table: "product_options",
+    query: {
+      select: "id,product_id,code,name,description,aliases,type,is_required,min_select,max_select,sort_order,display_mode",
+      product_id: `in.(${input.productIds.join(",")})`,
+      order: "sort_order.asc",
+    },
+  });
+}
+
+export async function selectProductOptionValuesByOptionIds(input: {
+  env: ApiBindings;
+  schemaName: string;
+  optionIds: string[];
+}): Promise<ProductOptionValueRow[]> {
+  if (input.optionIds.length === 0) {
+    return [];
+  }
+
+  return createSupabaseRestClient(input.env).select<ProductOptionValueRow>({
+    schema: input.schemaName,
+    table: "product_option_values",
+    query: {
+      select: "id,option_id,code,name,description,aliases,price_delta,is_active,sort_order",
+      option_id: `in.(${input.optionIds.join(",")})`,
+      order: "sort_order.asc",
+    },
+  });
+}
+
 export async function selectAvailableMenuItems(input: {
   env: ApiBindings;
   schemaName: string;
@@ -139,7 +206,37 @@ export async function selectAvailableMenuItems(input: {
   });
 }
 
-export function mapProductRow(row: ProductRow): Product {
+export function mapProductOptionValueRow(row: ProductOptionValueRow): ProductOptionValue {
+  return {
+    id: row.id,
+    code: row.code ?? undefined,
+    name: row.name,
+    description: row.description ?? undefined,
+    aliases: parseAliases(row.aliases),
+    priceDelta: row.price_delta,
+    isActive: row.is_active,
+    sortOrder: row.sort_order,
+  };
+}
+
+export function mapProductOptionRow(row: ProductOptionRow, values: ProductOptionValue[]): ProductOption {
+  return {
+    id: row.id,
+    code: row.code ?? undefined,
+    name: row.name,
+    description: row.description ?? undefined,
+    aliases: parseAliases(row.aliases),
+    type: row.type,
+    isRequired: row.is_required,
+    minSelect: row.min_select,
+    maxSelect: row.max_select,
+    sortOrder: row.sort_order,
+    displayMode: row.display_mode ?? undefined,
+    values,
+  };
+}
+
+export function mapProductRow(row: ProductRow, options?: ProductOption[]): Product {
   return {
     id: row.id,
     name: row.name,
@@ -150,6 +247,7 @@ export function mapProductRow(row: ProductRow): Product {
     productType: row.product_type ?? "simple",
     imageUrl: row.image_url ?? undefined,
     aliases: parseAliases(row.aliases),
+    options: options && options.length > 0 ? options : undefined,
     isActive: row.is_active,
   };
 }

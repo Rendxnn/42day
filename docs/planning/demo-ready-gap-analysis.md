@@ -1,6 +1,6 @@
 # Gap analysis demo-ready
 
-Ultima actualizacion: 2026-06-07.
+Ultima actualizacion: 2026-06-08.
 
 ## Objetivo
 
@@ -26,58 +26,40 @@ cliente escribe
 -> cliente recibe seguimiento
 ```
 
-## Bloqueantes
+## Cerrado en codigo
 
 ### 1. Validacion de configurables
 
 Estado actual:
 
-- el dashboard ya permite definir productos compuestos y `product_options`,
-- el parser semantico ya puede devolver `optionTexts`,
-- pero el backend todavia no valida robustamente que esas opciones existan y cumplan reglas del producto.
+- el menu conversacional ya carga configurables reales,
+- el backend ya resuelve `groupText` y `valueText` contra `product_options` y `product_option_values`,
+- ya valida requeridos, ambiguedades, valores inactivos y `priceDelta`,
+- ya existe `awaiting_product_configuration` para pedir solo la opcion faltante.
 
-Riesgo:
+Impacto:
 
-- el bot puede “entender” algo que la operacion real no puede defender bien.
-
-Mejor forma de abordarlo:
-
-1. crear una capa de validacion de opciones separada del router,
-2. resolver `groupText` y `valueText` contra `product_options` y `product_option_values`,
-3. validar requeridos, `min_select`, `max_select` y valores inactivos,
-4. si faltan opciones, preguntar solo por esas,
-5. si hay ambiguedad, aclarar o pasar a humano.
-
-Resultado esperado:
-
-- productos simples siguen funcionando igual,
-- productos compuestos dejan de ser un punto debil en demo.
+- productos compuestos ya no dependen de texto opaco en el draft,
+- el resumen y el precio final ya salen de una resolucion estructurada,
+- la confirmacion del pedido se bloquea si queda configuracion pendiente.
 
 ### 2. Transferencia end-to-end
 
 Estado actual:
 
-- el restaurante puede aceptar una orden con transferencia,
-- el cliente recibe instrucciones,
-- si manda comprobante el sistema pasa a `manual`,
-- pero no se guarda todavia el archivo real ni cambia formalmente la orden a `payment_pending_review`.
+- cuando llega imagen o documento en `awaiting_transfer_proof`, el backend descarga media de Meta,
+- sube el archivo real a `payment-proofs`,
+- persiste `payment_proofs`,
+- enlaza el comprobante con mensaje y orden,
+- mueve la orden a `payment_pending_review`,
+- deja revision minima en el detalle del pedido para ver comprobante y confirmar pago.
 
-Riesgo:
+Impacto:
 
-- la demo se rompe justo en un punto comercial sensible: pago.
+- el flujo de transferencia ya es demostrable sin hacks manuales,
+- el restaurante ya puede cerrar la historia minima de pago desde dashboard.
 
-Mejor forma de abordarlo:
-
-1. descargar media de Meta cuando llegue imagen/documento,
-2. subirla a `payment-proofs`,
-3. persistir metadata y relacion con `message` y `order`,
-4. mover la orden a `payment_pending_review`,
-5. crear alerta humana y dejar la conversacion en `manual`,
-6. mostrar el estado de pago pendiente en dashboard.
-
-Resultado esperado:
-
-- la historia de transferencia ya se puede vender como “semiautomatizada con revision humana”.
+## Pendientes criticos
 
 ### 3. Consola humana minima
 
@@ -85,6 +67,7 @@ Estado actual:
 
 - la API de alertas existe,
 - el modulo de pedidos existe,
+- el detalle de pedido ya muestra comprobante de transferencia y confirmacion minima de pago,
 - pero no hay bandeja visual clara de alertas ni timeline de conversacion.
 
 Riesgo:
@@ -123,7 +106,7 @@ Mejor forma de abordarlo:
 
 Estado actual:
 
-- hay typecheck y un E2E valioso,
+- hay typecheck, pruebas unitarias utiles y un E2E valioso,
 - no hay cobertura fuerte de escenarios naturales ni configurables.
 
 Mejor forma de abordarlo:
@@ -173,9 +156,7 @@ Mejor forma de abordarlo:
 
 Incluye:
 
-- validador de configurables,
-- preguntas de aclaracion por opciones faltantes,
-- pruebas unitarias de matcher y opciones.
+- implementado.
 
 Impacto:
 
@@ -185,10 +166,7 @@ Impacto:
 
 Incluye:
 
-- descarga de media,
-- almacenamiento en Supabase Storage,
-- estado `payment_pending_review`,
-- alerta humana y visualizacion basica.
+- implementado.
 
 Impacto:
 
@@ -221,11 +199,9 @@ Impacto:
 
 ## Orden recomendado
 
-1. Validacion de configurables.
-2. Transferencia end-to-end.
-3. Bandeja de alertas y timeline humano.
-4. Alertas con automatizacion apagada.
-5. Pruebas conversacionales y checklist de demo.
+1. Bandeja de alertas y timeline humano.
+2. Alertas con automatizacion apagada.
+3. Pruebas conversacionales y checklist de demo.
 
 ## Definicion de terminado demo-ready
 

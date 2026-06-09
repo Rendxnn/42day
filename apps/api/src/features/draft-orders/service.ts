@@ -1,5 +1,13 @@
 import { calculateDraftTotals, validateDraftForConfirmation } from "@42day/core";
-import type { Conversation, DraftOrder, FulfillmentType, MenuItem, OrderLineItem, PaymentMethod } from "@42day/types";
+import type {
+  Conversation,
+  DraftOrder,
+  FulfillmentType,
+  MenuItem,
+  OrderLineItem,
+  OrderLineItemOptionsSnapshot,
+  PaymentMethod,
+} from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
@@ -75,7 +83,7 @@ type DraftOrderItemRow = {
   name_snapshot: string;
   quantity: number;
   unit_price: number;
-  options_snapshot?: Record<string, unknown> | null;
+  options_snapshot?: OrderLineItemOptionsSnapshot | null;
   notes?: string | null;
   line_total: number;
 };
@@ -174,13 +182,14 @@ export async function addMenuItemToDraftOrder(input: {
   draftOrderId: string;
   menuItem: MenuItem;
   quantity?: number;
-  options?: Record<string, unknown>;
+  options?: OrderLineItemOptionsSnapshot;
   notes?: string;
+  unitPrice?: number;
   deliveryFeeFixed?: number;
 }): Promise<DraftOrder> {
   const client = createSupabaseRestClient(input.env);
   const quantity = Math.max(1, input.quantity ?? 1);
-  const unitPrice = input.menuItem.priceOverride ?? input.menuItem.product?.basePrice ?? 0;
+  const unitPrice = input.unitPrice ?? input.menuItem.priceOverride ?? input.menuItem.product?.basePrice ?? 0;
   const lineName = input.menuItem.displayName ?? input.menuItem.product?.name ?? "Producto";
   const existingRows = await client.select<DraftOrderItemRow>({
     schema: input.schemaName,

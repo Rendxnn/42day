@@ -16,7 +16,8 @@ Hoy el backend ya puede:
 ## Casos que hoy disparan handoff
 
 - usuario pide asesor,
-- llega comprobante o aviso de pago cuando la conversacion espera transferencia,
+- llega un comprobante real de transferencia y queda pendiente revision,
+- llega un comprobante sin orden transferible activa,
 - el parser semantico marca `needsHuman`,
 - la conversacion supera el limite de aclaraciones,
 - falla tecnica en reemplazos u otros caminos operativos.
@@ -42,7 +43,7 @@ Cuando se activa handoff:
 
 ## Gap actual en dashboard
 
-La API ya expone alertas, pero todavia falta una consola humana completa para:
+La API ya expone alertas y el detalle de pedido ya permite revisar comprobante de transferencia, pero todavia falta una consola humana completa para:
 
 - ver alertas en una bandeja dedicada,
 - abrir timeline de conversacion,
@@ -70,10 +71,14 @@ Estado actual:
 1. restaurante acepta la orden,
 2. el cliente recibe instrucciones de pago,
 3. la conversacion queda en `awaiting_transfer_proof`,
-4. cuando llega prueba de pago, el backend crea alerta y pasa a `manual`.
+4. si llega imagen o documento, el backend descarga la media real desde Meta,
+5. sube el archivo a `payment-proofs` y crea `payment_proofs`,
+6. mueve la orden a `payment_pending_review`,
+7. crea alerta `transfer_payment_review` y pasa la conversacion a `manual`,
+8. el detalle de pedido ya permite ver el comprobante y confirmar pago.
 
 Gap actual:
 
-- no se almacena todavia el archivo real del comprobante,
-- no se mueve formalmente la orden a `payment_pending_review`,
-- no existe UI operativa completa de revision del comprobante.
+- no existe rechazo formal del comprobante con pedido de reenvio,
+- no existe bandeja humana dedicada de alertas y conversaciones,
+- no existe flujo visual completo para retomar una conversacion `manual` especifica.

@@ -32,23 +32,41 @@ Meta WhatsApp
 
 ### Estado actual
 
-La orquestacion del flujo principal vive sobre todo en:
+El backend ya no depende solo de `routes/*` y `modules/*`.
 
-- `message_router`,
-- `draft_order_service`,
-- `order_service`,
-- `conversation_service`.
+Hoy la estructura real es:
 
-Los modulos `guided_flow_engine`, `validation_engine` y `pricing_engine` existen, pero hoy son mas nominales que orquestadores reales. La logica de decision sigue concentrada en `message_router`.
+- `routes/*` como entrypoints HTTP,
+- `features/*` como implementacion real por dominio o flujo,
+- `modules/*` como fachadas de compatibilidad interna,
+- `shared/*` para errores y helpers transversales.
+
+La orquestacion del flujo principal sigue concentrada funcionalmente en pocos lugares, pero ya no vive toda en los archivos heredados.
+
+Piezas ya refactorizadas:
+
+- `features/chat-routing/*`
+- `features/conversations/*`
+- `features/menu/*`
+- `features/product-configurator/*`
+- `features/payment-proofs/*`
+- `features/dashboard/router.ts`
+- `features/dashboard/auth.ts`
+- `features/dashboard/types.ts`
+
+Piezas todavia pendientes de una pasada adicional:
+
+- partir `features/dashboard/router.ts` en subrouters por dominio,
+- separar mas `draft-orders` y `orders` en repositorios y mapeos,
+- seguir descomponiendo handlers del flujo conversacional.
 
 ### Objetivo demo-ready
 
 Mantener el comportamiento actual, pero extraer y endurecer:
 
-- validacion real de configurables y reglas operativas,
-- cobertura/horario cuando se active,
-- flujo de comprobantes de transferencia,
-- alertas operativas cuando automatizacion este apagada.
+- consola humana de alertas y timeline,
+- alertas operativas cuando automatizacion este apagada,
+- mas pruebas conversacionales de caracterizacion.
 
 ## Modulos
 
@@ -79,9 +97,14 @@ Responsable de:
 - expirar conversaciones viejas,
 - guardar `state`, `context`, `clarification_attempts` y `manual_reason`.
 
+Estado de refactor:
+
+- hoy actua como fachada hacia `features/conversations/service.ts`,
+- ese feature ya separa servicio, repositorio y mapeo.
+
 ### `message_router`
 
-Es el centro real del flujo conversacional hoy.
+Sigue siendo el centro funcional del flujo conversacional, pero ya no todo vive en un solo archivo heredado.
 
 Responsable de:
 
@@ -91,6 +114,13 @@ Responsable de:
 - avanzar de estado,
 - mover a `manual`,
 - registrar metadata de routing en cada outbound.
+
+Estado de refactor:
+
+- `modules/message-router/router.ts` ya es una fachada,
+- la implementacion real vive en `features/chat-routing/router.ts`,
+- tracing, outbound y varios helpers ya salieron a modulos propios.
+- el subflujo de configurables y el subflujo de transferencia ya viven apoyados en features dedicados, aunque el coordinador central sigue grande.
 
 ### `semantic_parser`
 
@@ -113,6 +143,12 @@ Responsable de:
 - recalcular totales,
 - marcar el draft como listo o con aclaraciones.
 
+Estado de refactor:
+
+- hoy es una fachada hacia `features/draft-orders/service.ts`,
+- ya soporta snapshots estructurados de configurables y `unitPrice` resuelto,
+- todavia falta separar mejor repositorio y mappers.
+
 ### `order_service`
 
 Responsable de:
@@ -121,6 +157,11 @@ Responsable de:
 - crear `order_items`,
 - crear alertas de confirmacion,
 - manejar flujo de agotados y reemplazos del cliente.
+
+Estado de refactor:
+
+- hoy es una fachada hacia `features/orders/service.ts`,
+- todavia falta separar mejor repositorio, mappers y piezas de reemplazo/notificaciones.
 
 ### `dashboard_api`
 
@@ -134,12 +175,39 @@ Responsable de:
 - exponer configuracion de automatizacion,
 - exponer consola admin para restaurantes y miembros.
 
+Estado de refactor:
+
+- `routes/dashboard.ts` ya es fachada,
+- la implementacion real vive en `features/dashboard/router.ts`,
+- tipos y auth/tenant access ya salieron a modulos propios,
+- el siguiente paso natural es dividir ese router en subrouters de `admin`, `orders`, `alerts`, `settings`, `catalog`, `menu`, `uploads` y `diagnostics`.
+
 ### `handoff_service`
 
 Responsable de:
 
 - persistir `human_intervention_alerts`,
 - dejar la conversacion en `manual`.
+
+### `product_configurator`
+
+Responsable de:
+
+- resolver configurables contra el menu real,
+- validar requeridos, ambiguedades, inactivos y limites,
+- construir el snapshot estructurado persistido en draft y order items,
+- calcular `priceDelta` y `resolvedUnitPrice`.
+
+### `payment_proofs`
+
+Responsable de:
+
+- detectar si un inbound de WhatsApp es un comprobante util,
+- descargar media real desde Meta,
+- subir el archivo a Supabase Storage,
+- persistir `payment_proofs`,
+- mover la orden a `payment_pending_review`,
+- exponer lectura y confirmacion minima desde dashboard.
 
 ## IA en backend
 

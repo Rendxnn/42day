@@ -23,8 +23,8 @@ Vive ahi:
 - creacion de ordenes,
 - handoff humano,
 - endpoints para dashboard,
-- futura descarga de comprobantes desde Meta,
-- futura subida de comprobantes a Supabase Storage.
+- descarga de comprobantes desde Meta,
+- subida de comprobantes a Supabase Storage.
 
 Archivos relacionados:
 
@@ -103,8 +103,8 @@ Ejemplo:
 
 Nota de estado actual:
 
-- la infraestructura para comprobantes de transferencia ya existe en DB y Storage,
-- pero el flujo end-to-end de descarga, persistencia y revision del comprobante sigue siendo un gap demo-ready.
+- la infraestructura y el flujo end-to-end de comprobantes ya estan implementados,
+- el gap demo-ready ya no es el archivo ni el estado de pago, sino la consola humana para atender alertas y conversaciones manuales.
 
 ## Configuracion: codigo vs servicio externo
 

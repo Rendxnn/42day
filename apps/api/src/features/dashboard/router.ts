@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import type { Context } from "hono";
 import type {
   AcceptOrderRequest,
   AutomationSettings,
@@ -26,212 +25,34 @@ import { updateConversationState } from "../../modules/conversation-service/conv
 import { logOutboundTextMessage } from "../../modules/message-log/message-log";
 import { sendWhatsAppTextMessage } from "../../modules/whatsapp-webhook/whatsapp-client";
 import { isMissingTableError } from "../../shared/errors/supabase";
-
-type TenantRow = {
-  id: string;
-  name?: string;
-  slug: string;
-  schema_name: string;
-  status?: TenantStatus;
-  timezone?: string;
-  currency?: string;
-  automation_enabled?: boolean;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type TenantUserRow = {
-  tenant_id: string;
-  user_id: string;
-  role: "encargado" | "trabajador";
-  status: "active" | "inactive";
-  created_at?: string;
-};
-
-type TenantStatus = "active" | "inactive" | "suspended";
-
-type AdminAuthUser = {
-  id: string;
-  email?: string;
-  created_at?: string;
-  last_sign_in_at?: string | null;
-  user_metadata?: {
-    name?: string;
-    username?: string;
-    source?: string;
-  };
-  app_metadata?: Record<string, unknown>;
-};
-
-type LocationRow = {
-  id: string;
-  name: string;
-  address?: string;
-  phone?: string;
-  delivery_fee_fixed: number;
-  transfer_payment_instructions?: string | null;
-  pickup_enabled?: boolean;
-  delivery_enabled?: boolean;
-  automation_enabled?: boolean;
-  is_active: boolean;
-};
-
-type ProductRow = {
-  id: string;
-  name: string;
-  description?: string;
-  base_price: number;
-  category?: string;
-  emoji?: string | null;
-  product_type?: "simple" | "composite" | null;
-  image_url?: string;
-  is_active: boolean;
-};
-
-type ProductOptionRow = {
-  id: string;
-  product_id: string;
-  name: string;
-  description?: string | null;
-  type: "single" | "multiple" | "text";
-  is_required: boolean;
-  min_select: number;
-  max_select: number;
-  sort_order?: number | null;
-  display_mode?: "list" | "buttons" | "swatches" | "text" | null;
-};
-
-type ProductOptionValueRow = {
-  id: string;
-  option_id: string;
-  name: string;
-  description?: string | null;
-  price_delta: number;
-  is_active: boolean;
-  sort_order?: number | null;
-};
-
-type MenuRow = {
-  id: string;
-  location_id: string;
-  date: string;
-  name: string;
-  status: Menu["status"];
-  published_at?: string;
-};
-
-type MenuItemRow = {
-  id: string;
-  menu_id: string;
-  product_id?: string;
-  combo_id?: string;
-  display_name?: string;
-  price_override?: number;
-  available_quantity?: number;
-  is_available: boolean;
-  sort_order: number;
-};
-
-type CustomerRow = {
-  id: string;
-  phone: string;
-  name?: string;
-};
-
-type OrderRow = {
-  id: string;
-  draft_order_id?: string | null;
-  customer_id: string;
-  location_id?: string | null;
-  status: OrderStatus;
-  fulfillment_type: "delivery" | "pickup";
-  service_timing?: "asap" | "scheduled" | null;
-  scheduled_for?: string | null;
-  delivery_address?: string | null;
-  delivery_address_id?: string | null;
-  payment_method: "cash" | "transfer";
-  payment_proof_file_id?: string | null;
-  subtotal: number;
-  delivery_fee: number;
-  discount_total: number;
-  total: number;
-  restaurant_reviewed_at?: string | null;
-  restaurant_reviewed_by?: string | null;
-  restaurant_confirmed_at?: string | null;
-  restaurant_confirmed_by?: string | null;
-  restaurant_review_note?: string | null;
-  restaurant_review_metadata?: Record<string, unknown> | null;
-  customer_notified_at?: string | null;
-  customer_notification_status?: "pending" | "sent" | "failed" | null;
-  customer_notification_error?: string | null;
-  payment_confirmed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type DraftOrderRow = {
-  id: string;
-  conversation_id?: string | null;
-};
-
-type OrderItemRow = {
-  id: string;
-  order_id: string;
-  menu_item_id?: string | null;
-  product_id?: string | null;
-  combo_id?: string | null;
-  category_snapshot?: string | null;
-  name_snapshot: string;
-  quantity: number;
-  unit_price: number;
-  options_snapshot?: Record<string, unknown> | null;
-  notes?: string | null;
-  line_total: number;
-};
-
-type AlertRow = {
-  id: string;
-  conversation_id?: string | null;
-  draft_order_id?: string | null;
-  order_id?: string | null;
-  type: string;
-  status: HumanInterventionStatus;
-  title: string;
-  description?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at: string;
-  resolved_at?: string | null;
-};
-
-type OrderNotificationContext = {
-  order: OrderRow;
-  customer: CustomerRow;
-  draftOrder?: DraftOrderRow;
-  location?: LocationRow;
-};
-
-type DashboardVariables = {
-  authUser: AuthUser;
-  authorizedTenants: TenantRow[];
-  tenant: TenantRow;
-};
-
-type AuthUser = {
-  id: string;
-  email?: string;
-  app_metadata?: {
-    role?: string;
-    system_admin?: boolean;
-  };
-};
-
-type GeminiMenuProduct = {
-  name: string;
-  description?: string;
-  basePrice: number;
-  category?: string;
-  confidence?: number;
-};
+import {
+  confirmLatestPaymentProofForOrder,
+  downloadLatestPaymentProofForOrder,
+  getLatestPaymentProofForOrder,
+} from "../payment-proofs/service";
+import { getAuthorizedTenants, getTenantUserRole, isSystemAdmin, requireAuthUser, tenantAccessMiddleware } from "./auth";
+import type {
+  AdminAuthUser,
+  AlertRow,
+  AuthUser,
+  CustomerRow,
+  DashboardVariables,
+  DraftOrderRow,
+  GeminiMenuProduct,
+  LocationRow,
+  MenuItemRow,
+  MenuRow,
+  OrderItemRow,
+  OrderNotificationContext,
+  OrderRow,
+  PaymentProofRow,
+  ProductOptionRow,
+  ProductOptionValueRow,
+  ProductRow,
+  TenantRow,
+  TenantStatus,
+  TenantUserRow,
+} from "./types";
 
 export const dashboardRoutes = new Hono<{
   Bindings: ApiBindings;
@@ -732,22 +553,7 @@ dashboardRoutes.get("/public/:tenantSlug/carta", async (c) => {
   return c.json(payload);
 });
 
-dashboardRoutes.use("/:tenantSlug/*", async (c, next) => {
-  const authUser = await requireAuthUser(c);
-  if (authUser instanceof Response) return authUser;
-  const supabase = createSupabaseRestClient(c.env);
-  const tenants = await getAuthorizedTenants(c.env, authUser.id);
-  const tenant = tenants.find((entry) => entry.slug === c.req.param("tenantSlug"));
-
-  if (!tenant) {
-    return c.json({ error: "tenant_not_found" }, 404);
-  }
-
-  c.set("authUser", authUser);
-  c.set("authorizedTenants", tenants);
-  c.set("tenant", tenant);
-  await next();
-});
+dashboardRoutes.use("/:tenantSlug/*", tenantAccessMiddleware);
 
 dashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
   const tenant = c.get("tenant");
@@ -892,7 +698,7 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
     return c.json({ error: "order_not_found" }, 404);
   }
 
-  const [customer, items] = await Promise.all([
+  const [customer, items, paymentProof] = await Promise.all([
     supabase.select<CustomerRow>({
       schema: tenant.schema_name,
       table: "customers",
@@ -910,6 +716,12 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
         order_id: `eq.${order.id}`,
       },
     }),
+    getLatestPaymentProofForOrder({
+      env: c.env,
+      schemaName: tenant.schema_name,
+      orderId: order.id,
+      paymentProofId: order.payment_proof_file_id ?? undefined,
+    }).catch(() => undefined),
   ]);
 
   const detail: OrderDetail = {
@@ -918,9 +730,118 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
     deliveryAddress: order.delivery_address ?? undefined,
     deliveryAddressId: order.delivery_address_id ?? undefined,
     items: items.map(mapOrderLineItem),
+    paymentProof,
   };
 
   return c.json(detail);
+});
+
+dashboardRoutes.get("/:tenantSlug/orders/:orderId/payment-proof", async (c) => {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (!role) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const [order] = await createSupabaseRestClient(c.env).select<OrderRow>({
+    schema: tenant.schema_name,
+    table: "orders",
+    query: {
+      select:
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+      id: `eq.${c.req.param("orderId")}`,
+      limit: 1,
+    },
+  });
+
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  const paymentProof = await downloadLatestPaymentProofForOrder({
+    env: c.env,
+    schemaName: tenant.schema_name,
+    orderId: order.id,
+    paymentProofId: order.payment_proof_file_id ?? undefined,
+  }).catch(() => undefined);
+
+  if (!paymentProof) {
+    return c.json({ error: "payment_proof_not_found" }, 404);
+  }
+
+  return new Response(paymentProof.data, {
+    headers: {
+      "Content-Type": paymentProof.contentType,
+      "Content-Disposition": `inline; filename="${paymentProof.filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+});
+
+dashboardRoutes.post("/:tenantSlug/orders/:orderId/payment-proof/confirm", async (c) => {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (!role) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await confirmLatestPaymentProofForOrder({
+      env: c.env,
+      schemaName: tenant.schema_name,
+      orderId: c.req.param("orderId"),
+      reviewedBy: authUser.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message === "payment_proof.order_not_found") {
+      return c.json({ error: "order_not_found" }, 404);
+    }
+
+    if (message === "payment_proof.not_found") {
+      return c.json({ error: "payment_proof_not_found" }, 404);
+    }
+
+    if (message === "payment_proof.order_not_pending_review") {
+      return c.json({ error: "order_not_pending_payment_review" }, 409);
+    }
+
+    throw error;
+  }
+
+  const [updatedOrder, customer] = await Promise.all([
+    createSupabaseRestClient(c.env).select<OrderRow>({
+      schema: tenant.schema_name,
+      table: "orders",
+      query: {
+        select:
+          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        id: `eq.${c.req.param("orderId")}`,
+        limit: 1,
+      },
+    }),
+    createSupabaseRestClient(c.env).select<CustomerRow>({
+      schema: tenant.schema_name,
+      table: "customers",
+      query: {
+        select: "id,phone,name",
+        limit: 500,
+      },
+    }),
+  ]);
+
+  const order = updatedOrder[0];
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  const customerById = new Map(customer.map((entry) => [entry.id, entry]));
+  return c.json(mapOrderSummary(order, customerById.get(order.customer_id)));
 });
 
 dashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
@@ -2972,96 +2893,3 @@ function buildAuthAdminHeaders(env: ApiBindings): HeadersInit {
   };
 }
 
-async function requireAuthUser(
-  c: Context<{
-    Bindings: ApiBindings;
-    Variables: DashboardVariables;
-  }>,
-): Promise<AuthUser | Response> {
-  const anonKey = c.env.SUPABASE_ANON_KEY;
-  if (!anonKey || anonKey === "replace-me") {
-    return c.json(
-      {
-        error: "supabase_anon_not_configured",
-        message: c.env.APP_ENV === "local"
-          ? "Set SUPABASE_ANON_KEY in apps/api/.dev.vars and restart wrangler dev."
-          : "Set SUPABASE_ANON_KEY in the Worker environment.",
-      },
-      503,
-    );
-  }
-
-  const authorization = c.req.header("Authorization");
-  const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
-
-  if (!token) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-
-  const response = await fetch(`${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  if (!response.ok) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-
-  const user = (await response.json()) as AuthUser;
-  return user;
-}
-
-function isSystemAdmin(user: AuthUser) {
-  return user.app_metadata?.system_admin === true || user.app_metadata?.role === "system_admin";
-}
-
-async function getAuthorizedTenants(env: ApiBindings, userId: string): Promise<TenantRow[]> {
-  const supabase = createSupabaseRestClient(env);
-  const tenantUsers = await supabase.select<TenantUserRow>({
-    schema: "control",
-    table: "tenant_users",
-    query: {
-      select: "tenant_id,user_id,role,status",
-      user_id: `eq.${userId}`,
-      status: "eq.active",
-    },
-  });
-
-  if (tenantUsers.length === 0) {
-    return [];
-  }
-
-  const tenantIds = tenantUsers.map((row) => row.tenant_id).join(",");
-  return supabase.select<TenantRow>({
-    schema: "control",
-    table: "tenants",
-    query: {
-      select: "id,name,slug,schema_name,timezone",
-      id: `in.(${tenantIds})`,
-      status: "eq.active",
-      order: "name.asc",
-    },
-  });
-}
-
-async function getTenantUserRole(
-  env: ApiBindings,
-  userId: string,
-  tenantId: string,
-): Promise<TenantUserRow["role"] | undefined> {
-  const [tenantUser] = await createSupabaseRestClient(env).select<TenantUserRow>({
-    schema: "control",
-    table: "tenant_users",
-    query: {
-      select: "tenant_id,user_id,role,status",
-      tenant_id: `eq.${tenantId}`,
-      user_id: `eq.${userId}`,
-      status: "eq.active",
-      limit: 1,
-    },
-  });
-
-  return tenantUser?.role;
-}

@@ -1,6 +1,6 @@
 # Estado actual
 
-Ultima actualizacion: 2026-06-07.
+Ultima actualizacion: 2026-06-08.
 
 ## Resumen ejecutivo
 
@@ -9,10 +9,12 @@ Ultima actualizacion: 2026-06-07.
 - WhatsApp inbound y outbound,
 - persistencia conversacional,
 - draft order y checkout basico,
+- validacion deterministica de configurables con aclaracion conversacional,
 - orden pendiente de confirmacion del restaurante,
 - dashboard para aceptar pedido,
 - dashboard para reportar agotados,
 - retoma de conversacion con reemplazos,
+- transferencia con almacenamiento de comprobante y revision minima,
 - consola admin de restaurantes y miembros,
 - notificaciones basicas por pedidos.
 
@@ -69,8 +71,11 @@ Eso significa poder:
 - logging inbound/outbound,
 - guardado de ubicacion WhatsApp,
 - menu publicado real desde Supabase,
+- menu conversacional con `product_options` y `product_option_values`,
 - seleccion por numero, nombre, alias o texto simple,
 - soporte multi-item simple,
+- resolucion deterministica de configurables por nombre, alias y contexto,
+- aclaracion secuencial de configurables requeridos en `awaiting_product_configuration`,
 - `draft_orders` y `draft_order_items`,
 - fulfillment, direccion y pago,
 - resumen y confirmacion del cliente,
@@ -85,6 +90,8 @@ Eso significa poder:
 - vista de pedidos operativa,
 - detalle de pedido,
 - aceptar pedido,
+- revisar comprobante de transferencia desde detalle,
+- confirmar pago de comprobante en orden `payment_pending_review`,
 - reportar agotado,
 - seleccionar reemplazos por categoria,
 - reintentar notificacion al cliente,
@@ -111,6 +118,7 @@ Eso significa poder:
 ```txt
 cliente escribe por WhatsApp
 -> bot muestra menu real o interpreta pedido simple
+-> si el producto tiene configurables requeridos, pide solo las aclaraciones faltantes
 -> se construye draft
 -> bot pide fulfillment, direccion y pago
 -> cliente confirma
@@ -118,6 +126,8 @@ cliente escribe por WhatsApp
 -> dashboard la muestra
 -> restaurante acepta o reporta agotado
 -> backend notifica al cliente
+-> si el pago es transferencia, el cliente envia comprobante
+-> backend lo almacena y deja la orden en revision minima de pago
 ```
 
 ## IA: estado actual
@@ -126,20 +136,28 @@ La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
 
 - intenta ayudar solo cuando el mensaje parece pedido libre o edicion libre,
 - devuelve textos, cantidades, opciones y confianza,
+- puede extraer `optionTexts`, pero no resuelve IDs finales,
 - no calcula precios,
 - no devuelve IDs canonicos,
 - no decide disponibilidad,
 - no confirma ordenes.
 
-El backend siempre intenta resolver esa salida contra el menu real y puede volver al camino deterministico si la salida no es confiable o no es aplicable.
+El backend siempre intenta resolver esa salida contra el menu real y puede volver al camino deterministico si la salida no es confiable o no es aplicable. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
 
 ## Verificacion actual
 
 Validado localmente o por script:
 
+- `npm run test --prefix apps/api`
 - `corepack pnpm typecheck:direct`
-- modulo de pedidos del dashboard compilando
 - script E2E `scripts/e2e_order_confirmation_phase5.py`
+
+Las pruebas automatizadas nuevas ya cubren al menos:
+
+- resolvedor de configurables,
+- validacion de draft con configuraciones pendientes,
+- deteccion y path de comprobantes de transferencia,
+- normalizacion de media inbound de WhatsApp.
 
 El script E2E actual cubre:
 
@@ -152,15 +170,15 @@ El script E2E actual cubre:
 
 ### Core conversacional
 
-- la validacion de configurables contra `product_options` todavia no es robusta,
-- `validation_engine` y `pricing_engine` todavia son capas muy delgadas,
-- el router concentra demasiada orquestacion.
+- el router conversacional sigue concentrando mucha orquestacion,
+- `validation_engine` y `pricing_engine` todavia son capas muy delgadas o de compatibilidad,
+- combinaciones exoticas no modeladas en catalogo siguen requiriendo aclaracion o handoff.
 
 ### Transferencia
 
-- falta descargar y almacenar el archivo real del comprobante,
-- falta asociarlo a mensaje y orden,
-- falta mover la orden a `payment_pending_review` de forma completa.
+- ya existe persistencia real del comprobante y confirmacion minima de pago,
+- todavia falta rechazo formal del comprobante y pedido de reenvio,
+- todavia falta una bandeja humana mejor para revisar estos casos.
 
 ### Operacion humana
 

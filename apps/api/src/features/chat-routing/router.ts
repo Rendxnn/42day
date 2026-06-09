@@ -1,4 +1,13 @@
-import type { Conversation, DraftOrder, HumanInterventionType, MenuItem, TodayMenuPayload } from "@42day/types";
+import type {
+  Conversation,
+  DraftOrder,
+  HumanInterventionType,
+  MenuItem,
+  OrderLineItemOptionTextInput,
+  OrderLineItemResolvedOption,
+  ProductOption,
+  TodayMenuPayload,
+} from "@42day/types";
 import {
   addMenuItemToDraftOrder,
   getOrCreateActiveDraftOrder,
@@ -30,6 +39,7 @@ import {
 import { parseFreeFormOrder, type SemanticOrderEditAction, type SemanticParserResult } from "../../modules/semantic-parser/semantic-parser";
 import { persistHumanInterventionAlert } from "../../modules/handoff-service/handoff-service";
 import { detectSignals, type DetectedSignals } from "../../modules/message-router/signal-detector";
+import { createSupabaseRestClient } from "../../lib/supabase-rest";
 import {
   buildAddMorePrompt,
   buildAddressSaveFailedPrompt,
@@ -49,6 +59,7 @@ import {
   buildOrderSummaryText,
   buildPaymentPrompt,
   buildPickupPaymentPrompt,
+  buildProductConfigurationPrompt,
   buildReplacementAppliedMessage,
   buildReplacementCancelledMessage,
   buildReplacementOptionUnavailableMessage,
@@ -59,10 +70,12 @@ import {
   buildRestaurantReviewPendingMessage,
   buildResumeExistingOrderPrompt,
   buildTransferProofReceivedMessage,
+  buildTransferProofAttachmentPrompt,
+  buildTransferProofProcessingFailedMessage,
+  buildTransferProofUnsupportedFormatPrompt,
 } from "../../modules/message-router/response-composer";
 import {
   buildGuidedContext,
-  buildSemanticOptions,
   draftReadyForSummary,
   isActiveOrderState,
   loadCurrentMenu,
@@ -71,9 +84,53 @@ import {
   shouldTrySemanticAtState,
 } from "./helpers";
 import { sendAndLogText } from "./outbound";
+import {
+  buildOrderLineItemOptionsSnapshot,
+  resolveProductConfiguration,
+  shouldPersistConfigurationSnapshot,
+  splitConfigurationAnswerTexts,
+  type ProductConfigurationResolution,
+  type ProductConfigurationSource,
+} from "../product-configurator/service";
+import {
+  storeInboundPaymentProof,
+} from "../payment-proofs/service";
+import {
+  isTransferProofMediaMessage,
+  isTransferProofUnsupportedMessage,
+  looksLikeTransferProofNotice,
+} from "../payment-proofs/helpers";
 import { markLlmAttempt, markLlmOutcome } from "./tracing";
 import type { ResponseRoutingTrace, RouteInboundMessageInput } from "./types";
 export type { RouteInboundMessageInput } from "./types";
+
+type ConfigurableItemCandidate = {
+  menuItemId: string;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts?: OrderLineItemOptionTextInput[];
+  notes?: string[];
+};
+
+type PendingProductConfigurationContext = {
+  id: string;
+  menuItemId: string;
+  productId?: string;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts: OrderLineItemOptionTextInput[];
+  notes: string[];
+  resolvedOptions: OrderLineItemResolvedOption[];
+  pendingOptionId: string;
+  pendingOptionName: string;
+  pendingOptionType: ProductOption["type"];
+  invalidValueTexts?: string[];
+  ambiguousValueTexts?: string[];
+  startedAt: string;
+  queuedItems?: ConfigurableItemCandidate[];
+};
 
 export async function routeInboundMessage(input: RouteInboundMessageInput): Promise<void> {
   input.routingTrace = {
@@ -114,15 +171,11 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     return;
   }
 
-  if (input.conversation.state === "awaiting_transfer_proof" && signals.hasTransferProofCandidate) {
-    await moveToManual(input, {
-      type: "transfer_payment_review",
-      manualReason: "transfer_payment_review",
-      title: "Comprobante pendiente por revisar",
-      description: "El cliente envio un comprobante o aviso de pago por transferencia.",
-      responseText: buildTransferProofReceivedMessage(),
-    });
-    return;
+  if (input.conversation.state === "awaiting_transfer_proof") {
+    const handledTransferProof = await tryHandleTransferProof(input);
+    if (handledTransferProof) {
+      return;
+    }
   }
 
   if (input.conversation.state === "awaiting_restaurant_confirmation") {
@@ -141,6 +194,13 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
 
     await handleReplacementSelectionClarification(input);
     return;
+  }
+
+  if (input.conversation.state === "awaiting_product_configuration") {
+    const handledProductConfiguration = await tryHandlePendingProductConfiguration(input);
+    if (handledProductConfiguration) {
+      return;
+    }
   }
 
   if (shouldTrySemanticAtState(input.conversation.state, signals)) {
@@ -272,6 +332,120 @@ async function showCurrentMenu(input: RouteInboundMessageInput, isGreeting: bool
   );
 }
 
+async function tryHandleTransferProof(input: RouteInboundMessageInput): Promise<boolean> {
+  if (isTransferProofMediaMessage(input.message)) {
+    if (!input.loggedMessageId) {
+      await moveToManual(input, {
+        type: "technical_error",
+        manualReason: "payment_proof_message_not_logged",
+        title: "Comprobante sin mensaje asociado",
+        description: "Llegó un comprobante de transferencia, pero no se pudo asociar al mensaje inbound persistido.",
+        responseText: buildTransferProofProcessingFailedMessage(),
+        metadata: {
+          mediaId: input.message.mediaId ?? null,
+          messageType: input.message.type,
+        },
+      });
+      return true;
+    }
+
+    try {
+      const result = await storeInboundPaymentProof({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        tenantSlug: input.tenant.slug,
+        conversationId: input.conversation.id,
+        currentDraftOrderId: input.conversation.currentDraftOrderId,
+        loggedMessageId: input.loggedMessageId,
+        message: input.message,
+      });
+
+      if (result.kind === "no_active_order") {
+        await moveToManual(input, {
+          type: "transfer_payment_review",
+          manualReason: "no_active_transfer_order",
+          title: "Comprobante sin orden activa",
+          description: "El cliente envió un comprobante, pero no hay una orden con transferencia activa para asociarlo.",
+          responseText: buildManualHandoffMessage(),
+          metadata: {
+            reason: "no_active_transfer_order",
+            messageType: input.message.type,
+            mediaId: input.message.mediaId ?? null,
+          },
+        });
+        return true;
+      }
+
+      await moveToManual(input, {
+        type: "transfer_payment_review",
+        manualReason: "transfer_payment_review",
+        title: "Comprobante pendiente por revisar",
+        description: "El cliente envió un comprobante de transferencia y quedó pendiente de revisión humana.",
+        responseText: buildTransferProofReceivedMessage(),
+        orderId: result.orderId,
+        draftOrderId: result.draftOrderId,
+        metadata: {
+          paymentProofId: result.paymentProof.id,
+          duplicate: result.kind === "duplicate",
+          replacedPaymentProofId: "replacedPaymentProofId" in result ? (result.replacedPaymentProofId ?? null) : null,
+          mediaId: input.message.mediaId ?? null,
+          messageType: input.message.type,
+        },
+      });
+      return true;
+    } catch (error) {
+      console.error("payment_proof.processing_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId: input.conversation.id,
+        providerMessageId: input.message.providerMessageId,
+      });
+
+      await createSupabaseRestClient(input.env).insert({
+        schema: input.tenant.schemaName,
+        table: "app_events",
+        rows: {
+          conversation_id: input.conversation.id,
+          draft_order_id: input.conversation.currentDraftOrderId ?? null,
+          event_name: "payment_proof.processing_failed",
+          severity: "error",
+          source: "chat_routing",
+          metadata: {
+            providerMessageId: input.message.providerMessageId,
+            mediaId: input.message.mediaId ?? null,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        },
+      }).catch(() => undefined);
+
+      await moveToManual(input, {
+        type: "technical_error",
+        manualReason: "payment_proof_processing_failed",
+        title: "Fallo procesando comprobante",
+        description: "No se pudo descargar, almacenar o vincular el comprobante de transferencia automáticamente.",
+        responseText: buildTransferProofProcessingFailedMessage(),
+        metadata: {
+          reason: error instanceof Error ? error.message : String(error),
+          mediaId: input.message.mediaId ?? null,
+          messageType: input.message.type,
+        },
+      });
+      return true;
+    }
+  }
+
+  if (isTransferProofUnsupportedMessage(input.message)) {
+    await sendAndLogText(input, buildTransferProofUnsupportedFormatPrompt());
+    return true;
+  }
+
+  if (looksLikeTransferProofNotice(input.message.text)) {
+    await sendAndLogText(input, buildTransferProofAttachmentPrompt());
+    return true;
+  }
+
+  return false;
+}
+
 async function tryHandleGuidedSelection(
   input: RouteInboundMessageInput,
   signals: DetectedSignals,
@@ -288,12 +462,19 @@ async function tryHandleGuidedSelection(
     let lastSelectedItem: MenuItem | null = null;
 
     for (const selection of resolvedByTextList) {
-      updatedDraft = await addSelectedItem(input, {
+      const stageResult = await stageConfiguredItemSelection(input, {
         menu,
         selectedItem: selection.item,
         quantity: selection.quantity,
+        source: "guided",
       });
-      lastSelectedItem = selection.item;
+      if (stageResult.kind === "prompted") {
+        return true;
+      }
+      if (stageResult.kind === "added") {
+        updatedDraft = stageResult.draft;
+        lastSelectedItem = selection.item;
+      }
     }
 
     if (updatedDraft && lastSelectedItem) {
@@ -312,15 +493,22 @@ async function tryHandleGuidedSelection(
     return false;
   }
 
-  const updatedDraft = await addSelectedItem(input, {
+  const stageResult = await stageConfiguredItemSelection(input, {
     menu,
     selectedItem,
     quantity,
+    source: "guided",
   });
+  if (stageResult.kind === "prompted") {
+    return true;
+  }
+  if (stageResult.kind !== "added") {
+    return false;
+  }
 
   await continueAfterItemAdded(input, {
     menu,
-    draft: updatedDraft,
+    draft: stageResult.draft,
     selectedItem,
     quantity,
     signals,
@@ -408,22 +596,57 @@ async function tryHandleSemanticOrder(input: RouteInboundMessageInput, signals: 
   let lastSelectedItem: MenuItem | null = null;
   let resolvedCount = 0;
 
-  for (const item of parsed.items) {
+  for (const [index, item] of parsed.items.entries()) {
     const resolved = resolveMenuSelectionFromText(menu, item.productText);
     const selectedItem = resolved?.item ?? null;
     if (!selectedItem) {
       continue;
     }
 
-    lastSelectedItem = selectedItem;
-    resolvedCount += 1;
-    updatedDraft = await addSelectedItem(input, {
+    const queuedItems: ConfigurableItemCandidate[] = [];
+    for (const queuedItem of parsed.items.slice(index + 1)) {
+      const queuedSelection = resolveMenuSelectionFromText(menu, queuedItem.productText);
+      if (!queuedSelection) {
+        continue;
+      }
+
+      queuedItems.push({
+        menuItemId: queuedSelection.item.id,
+        quantity: Math.max(1, Math.round(queuedItem.quantity ?? queuedSelection.quantity ?? 1)),
+        source: "semantic",
+        rawItemText: queuedItem.productText,
+        rawOptionTexts: queuedItem.optionTexts,
+        notes: queuedItem.notes,
+      });
+    }
+
+    const stageResult = await stageConfiguredItemSelection(input, {
       menu,
       selectedItem,
       quantity: Math.max(1, Math.round(item.quantity ?? resolved?.quantity ?? 1)),
-      options: buildSemanticOptions(item),
-      notes: item.notes?.join("; "),
+      source: "semantic",
+      rawItemText: item.productText,
+      rawOptionTexts: item.optionTexts,
+      notes: item.notes,
+      queuedItems,
     });
+    if (stageResult.kind === "prompted") {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        parsed,
+        reason: "semantic_order_clarification_requested",
+      });
+      return true;
+    }
+
+    if (stageResult.kind !== "added") {
+      continue;
+    }
+
+    lastSelectedItem = selectedItem;
+    resolvedCount += 1;
+    updatedDraft = stageResult.draft;
   }
 
   if (!updatedDraft || !lastSelectedItem || resolvedCount === 0) {
@@ -547,13 +770,29 @@ async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {
       continue;
     }
 
-    updatedDraft = await addSelectedItem(input, {
+    const stageResult = await stageConfiguredItemSelection(input, {
       menu: payload.menu,
       selectedItem,
       quantity: Math.max(1, Math.round(action.quantity ?? resolved?.quantity ?? 1)),
-      options: buildSemanticOptions(action),
-      notes: action.notes?.join("; "),
+      source: "semantic",
+      rawItemText: productText,
+      rawOptionTexts: action.optionTexts,
+      notes: action.notes,
     });
+    if (stageResult.kind === "prompted") {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        parsed: payload.parsed,
+        reason: "semantic_edit_clarification_requested",
+      });
+      return true;
+    }
+    if (stageResult.kind !== "added") {
+      continue;
+    }
+
+    updatedDraft = stageResult.draft;
     changed = true;
     contextItem = selectedItem;
   }
@@ -666,12 +905,233 @@ async function continueAfterSemanticEdit(input: RouteInboundMessageInput, payloa
   await sendAndLogText(input, buildOrderAdjustedPrompt(payload.draft));
 }
 
+async function tryHandlePendingProductConfiguration(input: RouteInboundMessageInput): Promise<boolean> {
+  const menu = await loadCurrentMenu(input);
+  const pending = readPendingProductConfiguration(input.conversation);
+  if (!pending) {
+    return false;
+  }
+
+  const selectedItem = menu.items.find((item) => item.id === pending.menuItemId);
+  if (!selectedItem) {
+    await moveToManual(input, {
+      type: "validation_failed_repeatedly",
+      manualReason: "pending_product_configuration_missing_menu_item",
+      title: "Configuracion pendiente sin producto",
+      description: "El producto pendiente por configurar ya no pudo resolverse en el menu actual.",
+      responseText: buildManualHandoffMessage(),
+    });
+    return true;
+  }
+
+  const option = selectedItem.product?.options?.find((entry) => entry.id === pending.pendingOptionId);
+  if (!option) {
+    await moveToManual(input, {
+      type: "validation_failed_repeatedly",
+      manualReason: "pending_product_configuration_missing_option",
+      title: "Configuracion pendiente sin opcion",
+      description: "La opcion pendiente por configurar ya no existe o no pudo cargarse.",
+      responseText: buildManualHandoffMessage(),
+    });
+    return true;
+  }
+
+  const answerText = input.message.text?.trim() ?? "";
+  const rawOptionTexts = mapConfigurationAnswerToRawOptionTexts(option, answerText);
+  if (rawOptionTexts.length === 0) {
+    await handleClarification(
+      input,
+      buildProductConfigurationPrompt(selectedItem.displayName ?? selectedItem.product?.name ?? "tu producto", option),
+      "product_configuration_unresolved",
+    );
+    return true;
+  }
+
+  const resolution = resolveProductConfiguration({
+    menuItem: selectedItem,
+    source: pending.source,
+    rawOptionTexts,
+    freeTextNotes: pending.notes,
+    existingResolvedOptions: pending.resolvedOptions,
+    forcedOptionId: option.id,
+  });
+
+  const mergedRawOptionTexts = [...pending.rawOptionTexts, ...rawOptionTexts];
+
+  if (resolution.status === "resolved") {
+    const notes = uniqueNotes([...pending.notes, ...resolution.freeTextNotes]);
+    let draft = await addSelectedItem(input, {
+      menu,
+      selectedItem,
+      quantity: pending.quantity,
+      options: shouldPersistConfigurationSnapshot({
+        menuItem: selectedItem,
+        resolution,
+      })
+        ? buildOrderLineItemOptionsSnapshot({
+            ...resolution,
+            rawOptionTexts: mergedRawOptionTexts,
+            freeTextNotes: notes,
+          })
+        : undefined,
+      notes: notes.join("; ") || undefined,
+      unitPrice: resolution.pricing.resolvedUnitPrice,
+    });
+
+    let lastSelectedItem = selectedItem;
+    const queuedResult = await processQueuedConfiguredItems(input, {
+      menu,
+      queuedItems: pending.queuedItems ?? [],
+    });
+    if (queuedResult.kind === "prompted") {
+      return true;
+    }
+    if (queuedResult.kind === "added") {
+      draft = queuedResult.draft ?? draft;
+      lastSelectedItem = queuedResult.lastSelectedItem ?? lastSelectedItem;
+    }
+
+    await continueAfterItemAdded(input, {
+      menu,
+      draft,
+      selectedItem: lastSelectedItem,
+      quantity: pending.quantity,
+      signals: detectSignals({
+        message: input.message,
+        state: input.conversation.state,
+      }),
+    });
+    return true;
+  }
+
+  if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
+    await persistPendingProductConfiguration(input, {
+      menu,
+      selectedItem,
+      quantity: pending.quantity,
+      source: pending.source,
+      rawItemText: pending.rawItemText,
+      rawOptionTexts: mergedRawOptionTexts,
+      notes: uniqueNotes([...pending.notes, ...resolution.freeTextNotes]),
+      resolution,
+      queuedItems: pending.queuedItems,
+    });
+    return true;
+  }
+
+  await moveToManual(input, {
+    type: "validation_failed_repeatedly",
+    manualReason: "product_configuration_unresolved",
+    title: "Producto requiere configuracion manual",
+    description: "El bot no logro completar la configuracion del producto despues de varios intentos.",
+    responseText: buildManualHandoffMessage(),
+  });
+  return true;
+}
+
+async function stageConfiguredItemSelection(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  selectedItem: MenuItem;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts?: OrderLineItemOptionTextInput[];
+  notes?: string[];
+  queuedItems?: ConfigurableItemCandidate[];
+}): Promise<{ kind: "added"; draft: DraftOrder } | { kind: "prompted" }> {
+  const notes = uniqueNotes(payload.notes ?? []);
+  const resolution = resolveProductConfiguration({
+    menuItem: payload.selectedItem,
+    source: payload.source,
+    rawOptionTexts: payload.rawOptionTexts,
+    freeTextNotes: notes,
+  });
+
+  if (resolution.status === "resolved") {
+    return {
+      kind: "added",
+      draft: await addSelectedItem(input, {
+        menu: payload.menu,
+        selectedItem: payload.selectedItem,
+        quantity: payload.quantity,
+        options: shouldPersistConfigurationSnapshot({
+          menuItem: payload.selectedItem,
+          resolution,
+        })
+          ? buildOrderLineItemOptionsSnapshot(resolution)
+          : undefined,
+        notes: notes.join("; ") || undefined,
+        unitPrice: resolution.pricing.resolvedUnitPrice,
+      }),
+    };
+  }
+
+  if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
+    await persistPendingProductConfiguration(input, {
+      menu: payload.menu,
+      selectedItem: payload.selectedItem,
+      quantity: payload.quantity,
+      source: payload.source,
+      rawItemText: payload.rawItemText,
+      rawOptionTexts: resolution.rawOptionTexts,
+      notes,
+      resolution,
+      queuedItems: payload.queuedItems,
+    });
+    return { kind: "prompted" };
+  }
+
+  await moveToManual(input, {
+    type: "validation_failed_repeatedly",
+    manualReason: "product_configuration_unresolved",
+    title: "Producto requiere revision",
+    description: "El producto tiene configuracion pendiente que el bot no logro resolver.",
+    responseText: buildManualHandoffMessage(),
+  });
+  return { kind: "prompted" };
+}
+
+async function processQueuedConfiguredItems(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  queuedItems: ConfigurableItemCandidate[];
+}): Promise<{ kind: "added"; draft?: DraftOrder; lastSelectedItem?: MenuItem } | { kind: "prompted" }> {
+  let latestDraft: DraftOrder | undefined;
+  let lastSelectedItem: MenuItem | undefined;
+
+  for (const [index, candidate] of payload.queuedItems.entries()) {
+    const selectedItem = payload.menu.items.find((item) => item.id === candidate.menuItemId);
+    if (!selectedItem) {
+      continue;
+    }
+
+    const stageResult = await stageConfiguredItemSelection(input, {
+      menu: payload.menu,
+      selectedItem,
+      quantity: candidate.quantity,
+      source: candidate.source,
+      rawItemText: candidate.rawItemText,
+      rawOptionTexts: candidate.rawOptionTexts,
+      notes: candidate.notes,
+      queuedItems: payload.queuedItems.slice(index + 1),
+    });
+    if (stageResult.kind === "prompted") {
+      return { kind: "prompted" };
+    }
+
+    latestDraft = stageResult.draft;
+    lastSelectedItem = selectedItem;
+  }
+
+  return { kind: "added", draft: latestDraft, lastSelectedItem };
+}
+
 async function addSelectedItem(input: RouteInboundMessageInput, payload: {
   menu: TodayMenuPayload;
   selectedItem: MenuItem;
   quantity: number;
-  options?: Record<string, unknown>;
+  options?: ReturnType<typeof buildOrderLineItemOptionsSnapshot>;
   notes?: string;
+  unitPrice?: number;
 }): Promise<DraftOrder> {
   const draft = await getOrCreateActiveDraftOrder({
     env: input.env,
@@ -690,6 +1150,7 @@ async function addSelectedItem(input: RouteInboundMessageInput, payload: {
     quantity: payload.quantity,
     options: payload.options,
     notes: payload.notes,
+    unitPrice: payload.unitPrice,
     deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
   });
 }
@@ -1227,6 +1688,124 @@ async function handleReplacementSelectionClarification(input: RouteInboundMessag
   await sendAndLogText(input, buildReplacementSelectionPrompt(pendingReplacement.replacementOptions));
 }
 
+async function persistPendingProductConfiguration(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  selectedItem: MenuItem;
+  quantity: number;
+  source: ProductConfigurationSource;
+  rawItemText?: string;
+  rawOptionTexts: OrderLineItemOptionTextInput[];
+  notes: string[];
+  resolution: ProductConfigurationResolution;
+  queuedItems?: ConfigurableItemCandidate[];
+}): Promise<void> {
+  const nextOption = payload.resolution.nextOption;
+  if (!nextOption?.id) {
+    throw new Error("product_configuration.next_option_missing");
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_product_configuration",
+    context: {
+      ...input.conversation.context,
+      pendingConfig: {
+        id: crypto.randomUUID(),
+        menuItemId: payload.selectedItem.id,
+        productId: payload.selectedItem.productId ?? payload.selectedItem.product?.id,
+        quantity: payload.quantity,
+        source: payload.source,
+        rawItemText: payload.rawItemText,
+        rawOptionTexts: payload.rawOptionTexts,
+        notes: payload.notes,
+        resolvedOptions: payload.resolution.resolvedOptions,
+        pendingOptionId: nextOption.id,
+        pendingOptionName: nextOption.name,
+        pendingOptionType: nextOption.type,
+        invalidValueTexts: payload.resolution.invalidValueTexts,
+        ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
+        startedAt: new Date().toISOString(),
+        queuedItems: payload.queuedItems,
+      } satisfies PendingProductConfigurationContext,
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(
+    input,
+    buildProductConfigurationPrompt(
+      payload.selectedItem.displayName ?? payload.selectedItem.product?.name ?? "tu producto",
+      nextOption,
+      {
+        invalidValueTexts: payload.resolution.invalidValueTexts,
+        ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
+      },
+    ),
+  );
+}
+
+function readPendingProductConfiguration(conversation: Conversation): PendingProductConfigurationContext | null {
+  const candidate = conversation.context?.pendingConfig;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const pending = candidate as Partial<PendingProductConfigurationContext>;
+  if (!pending.menuItemId || !pending.pendingOptionId || !pending.source) {
+    return null;
+  }
+
+  return {
+    id: pending.id ?? crypto.randomUUID(),
+    menuItemId: pending.menuItemId,
+    productId: pending.productId,
+    quantity: Math.max(1, Math.round(pending.quantity ?? 1)),
+    source: pending.source,
+    rawItemText: pending.rawItemText,
+    rawOptionTexts: Array.isArray(pending.rawOptionTexts) ? pending.rawOptionTexts : [],
+    notes: Array.isArray(pending.notes) ? pending.notes.filter((entry): entry is string => typeof entry === "string") : [],
+    resolvedOptions: Array.isArray(pending.resolvedOptions) ? pending.resolvedOptions : [],
+    pendingOptionId: pending.pendingOptionId,
+    pendingOptionName: pending.pendingOptionName ?? "",
+    pendingOptionType: pending.pendingOptionType ?? "single",
+    invalidValueTexts: Array.isArray(pending.invalidValueTexts) ? pending.invalidValueTexts.filter((entry): entry is string => typeof entry === "string") : undefined,
+    ambiguousValueTexts: Array.isArray(pending.ambiguousValueTexts) ? pending.ambiguousValueTexts.filter((entry): entry is string => typeof entry === "string") : undefined,
+    startedAt: pending.startedAt ?? new Date().toISOString(),
+    queuedItems: Array.isArray(pending.queuedItems) ? pending.queuedItems : undefined,
+  };
+}
+
+function mapConfigurationAnswerToRawOptionTexts(option: ProductOption, answerText: string): OrderLineItemOptionTextInput[] {
+  const normalized = answerText.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  if (option.type === "text") {
+    return [{ groupText: option.name, valueText: normalized }];
+  }
+
+  const activeValues = option.values.filter((value) => value.isActive);
+  return splitConfigurationAnswerTexts(normalized).map((entry) => {
+    const numeric = Number(entry);
+    const selectedByIndex =
+      Number.isInteger(numeric) && numeric >= 1 && numeric <= activeValues.length
+        ? activeValues[numeric - 1]?.name
+        : undefined;
+
+    return {
+      groupText: option.name,
+      valueText: selectedByIndex ?? entry,
+    };
+  });
+}
+
+function uniqueNotes(notes: string[]): string[] {
+  return Array.from(new Set(notes.map((entry) => entry.trim()).filter(Boolean)));
+}
+
 async function handleClarification(
   input: RouteInboundMessageInput,
   responseText: string,
@@ -1258,6 +1837,9 @@ async function moveToManual(input: RouteInboundMessageInput, payload: {
   title: string;
   description: string;
   responseText: string;
+  orderId?: string;
+  draftOrderId?: string;
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   await updateConversationState({
     env: input.env,
@@ -1272,11 +1854,14 @@ async function moveToManual(input: RouteInboundMessageInput, payload: {
     schemaName: input.tenant.schemaName,
     alert: {
       conversationId: input.conversation.id,
+      draftOrderId: payload.draftOrderId,
+      orderId: payload.orderId,
       type: payload.type,
       title: payload.title,
       description: payload.description,
       metadata: {
         providerMessageId: input.message.providerMessageId,
+        ...(payload.metadata ?? {}),
       },
     },
   }).catch((error: unknown) => {

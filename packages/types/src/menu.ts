@@ -4,8 +4,10 @@ export type ProductOptionType = "single" | "multiple" | "text";
 
 export type ProductOptionValue = {
   id?: string;
+  code?: string;
   name: string;
   description?: string;
+  aliases?: string[];
   priceDelta: number;
   isActive: boolean;
   sortOrder: number;
@@ -13,8 +15,10 @@ export type ProductOptionValue = {
 
 export type ProductOption = {
   id?: string;
+  code?: string;
   name: string;
   description?: string;
+  aliases?: string[];
   type: ProductOptionType;
   isRequired: boolean;
   minSelect: number;

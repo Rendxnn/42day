@@ -1,4 +1,4 @@
-import type { DraftOrder, PaymentMethod, TodayMenuPayload } from "@42day/types";
+import type { DraftOrder, OrderLineItem, PaymentMethod, ProductOption, TodayMenuPayload } from "@42day/types";
 
 const DEFAULT_ESTIMATED_MINUTES = 30;
 
@@ -56,7 +56,7 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
   const lines = ["🧾 Así quedaría tu pedido:", ""];
 
   for (const item of draft.items) {
-    lines.push(`• ${item.quantity} x ${item.name} — ${formatCop(item.lineTotal)}`);
+    lines.push(`• ${item.quantity} x ${formatLineItemLabel(item)} — ${formatCop(item.lineTotal)}`);
   }
 
   lines.push("", `Subtotal: ${formatCop(draft.subtotal)}`);
@@ -79,6 +79,8 @@ export function buildClarificationPrompt(state: DraftOrderStateLike): string {
   switch (state) {
     case "awaiting_guided_item_selection":
       return "Con gusto. Cuéntame qué deseas pedir del menú de hoy; puede ser por nombre o por número.";
+    case "awaiting_product_configuration":
+      return "Necesito confirmar una opción del producto para continuar con tu pedido.";
     case "awaiting_more_items":
       return "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?";
     case "awaiting_fulfillment_type":
@@ -106,6 +108,18 @@ export function buildMaxClarificationMessage(): string {
 
 export function buildTransferProofReceivedMessage(): string {
   return "Perfecto. Ya recibí tu comprobante y se lo compartiré al restaurante para revisión.";
+}
+
+export function buildTransferProofAttachmentPrompt(): string {
+  return "Claro. Para continuar, por favor envíame una imagen o un PDF del comprobante de transferencia por este mismo chat.";
+}
+
+export function buildTransferProofUnsupportedFormatPrompt(): string {
+  return "Para revisar la transferencia necesito una imagen o un PDF del comprobante. Si quieres, envíamelo por aquí y con gusto continúo.";
+}
+
+export function buildTransferProofProcessingFailedMessage(): string {
+  return "Recibí tu mensaje, pero no pude procesar el comprobante automáticamente. Voy a compartirlo con alguien del restaurante para que continúe contigo.";
 }
 
 export function buildRestaurantReviewPendingMessage(): string {
@@ -158,6 +172,47 @@ export function buildAddressSavedPrompt(addressText: string, nextPrompt: string)
 
 export function buildEditableSummaryAdjustmentPrompt(): string {
   return "Claro, con gusto 😊 Dime qué quieres ajustar. Puedes pedirme que agregue, quite o cambie productos.";
+}
+
+export function buildProductConfigurationPrompt(
+  itemName: string,
+  option: ProductOption,
+  payload?: {
+    invalidValueTexts?: string[];
+    ambiguousValueTexts?: string[];
+  },
+): string {
+  const lines: string[] = [];
+
+  if ((payload?.invalidValueTexts?.length ?? 0) > 0) {
+    lines.push(`No pude usar esta opción tal como me la indicaste: ${payload?.invalidValueTexts?.join(", ")}.`);
+  } else if ((payload?.ambiguousValueTexts?.length ?? 0) > 0) {
+    lines.push(`Necesito confirmar mejor esta parte del producto: ${payload?.ambiguousValueTexts?.join(", ")}.`);
+  }
+
+  if (option.type === "text") {
+    lines.push(`Para continuar con ${itemName}, por favor indícame ${option.name.toLowerCase()}.`);
+    return lines.join("\n");
+  }
+
+  lines.push(`Para continuar con ${itemName}, necesito que me confirmes ${option.name}.`);
+
+  if (option.type === "multiple") {
+    const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);
+    if (minimum > 1 || option.maxSelect > 1) {
+      lines.push(`Puedes elegir entre ${minimum} y ${option.maxSelect} opciones.`);
+    } else {
+      lines.push("Puedes elegir una o varias opciones, separadas por coma.");
+    }
+  }
+
+  const activeValues = option.values.filter((value) => value.isActive).slice(0, 8);
+  if (activeValues.length > 0) {
+    lines.push("");
+    lines.push(...activeValues.map((value, index) => `${index + 1}. ${value.name}${value.priceDelta !== 0 ? ` — ${formatCop(value.priceDelta)}` : ""}`));
+  }
+
+  return lines.join("\n");
 }
 
 export function buildOrderSubmittedForReviewMessage(orderId: string, paymentMethod?: PaymentMethod | null): string {
@@ -218,6 +273,7 @@ export function formatCop(value: number): string {
 
 type DraftOrderStateLike =
   | "awaiting_guided_item_selection"
+  | "awaiting_product_configuration"
   | "awaiting_more_items"
   | "awaiting_fulfillment_type"
   | "awaiting_address"
@@ -232,6 +288,25 @@ function formatDraftItemsInline(draft: DraftOrder): string {
   }
 
   return draft.items
-    .map((item) => `${item.quantity} x ${item.name}`)
+    .map((item) => `${item.quantity} x ${formatLineItemLabel(item)}`)
     .join(", ");
+}
+
+function formatLineItemLabel(item: Pick<OrderLineItem, "name" | "options" | "notes">): string {
+  const optionSummary = item.options?.resolvedOptions
+    ?.map((option) => {
+      const values = option.selectedValues?.map((value) => value.valueName).join(", ");
+      const valueText = values ?? option.textValue;
+      return valueText ? `${option.optionName}: ${valueText}` : undefined;
+    })
+    .filter((entry): entry is string => Boolean(entry))
+    .join(" | ");
+
+  const noteSummary = item.notes?.trim() ? `Nota: ${item.notes.trim()}` : undefined;
+  const details = [optionSummary, noteSummary].filter((entry): entry is string => Boolean(entry)).join(" | ");
+  if (!details) {
+    return item.name;
+  }
+
+  return `${item.name} (${details})`;
 }

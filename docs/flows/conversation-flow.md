@@ -52,10 +52,11 @@ Resuelve hoy:
 Cuando agrega item:
 
 1. crea o reutiliza `draft_order`,
-2. agrega items,
-3. recalcula subtotal,
-4. deja la conversacion en `awaiting_more_items`,
-5. pregunta si desea agregar algo mas o seguir con entrega.
+2. si el producto tiene configurables requeridos faltantes, entra a `awaiting_product_configuration`,
+3. si no faltan configurables, agrega items,
+4. recalcula subtotal,
+5. deja la conversacion en `awaiting_more_items`,
+6. pregunta si desea agregar algo mas o seguir con entrega.
 
 ### Camino con IA
 
@@ -63,11 +64,22 @@ Si el mensaje parece pedido libre o edicion libre:
 
 1. el router intenta parser semantico,
 2. el parser devuelve textos, cantidades, posibles opciones y confianza,
-3. el backend intenta resolver eso contra el menu real,
-4. si puede aplicar el cambio, actualiza el draft,
-5. si no puede, vuelve a aclaracion o camino deterministico.
+3. el backend intenta resolver eso contra el menu real y contra configurables reales,
+4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
+5. si puede aplicar el cambio, actualiza el draft,
+6. si no puede, vuelve a aclaracion o camino deterministico.
 
-El LLM no calcula precios, no inventa productos y no decide disponibilidad.
+El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
+
+## Flow B1: aclaracion de configurables
+
+Estado actual implementado:
+
+1. cuando un producto reconocido tiene configurables requeridos faltantes o ambiguos, la conversacion pasa a `awaiting_product_configuration`,
+2. el backend pregunta una sola opcion faltante por turno,
+3. intenta resolver la respuesta solo contra la opcion pendiente,
+4. si completa todas las opciones requeridas, agrega el item al draft con precio final resuelto,
+5. si supera el umbral de aclaraciones, deriva a `manual`.
 
 ## Flow C: checkout
 
@@ -160,27 +172,22 @@ Si cancela:
 
 ## Flow G: transferencia
 
-### Estado actual
+### Estado actual implementado
 
 1. el cliente puede elegir `transferencia`,
 2. la orden igual queda `pending_restaurant_confirmation` hasta que el restaurante revise,
 3. cuando el restaurante acepta, el cliente recibe instrucciones de pago y la conversacion queda en `awaiting_transfer_proof`,
-4. si llega imagen, documento o texto de comprobante, el flujo pasa a `manual` y crea alerta.
-
-### Gap actual
-
-Todavia falta:
-
-- descargar y almacenar el archivo real,
-- asociarlo a mensaje y orden,
-- mover formalmente la orden a `payment_pending_review`.
+4. si llega una imagen o documento, el backend descarga el archivo real desde Meta, lo sube a `payment-proofs`, lo enlaza a la orden y mueve la orden a `payment_pending_review`,
+5. despues crea alerta operativa y la conversacion pasa a `manual`,
+6. si el cliente solo escribe algo como `ya pague` sin adjunto, el bot sigue pidiendo imagen o PDF,
+7. si llega audio u otro formato no soportado, el bot pide imagen o PDF y mantiene `awaiting_transfer_proof`.
 
 ## Handoff humano
 
 La conversacion pasa a `manual` cuando:
 
 - el usuario pide asesor,
-- llega comprobante de transferencia,
+- llega un comprobante de transferencia procesable,
 - hay ambiguedad repetida,
 - hay error tecnico,
 - el caso operativo ya no debe seguir automatico.
@@ -199,6 +206,7 @@ Si pasan 30 minutos sin respuesta:
 new
 awaiting_mode_selection
 awaiting_guided_item_selection
+awaiting_product_configuration
 awaiting_more_items
 awaiting_fulfillment_type
 awaiting_address
@@ -236,6 +244,7 @@ IA:
 Humano:
 
 - validacion de transferencia,
+- rechazo o reenvio de comprobante de transferencia,
 - reclamos o casos especiales,
 - ambiguedad repetida,
 - cambios posteriores a una orden ya confirmada por el restaurante.
