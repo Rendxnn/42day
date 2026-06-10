@@ -19,6 +19,7 @@ META_GRAPH_API_VERSION = "v22.0"
 # pnpm --filter @42day/api exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 # pnpm --filter @42day/api exec wrangler secret put OPENAI_API_KEY
 # pnpm --filter @42day/api exec wrangler secret put GEMINI_API_KEY
+# pnpm --filter @42day/api exec wrangler secret put OPENROUTER_API_KEY
 # pnpm --filter @42day/api exec wrangler secret put AI_CONFIG_ENCRYPTION_KEY
 
 [env.staging]
@@ -28,6 +29,8 @@ name = "42day-api-staging"
 APP_ENV = "staging"
 META_GRAPH_API_VERSION = "v22.0"
 GEMINI_MODEL = "gemini-2.5-flash"
+OPENROUTER_PRIMARY_MODEL = "openai/gpt-oss-120b:free"
+OPENROUTER_SECONDARY_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
 
 [env.production]
 name = "42day-api-production"
@@ -35,4 +38,4 @@ name = "42day-api-production"
 [env.production.vars]
 APP_ENV = "production"
 META_GRAPH_API_VERSION = "v22.0"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"

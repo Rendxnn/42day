@@ -15,6 +15,7 @@ import { continueAfterItemAdded } from "./checkout";
 import { loadCurrentMenu } from "./helpers";
 import { moveToManual } from "./manual-handoff";
 import { persistPendingProductConfiguration } from "./product-configuration";
+import { traceInfo, truncateForLog } from "./tracing";
 import type { RouteInboundMessageInput } from "./types";
 
 export async function tryHandleGuidedSelection(
@@ -27,6 +28,18 @@ export async function tryHandleGuidedSelection(
   const resolvedByText = resolvedByTextList.length === 1 ? resolvedByTextList[0] : null;
   const selectedItem = resolvedByNumber ?? resolvedByText?.item ?? null;
   const quantity = resolvedByText?.quantity ?? 1;
+
+  traceInfo(input, "route.guided_selection", {
+    route: "guided",
+    reasonCode: selectedItem ? "candidate_resolved" : "candidate_missing",
+    preview: [
+      `text=${truncateForLog(signals.normalizedText) ?? "-"}`,
+      `resolvedByNumber=${resolvedByNumber?.displayName ?? resolvedByNumber?.product?.name ?? "-"}`,
+      `resolvedByTextCount=${resolvedByTextList.length}`,
+      `selected=${selectedItem?.displayName ?? selectedItem?.product?.name ?? "-"}`,
+      `qty=${quantity}`,
+    ].join(" "),
+  });
 
   if (!resolvedByNumber && resolvedByTextList.length > 1 && menu.location) {
     let updatedDraft: DraftOrder | null = null;
@@ -61,6 +74,11 @@ export async function tryHandleGuidedSelection(
   }
 
   if (!selectedItem || !menu.location) {
+    traceInfo(input, "route.guided_selection", {
+      route: "guided",
+      reasonCode: !menu.location ? "menu_location_missing" : "item_not_resolved",
+      preview: signals.normalizedText,
+    });
     return false;
   }
 

@@ -19,14 +19,23 @@ import { tryHandleGuidedSelection } from "./guided-selection";
 import { tryHandleSemanticOrder } from "./semantic-order";
 import { handleClarification, moveToManual } from "./manual-handoff";
 import { proceedToNextOrderStep, tryHandleFulfillmentSelection, tryHandleDeliveryAddress, tryHandlePaymentMethod, tryHandleConfirmation } from "./checkout";
+import { initializeRoutingTrace, traceInfo, truncateForLog } from "./tracing";
 import type { RouteInboundMessageInput } from "./types";
 export type { RouteInboundMessageInput } from "./types";
 
 export async function routeInboundMessage(input: RouteInboundMessageInput): Promise<void> {
+  initializeRoutingTrace(input);
   input.routingTrace = {
+    ...(input.routingTrace ?? {}),
     responseSource: "deterministic",
     responseReason: "route_started",
   };
+
+  traceInfo(input, "inbound.received", {
+    route: "deterministic",
+    reasonCode: input.conversation.state,
+    preview: input.message.text ?? `[${input.message.type}]`,
+  });
 
   if (!input.tenant.automationEnabled) {
     console.info("tenant.automation_disabled", {
@@ -40,6 +49,37 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     message: input.message,
     state: input.conversation.state,
   });
+  const semanticCandidateStates = new Set([
+    "awaiting_guided_item_selection",
+    "awaiting_mode_selection",
+    "awaiting_more_items",
+    "awaiting_fulfillment_type",
+    "awaiting_address",
+    "awaiting_payment_method",
+    "awaiting_confirmation",
+  ]);
+
+  traceInfo(input, "route.signals", {
+    route: "deterministic",
+    reasonCode: signals.shouldTrySemanticOrder ? "semantic_candidate" : "deterministic_candidate",
+    preview: [
+      `text=${truncateForLog(signals.normalizedText) ?? "-"}`,
+      `num=${signals.numericSelection ?? "-"}`,
+      `semantic=${signals.shouldTrySemanticOrder}`,
+      `done=${signals.doneAddingItems}`,
+      `human=${signals.humanRequested}`,
+      `fulfillment=${signals.fulfillmentType ?? "-"}`,
+      `payment=${signals.paymentMethod ?? "-"}`,
+    ].join(" "),
+  });
+
+  if (semanticCandidateStates.has(input.conversation.state) && !signals.shouldTrySemanticOrder && signals.normalizedText) {
+    traceInfo(input, "llm.skipped", {
+      route: "deterministic",
+      reasonCode: "heuristic_not_met",
+      preview: signals.normalizedText,
+    });
+  }
 
   if (input.conversation.state === "manual") {
     console.info("conversation.manual_auto_reply_skipped", {

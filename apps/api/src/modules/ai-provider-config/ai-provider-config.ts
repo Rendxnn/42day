@@ -10,34 +10,46 @@ type TenantAiProviderConfigRow = {
   status: "active" | "inactive";
 };
 
-export async function loadTenantAiProviderConfig(input: {
+export type SemanticProviderTarget = TenantProviderConfig & {
+  route: "primary" | "fallback";
+};
+
+export async function loadTenantAiProviderChain(input: {
   env: ApiBindings;
   tenantId: string;
-}): Promise<TenantProviderConfig | null> {
+}): Promise<SemanticProviderTarget[]> {
   const dbConfig = await loadActiveDbConfig(input).catch(() => null);
-  const providerId = dbConfig?.provider_id ?? "gemini";
-  const defaultModel = dbConfig?.default_model ?? input.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+  const appEnv = input.env.APP_ENV ?? "local";
+  const primaryProviderId = resolvePrimaryProviderId(dbConfig);
+  const geminiModel = resolveGeminiModel(input.env, dbConfig);
+  const openRouterModels = resolveOpenRouterModels(input.env, dbConfig, appEnv);
+  const chain: SemanticProviderTarget[] = [];
 
-  if (providerId !== "gemini") {
-    return null;
+  if (primaryProviderId === "openrouter") {
+    const primaryOpenRouter = buildOpenRouterProvider(input, openRouterModels[0] ?? "openrouter/free", "primary", dbConfig);
+    if (primaryOpenRouter) {
+      chain.push(primaryOpenRouter);
+    }
+
+    const geminiFallback = buildGeminiProvider(input, geminiModel, "fallback", dbConfig);
+    if (geminiFallback) {
+      chain.push(geminiFallback);
+    }
+  } else {
+    const primaryGemini = buildGeminiProvider(input, geminiModel, "primary", dbConfig);
+    if (primaryGemini) {
+      chain.push(primaryGemini);
+    }
+
+    for (const model of openRouterModels) {
+      const fallback = buildOpenRouterProvider(input, model, "fallback", dbConfig);
+      if (fallback) {
+        chain.push(fallback);
+      }
+    }
   }
 
-  // MVP path: use env secret now, while the DB row shape is ready for encrypted per-tenant keys.
-  if (!input.env.GEMINI_API_KEY) {
-    return null;
-  }
-
-  return {
-    tenantId: input.tenantId,
-    providerId,
-    authMode: "api_key",
-    defaultModel,
-    credentials: {
-      apiKey: input.env.GEMINI_API_KEY,
-      model: defaultModel,
-      extra: stringifyExtra(dbConfig?.provider_extra),
-    },
-  };
+  return uniqueChain(chain);
 }
 
 async function loadActiveDbConfig(input: {
@@ -59,6 +71,109 @@ async function loadActiveDbConfig(input: {
   return row ?? null;
 }
 
+function buildGeminiProvider(
+  input: { env: ApiBindings; tenantId: string },
+  model: string,
+  route: "primary" | "fallback",
+  dbConfig: TenantAiProviderConfigRow | null,
+): SemanticProviderTarget | null {
+  if (!input.env.GEMINI_API_KEY) {
+    return null;
+  }
+
+  return {
+    tenantId: input.tenantId,
+    providerId: "gemini",
+    authMode: "api_key",
+    defaultModel: model,
+    credentials: {
+      apiKey: input.env.GEMINI_API_KEY,
+      model,
+      extra: stringifyExtra(dbConfig?.provider_extra),
+    },
+    route,
+  };
+}
+
+function buildOpenRouterProvider(
+  input: { env: ApiBindings; tenantId: string },
+  model: string,
+  route: "primary" | "fallback",
+  dbConfig: TenantAiProviderConfigRow | null,
+): SemanticProviderTarget | null {
+  if (!input.env.OPENROUTER_API_KEY || !model) {
+    return null;
+  }
+
+  return {
+    tenantId: input.tenantId,
+    providerId: "openrouter",
+    authMode: "api_key",
+    defaultModel: model,
+    credentials: {
+      apiKey: input.env.OPENROUTER_API_KEY,
+      model,
+      extra: {
+        ...stringifyExtra(dbConfig?.provider_extra),
+        "HTTP-Referer": input.env.APP_BASE_URL ?? "https://42day.app",
+        "X-Title": "42day",
+      },
+    },
+    route,
+  };
+}
+
+function resolvePrimaryProviderId(dbConfig: TenantAiProviderConfigRow | null): TenantProviderConfig["providerId"] {
+  if (dbConfig?.provider_id === "openrouter") {
+    return "openrouter";
+  }
+
+  return "gemini";
+}
+
+function resolveGeminiModel(env: ApiBindings, dbConfig: TenantAiProviderConfigRow | null): string {
+  if (dbConfig?.provider_id === "gemini" && dbConfig.default_model) {
+    return dbConfig.default_model;
+  }
+
+  if (env.GEMINI_MODEL) {
+    return env.GEMINI_MODEL;
+  }
+
+  return env.APP_ENV === "production" ? "gemini-2.5-flash-lite" : "gemini-2.5-flash";
+}
+
+function resolveOpenRouterModels(
+  env: ApiBindings,
+  dbConfig: TenantAiProviderConfigRow | null,
+  appEnv: string,
+): string[] {
+  const extra = dbConfig?.provider_extra ?? {};
+  const configuredModels = [
+    asString(extra.openrouter_primary_model),
+    asString(extra.openrouter_secondary_model),
+    env.OPENROUTER_PRIMARY_MODEL,
+    env.OPENROUTER_SECONDARY_MODEL,
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  if (configuredModels.length > 0) {
+    return configuredModels;
+  }
+
+  if (env.OPENROUTER_USE_FREE_ROUTER === "true") {
+    return ["openrouter/free"];
+  }
+
+  if (appEnv === "production") {
+    return [];
+  }
+
+  return [
+    "openai/gpt-oss-120b:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+  ];
+}
+
 function stringifyExtra(extra: Record<string, unknown> | null | undefined): Record<string, string> | undefined {
   if (!extra) {
     return undefined;
@@ -67,4 +182,25 @@ function stringifyExtra(extra: Record<string, unknown> | null | undefined): Reco
   return Object.fromEntries(
     Object.entries(extra).flatMap(([key, value]) => (typeof value === "string" ? [[key, value]] : [])),
   );
+}
+
+function uniqueChain(chain: SemanticProviderTarget[]): SemanticProviderTarget[] {
+  const seen = new Set<string>();
+  const next: SemanticProviderTarget[] = [];
+
+  for (const provider of chain) {
+    const key = `${provider.providerId}:${provider.defaultModel ?? provider.credentials.model ?? ""}:${provider.route}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    next.push(provider);
+  }
+
+  return next;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

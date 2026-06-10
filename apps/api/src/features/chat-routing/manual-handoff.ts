@@ -3,6 +3,7 @@ import { incrementClarificationAttempts, updateConversationState } from "../conv
 import { persistHumanInterventionAlert } from "../../modules/handoff-service/handoff-service";
 import { sendAndLogText } from "./outbound";
 import { buildMaxClarificationMessage } from "../../modules/message-router/response-composer";
+import { recordHandoffTriggered } from "./tracing";
 import type { RouteInboundMessageInput } from "./types";
 
 export async function handleClarification(
@@ -40,6 +41,11 @@ export async function moveToManual(input: RouteInboundMessageInput, payload: {
   draftOrderId?: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
+  recordHandoffTriggered(input, {
+    manualReason: payload.manualReason,
+    title: payload.title,
+  });
+
   await updateConversationState({
     env: input.env,
     schemaName: input.tenant.schemaName,

@@ -88,13 +88,15 @@ export function resolveMenuSelectionsFromText(payload: TodayMenuPayload, text: s
 
 function computeMenuMatchScore(item: MenuItem, searchText: string): number {
   const candidateTexts = buildCandidateTexts(item).map(normalizeText);
+  const searchTokens = tokenize(searchText);
 
   if (candidateTexts.includes(searchText)) {
     return 1;
   }
 
   for (const candidateText of candidateTexts) {
-    if (candidateText.includes(searchText) || searchText.includes(candidateText)) {
+    const candidateTokens = tokenize(candidateText);
+    if (candidateText.includes(searchText) || isReasonablePartialMatch(searchText, searchTokens, candidateText, candidateTokens)) {
       return 0.93;
     }
   }
@@ -102,7 +104,6 @@ function computeMenuMatchScore(item: MenuItem, searchText: string): number {
   let bestScore = 0;
   for (const candidateText of candidateTexts) {
     const candidateTokens = tokenize(candidateText);
-    const searchTokens = tokenize(searchText);
     if (candidateTokens.length === 0 || searchTokens.length === 0) {
       continue;
     }
@@ -197,6 +198,27 @@ function singularizeToken(token: string): string {
   }
 
   return token;
+}
+
+function isReasonablePartialMatch(
+  searchText: string,
+  searchTokens: string[],
+  candidateText: string,
+  candidateTokens: string[],
+): boolean {
+  if (!searchText.includes(candidateText)) {
+    return false;
+  }
+
+  if (candidateTokens.length === 0) {
+    return false;
+  }
+
+  if (searchTokens.length <= candidateTokens.length + 2) {
+    return true;
+  }
+
+  return candidateTokens.length >= 2 && searchTokens.length <= candidateTokens.length * 2;
 }
 
 function normalizeText(text: string): string {

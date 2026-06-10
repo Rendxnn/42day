@@ -102,6 +102,18 @@ export function buildManualHandoffMessage(): string {
   return "Claro, con gusto. Voy a ponerte en contacto con alguien del restaurante para que te ayude personalmente.";
 }
 
+export function buildLlmTemporaryFailureMessage(appEnv: string): string {
+  if (appEnv === "production") {
+    return "Estoy teniendo un problema temporal para procesar tu último mensaje. No hice cambios en tu pedido todavía. Si quieres, inténtalo de nuevo en unos segundos o escribe \"asesor\".";
+  }
+
+  return "No pude procesar tu último mensaje porque el modelo automático falló temporalmente. No hice cambios en tu pedido. Puedes reenviarlo en unos segundos o escribir \"asesor\".";
+}
+
+export function buildLlmEscalationMessage(): string {
+  return "Estoy teniendo fallas repetidas para procesar tu último mensaje. Voy a pasarte con alguien del restaurante para que continúe contigo sin perder el pedido.";
+}
+
 export function buildMaxClarificationMessage(): string {
   return "Quiero ayudarte bien 😊 Para evitar confusiones, voy a pasarte con alguien del restaurante que pueda continuar contigo.";
 }

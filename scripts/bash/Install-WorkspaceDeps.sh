@@ -18,7 +18,31 @@ root="$(repo_root)"
 ensure_repo_root "$root"
 
 install_marker="$root/node_modules/.modules.yaml"
-if [[ -f "$install_marker" && $force -eq 0 ]]; then
+
+workspace_install_stale() {
+  [[ ! -f "$install_marker" ]] && return 0
+
+  local marker_epoch
+  marker_epoch="$(stat -c %Y "$install_marker")"
+
+  while IFS= read -r path; do
+    [[ -e "$path" ]] || continue
+    if [[ "$(stat -c %Y "$path")" -gt "$marker_epoch" ]]; then
+      return 0
+    fi
+  done < <(
+    {
+      printf '%s\n' "$root/package.json" "$root/pnpm-lock.yaml" "$root/pnpm-workspace.yaml"
+      find "$root" -path '*/node_modules/*' -prune -o -path '*/.turbo/*' -prune -o -path '*/.wrangler/*' -prune -o -name package.json -type f -print
+    } | awk '!seen[$0]++'
+  )
+
+  return 1
+}
+
+if workspace_install_stale; then
+  :
+elif [[ $force -eq 0 ]]; then
   printf 'Dependencies already installed. Use --force to reinstall.\n'
   exit 0
 fi

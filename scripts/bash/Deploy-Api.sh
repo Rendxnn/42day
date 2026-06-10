@@ -25,5 +25,6 @@ ensure_repo_root "$root"
 printf 'Deploying API to Cloudflare Worker (%s)...\n' "$environment"
 (
   cd "$root"
+  "$root/scripts/bash/Install-WorkspaceDeps.sh"
   pnpm_exec --filter @42day/api exec wrangler deploy --env "$environment"
 )

@@ -1,5 +1,5 @@
 import type { Conversation, DraftOrder, NormalizedInboundMessage, PaymentMethod } from "@42day/types";
-import { hasNearToken, includesAny, normalizeText } from "./message-normalizer";
+import { hasNearToken, includesAny, normalizeText } from "./message-normalizer.ts";
 
 export type DetectedSignals = {
   normalizedText: string;
@@ -20,7 +20,8 @@ export function detectSignals(input: {
   message: NormalizedInboundMessage;
   state: Conversation["state"];
 }): DetectedSignals {
-  const text = normalizeText(input.message.text);
+  const rawText = input.message.text ?? "";
+  const text = normalizeText(rawText);
   const paymentMethod = parsePaymentMethod(text, input.state);
   const fulfillmentType = parseFulfillmentSelection(text, input.state);
   const confirmation = parseConfirmation(text);
@@ -42,7 +43,7 @@ export function detectSignals(input: {
       doneAddingItems,
     }),
     hasTransferProofCandidate: input.message.type === "image" || input.message.type === "document" || includesAny(text, ["comprobante", "ya pague", "pago listo"]),
-    shouldTrySemanticOrder: shouldTrySemanticOrder(text),
+    shouldTrySemanticOrder: shouldTrySemanticOrder(text, rawText),
     doneAddingItems,
   };
 }
@@ -147,15 +148,19 @@ function wantsMenu(text: string): boolean {
   return text === "menu" || text === "menú" || text === "pedido guiado" || text === "guiado" || text === "hacer pedido";
 }
 
-function shouldTrySemanticOrder(text: string): boolean {
+export function shouldTrySemanticOrder(text: string, rawText = ""): boolean {
   if (!text) {
     return false;
   }
 
-  return (
+  if (
     /\b(con|sin|pero|y|tambien|ademas|otro|otra|otros|otras)\b/.test(text) ||
     /\b(quiero|dame|deme|me regalas|regalame|mandame|necesito|agrega|agregame|agregar|sumale|suma|quita|quitar|quitemos|cambia|cambiame|cambiemos|reemplaza|reemplazame)\b/.test(text)
-  );
+  ) {
+    return true;
+  }
+
+  return looksLikeStructuredOrderList(text, rawText);
 }
 
 function parseDoneAddingItems(text: string): boolean {
@@ -191,4 +196,25 @@ function parseNumericSelection(text: string): number | null {
 
 function matchesGreeting(text: string): boolean {
   return ["hola", "buenas", "buenos dias", "buen dia", "buenas tardes", "buenas noches", "hey", "holi"].includes(text);
+}
+
+function looksLikeStructuredOrderList(text: string, rawText: string): boolean {
+  const normalizedRaw = rawText.trim();
+  const nonEmptyLines = normalizedRaw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const quantityHints = (text.match(/\b(\d+|un|una|uno|dos|tres|cuatro|cinco|seis)\b/g) ?? []).length;
+  const listSeparators = (rawText.match(/[\r\n,;]/g) ?? []).length;
+
+  if (nonEmptyLines.length >= 3 && quantityHints >= 1) {
+    return true;
+  }
+
+  if (quantityHints >= 2 && (nonEmptyLines.length >= 2 || listSeparators >= 2)) {
+    return true;
+  }
+
+  return quantityHints >= 3 && text.split(/\s+/).length >= 6;
 }
