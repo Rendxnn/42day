@@ -65,6 +65,7 @@ import {
 import { OrdersView } from "./orders";
 import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
+import { LandingPage } from "./LandingPage";
 
 type View = "menu" | "orders" | "summary" | "catalog" | "upload";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
@@ -510,6 +511,10 @@ function isPublicCartaRoute() {
   return window.location.pathname === "/carta" || window.location.pathname.startsWith("/carta/");
 }
 
+function isMarketingRoute() {
+  return window.location.pathname === "/" || window.location.pathname === "";
+}
+
 function getPublicCartaTenantSlug() {
   const params = new URLSearchParams(window.location.search);
   const queryTenant = params.get("tenant") || params.get("restaurante");
@@ -528,7 +533,9 @@ function getPublicCartaUrl(tenantSlug: string) {
 }
 
 export function App() {
-  return isPublicCartaRoute() ? <PublicCartaPage /> : <DashboardApp />;
+  if (isPublicCartaRoute()) return <PublicCartaPage />;
+  if (isMarketingRoute()) return <LandingPage />;
+  return <DashboardApp />;
 }
 
 function DashboardApp() {
