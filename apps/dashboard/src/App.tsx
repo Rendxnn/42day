@@ -163,18 +163,18 @@ const viewCopy: Record<View, { eyebrow: string; title: string; description: stri
     description: "",
   },
   summary: {
-    eyebrow: "Pulso del tenant",
+    eyebrow: "Resumen",
     title: "Estado de servicio",
     description: "",
   },
   catalog: {
-    eyebrow: "Base maestra",
+    eyebrow: "Productos",
     title: "Catalogo del restaurante",
     description: "",
   },
   upload: {
-    eyebrow: "Entrada asistida",
-    title: "Sube el menu y deja que IA lo estructure",
+    eyebrow: "Subida de menu",
+    title: "Cargar productos",
     description: "",
   },
 };
@@ -898,8 +898,8 @@ function DashboardApp() {
   }
 
   return (
-    <div className="min-h-screen px-3 py-3 sm:px-4 sm:py-4">
-      <div className="mx-auto flex min-h-[calc(100vh-1.5rem)] w-full max-w-[1700px] gap-4">
+    <div className="min-h-screen px-2 py-2 sm:px-4 sm:py-4">
+      <div className="mx-auto flex min-h-[calc(100vh-1rem)] w-full max-w-[1700px] gap-4 sm:min-h-[calc(100vh-2rem)]">
         <Sidebar
           activeView={activeView}
           onNavigate={setActiveView}
@@ -920,7 +920,7 @@ function DashboardApp() {
               onLogout={() => void handleLogout()}
               onToggleNotifications={toggleNotifications}
             />
-            <div className="px-4 pb-28 pt-2 sm:px-6 lg:px-8 lg:pb-10">
+            <div className="px-3 pb-28 pt-2 sm:px-5 lg:px-8 lg:pb-10">
               {activeView === "menu" && (
                 <TodayMenu
                   activeCount={activeItems.length}
@@ -1229,10 +1229,10 @@ function Header({
   viewCopy: { eyebrow: string; title: string; description: string };
 }) {
   return (
-    <header className="border-b border-[var(--shell-border)] px-4 pb-6 pt-5 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+    <header className="border-b border-[var(--shell-border)] px-4 pb-5 pt-4 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.58)]">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.58)] sm:text-[11px] sm:tracking-[0.18em]">
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.1)] bg-[rgba(255,248,240,0.04)] px-3 py-1.5">
               <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
               {tenantName}
@@ -1240,12 +1240,12 @@ function Header({
             <span className="hidden text-[rgba(246,236,223,0.34)] sm:inline">/</span>
             <span>{viewCopy.eyebrow}</span>
           </div>
-          <div className="mt-4 flex items-start gap-3">
+          <div className="mt-3 flex items-start gap-3 sm:mt-4">
             <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[var(--text-on-dark)] lg:hidden">
               {activeView === "orders" ? <ClipboardList size={18} /> : <ChefHat size={18} />}
             </div>
             <div className="min-w-0">
-              <h1 className="app-display text-[2.4rem] leading-none text-[var(--text-on-dark)] sm:text-[3.25rem]">
+              <h1 className="app-display text-[2rem] leading-none text-[var(--text-on-dark)] sm:text-[2.7rem] xl:text-[3.25rem]">
                 {viewCopy.title}
               </h1>
               {viewCopy.description ? (
@@ -1258,7 +1258,7 @@ function Header({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)]">
+          <div className="hidden h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)] md:inline-flex">
             <ChefHat size={16} />
             {tenantName}
           </div>
@@ -1566,9 +1566,6 @@ function TodayMenu(props: {
       {groups.length === 0 ? (
         <div className="app-panel rounded-[28px] px-6 py-16 text-center">
           <p className="app-display text-[2.1rem] leading-none text-[var(--text-strong)]">Aun no hay platos publicados</p>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-soft)]">
-            El primer paso es traer productos desde el catalogo general y luego decidir cuales quedaran visibles para el chatbot.
-          </p>
           <button
             className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923]"
             onClick={() => setCatalogOpen(true)}
@@ -2867,7 +2864,7 @@ function EmojiSelect({
           {selectedEmoji}
         </span>
       </div>
-      <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10 lg:grid-cols-14">
+      <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
         {quickOptions.map((emoji) => (
           <button
             aria-label={`Seleccionar emoji ${emoji}`}
@@ -2888,7 +2885,7 @@ function EmojiSelect({
         <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">
           Mas emojis
         </summary>
-        <div className="mt-3 grid max-h-64 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-14">
+        <div className="mt-3 grid max-h-64 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
           {extendedOptions.map((emoji) => (
             <button
               aria-label={`Seleccionar emoji ${emoji}`}
@@ -2910,7 +2907,7 @@ function EmojiSelect({
   );
 }
 
-function CompactEmojiSelect({
+function CompactEmojiButton({
   description,
   name,
   onChange,
@@ -2923,42 +2920,28 @@ function CompactEmojiSelect({
 }) {
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
-  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 24);
-  const extendedOptions = Array.from(new Set([...quickOptions, ...availableProductEmojis])).slice(0, 120);
+  const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji), ...availableProductEmojis])).slice(0, 132);
 
   return (
-    <div className="rounded-[20px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-2.5">
-      <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
-        {quickOptions.map((emoji) => (
-          <button
-            aria-label={`Seleccionar emoji ${emoji}`}
-            className={`grid h-9 w-full place-items-center rounded-xl text-[1.1rem] transition ${
-              selectedEmoji === emoji
-                ? "bg-[var(--text-strong)] shadow-[0_8px_18px_rgba(20,14,10,0.18)]"
-                : "bg-[var(--panel-strong)] hover:bg-white"
-            }`}
-            key={`compact-${emoji}`}
-            onClick={() => onChange(emoji)}
-            type="button"
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
-      <details className="mt-2">
-        <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
-          Ver mas
-        </summary>
-        <div className="mt-2 grid max-h-44 grid-cols-6 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-8">
-          {extendedOptions.map((emoji) => (
+    <details className="relative">
+      <summary className="grid h-11 w-11 cursor-pointer list-none place-items-center rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] text-xl transition hover:bg-[var(--panel-strong)]">
+        {selectedEmoji}
+      </summary>
+      <div className="absolute left-0 z-40 mt-2 w-[min(280px,calc(100vw-3rem))] rounded-[20px] border border-[rgba(118,93,71,0.14)] bg-[var(--panel-strong)] p-3 shadow-[0_18px_48px_rgba(20,14,10,0.2)]">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">Emoji</span>
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-[var(--surface-base)] text-lg">{selectedEmoji}</span>
+        </div>
+        <div className="grid max-h-56 grid-cols-7 gap-1.5 overflow-y-auto pr-1 app-scrollbar">
+          {options.map((emoji) => (
             <button
               aria-label={`Seleccionar emoji ${emoji}`}
-              className={`grid h-9 w-full place-items-center rounded-xl text-[1.1rem] transition ${
+              className={`grid h-9 place-items-center rounded-xl text-[1.15rem] transition ${
                 selectedEmoji === emoji
                   ? "bg-[var(--text-strong)] shadow-[0_8px_18px_rgba(20,14,10,0.18)]"
-                  : "bg-[var(--panel-strong)] hover:bg-white"
+                  : "bg-[var(--surface-base)] hover:bg-white"
               }`}
-              key={`compact-extended-${emoji}`}
+              key={`compact-button-option-${emoji}`}
               onClick={() => onChange(emoji)}
               type="button"
             >
@@ -2966,8 +2949,8 @@ function CompactEmojiSelect({
             </button>
           ))}
         </div>
-      </details>
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -3422,17 +3405,17 @@ function SmartUpload({
   return (
     <section className="space-y-6">
       <SectionTitle
-        title="Subida inteligente"
-        subtitle="Convierte Excel, CSV, PDF, TXT o imagenes del menu en una base editable de productos antes de publicarlos."
+        title="Subida de menu"
+        subtitle="Excel, CSV, PDF, TXT o imagen."
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
         <label
-          className="rounded-[30px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]"
+          className="rounded-[26px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-4 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)] sm:p-6"
           onDragOver={(event) => event.preventDefault()}
           onDrop={handleDrop}
         >
           <input accept=".xlsx,.xls,.csv,.pdf,.txt,image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => readFile(event.target.files?.[0])} type="file" />
-          <div className={`flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[rgba(255,242,227,0.14)] px-6 text-center transition hover:border-[rgba(255,242,227,0.22)] ${preview ? "overflow-hidden bg-[rgba(255,248,240,0.04)]" : "bg-[rgba(255,248,240,0.04)]"}`}>
+          <div className={`flex min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-[22px] border border-dashed border-[rgba(255,242,227,0.14)] px-4 text-center transition hover:border-[rgba(255,242,227,0.22)] sm:min-h-[340px] sm:px-6 ${preview ? "overflow-hidden bg-[rgba(255,248,240,0.04)]" : "bg-[rgba(255,248,240,0.04)]"}`}>
             {preview ? (
               <img alt="Preview del menu" className="h-full w-full rounded-[20px] object-cover" src={preview} />
             ) : selectedFile ? (
@@ -3444,19 +3427,13 @@ function SmartUpload({
                 <p className="mt-3 rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-[rgba(246,236,223,0.6)]">
                   {selectedFileKind}
                 </p>
-                <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
-                  El sistema intentara leer estructura, filas, texto y precios antes de usar IA.
-                </p>
               </>
             ) : (
               <>
                 <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
                   <UploadCloud size={26} />
                 </div>
-                <p className="app-display text-[2.3rem] leading-none">Sube el archivo del menu</p>
-                <p className="mt-4 max-w-md text-sm leading-7 text-[rgba(246,236,223,0.66)]">
-                  Arrastra o selecciona Excel, CSV, PDF, TXT o imagen. Nada se guarda sin revisar y confirmar.
-                </p>
+                <p className="app-display text-[2rem] leading-none sm:text-[2.3rem]">Sube el archivo del menu</p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.52)]">
                   {[".xlsx", ".xls", ".csv", ".pdf", ".txt"].map((format) => (
                     <span className="rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5" key={format}>{format}</span>
@@ -3467,13 +3444,7 @@ function SmartUpload({
           </div>
         </label>
 
-        <div className="app-panel rounded-[28px] p-5">
-          <div className="mb-4 rounded-[22px] border border-[rgba(137,164,196,0.18)] bg-[var(--surface-pending)] px-4 py-4">
-            <p className="text-sm font-semibold text-[var(--text-strong)]">Procesamiento por tipo de archivo</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-              Excel, CSV y TXT se leen primero de forma estructurada. PDF intenta extraer texto seleccionable. La IA entra solo si el archivo es ambiguo.
-            </p>
-          </div>
+        <div className="app-panel rounded-[26px] p-4 sm:p-5">
           {selectedFile && (
             <div className="mb-4 grid gap-2 rounded-[22px] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
               <div className="flex items-center justify-between gap-3">
@@ -3500,10 +3471,7 @@ function SmartUpload({
               <p className="font-semibold text-[var(--text-strong)]">
                 {analysisMeta.source === "ai" ? "Interpretado con IA" : "Interpretado deterministicamente"}
               </p>
-              <p className="mt-1 text-xs">
-                Parser: {analysisMeta.parser} - Formato: {analysisMeta.fileType.toUpperCase()}
-                {analysisMeta.needsAiFallback ? " - IA usada por ambiguedad" : ""}
-              </p>
+              <p className="mt-1 text-xs">Formato: {analysisMeta.fileType.toUpperCase()}</p>
               {analysisMeta.warnings.length > 0 && (
                 <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
                   {analysisMeta.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
@@ -3520,35 +3488,31 @@ function SmartUpload({
             {results.length === 0 && (
               <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
                 <Camera className="mx-auto mb-3 text-[var(--text-faint)]" size={22} />
-                Los productos detectados apareceran aqui con su precio y categoria sugerida.
+                Los productos apareceran aqui antes de guardar.
               </div>
             )}
             {results.length > 0 && (
               <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-strong)]">Edicion rapida</p>
+                    <p className="text-sm font-semibold text-[var(--text-strong)]">Productos detectados</p>
                     <p className="mt-1 text-xs text-[var(--text-faint)]">{results.length} productos detectados</p>
                   </div>
-                  <span className="rounded-full bg-[var(--panel-strong)] px-3 py-1 text-xs font-semibold text-[var(--text-soft)]">
-                    Revisa antes de confirmar
-                  </span>
                 </div>
               </div>
             )}
             {results.map((item, index) => (
-              <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-4" key={`${item.name}-${index}`}>
+              <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-3 sm:p-4" key={`${item.name}-${index}`}>
                 <div className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-[76px_minmax(0,1fr)_140px]">
-                    <label className="block">
-                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Emoji</span>
-                      <CompactEmojiSelect
+                  <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_120px]">
+                    <div className="self-end">
+                      <CompactEmojiButton
                         description={item.description}
                         name={item.name}
                         onChange={(emoji) => updateDetectedProduct(index, { emoji })}
                         value={item.emoji}
                       />
-                    </label>
+                    </div>
                     <label className="block">
                       <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Producto</span>
                       <input
@@ -3568,7 +3532,7 @@ function SmartUpload({
                       />
                     </label>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)]">
                     <label className="block">
                       <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Categoria</span>
                       <CategorySelect
@@ -3870,7 +3834,12 @@ function buildAdminRestaurantEditForm(restaurant: AdminRestaurant): AdminRestaur
 }
 
 function getAdminErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof DashboardApiError) return error.backendError ?? error.message;
+  if (error instanceof DashboardApiError) {
+    if (error.backendError === "restaurant_owner_email_required") return "El correo del encargado es obligatorio.";
+    if (error.backendError === "restaurant_provision_verification_failed") return "El restaurante se creo parcialmente, pero no quedo listo para operar. Revisa tenant, sede, menu inicial y usuario encargado.";
+    if (error.backendError === "restaurant_provision_failed") return "No se pudo crear la estructura del restaurante.";
+    return error.backendError ?? error.message;
+  }
   if (error instanceof Error) return error.message;
   return fallback;
 }
@@ -3967,6 +3936,11 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
     event.preventDefault();
     if (!createForm.name.trim()) {
       setError("El nombre del restaurante es obligatorio.");
+      return;
+    }
+
+    if (!createForm.ownerEmail.trim()) {
+      setError("El correo del encargado es obligatorio.");
       return;
     }
 
@@ -4321,13 +4295,14 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                   value={createForm.slug}
                 />
                 <AdminTextInput
-                  label="Owner email"
+                  label="Correo encargado"
                   onChange={(value) => setCreateForm((current) => ({ ...current, ownerEmail: value }))}
                   placeholder="admin@restaurante.com"
+                  required
                   value={createForm.ownerEmail}
                 />
                 <AdminTextInput
-                  label="Owner nombre"
+                  label="Nombre encargado"
                   onChange={(value) => setCreateForm((current) => ({ ...current, ownerName: value }))}
                   placeholder="Encargado"
                   value={createForm.ownerName}
@@ -4730,7 +4705,7 @@ function AdminBehaviorMetric({ label, value }: { label: string; value: string })
   );
 }
 
-function AdminTextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+function AdminTextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; required?: boolean; type?: string; value: string }) {
   return (
     <label className="block">
       <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{props.label}</span>
@@ -4738,6 +4713,7 @@ function AdminTextInput(props: { label: string; onChange: (value: string) => voi
         className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
         onChange={(event) => props.onChange(event.target.value)}
         placeholder={props.placeholder}
+        required={props.required}
         type={props.type ?? "text"}
         value={props.value}
       />
@@ -4949,9 +4925,8 @@ function LoginHighlight({ copy, title }: { copy: string; title: string }) {
 function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Dashboard</p>
-      <h2 className="app-display mt-3 text-[2.8rem] leading-none text-[var(--text-on-dark)] sm:text-[3rem]">{title}</h2>
-      <p className="mt-3 max-w-2xl text-sm leading-7 text-[rgba(246,236,223,0.68)] sm:text-[15px]">{subtitle}</p>
+      <h2 className="app-display text-[2.25rem] leading-none text-[var(--text-on-dark)] sm:text-[2.8rem]">{title}</h2>
+      {subtitle ? <p className="mt-2 max-w-2xl text-sm leading-6 text-[rgba(246,236,223,0.68)] sm:text-[15px]">{subtitle}</p> : null}
     </div>
   );
 }
