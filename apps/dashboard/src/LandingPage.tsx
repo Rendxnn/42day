@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   ArrowRight,
   Bot,
@@ -218,6 +218,13 @@ function clamp(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));
 }
 
+function createFloatStyle(verticalOffset: number, transitionDelay?: string) {
+  return {
+    ...(transitionDelay ? { transitionDelay } : {}),
+    ["--float-y"]: `${verticalOffset}px`,
+  } as CSSProperties;
+}
+
 function useElementProgress<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
   const [progress, setProgress] = useState(0);
@@ -331,12 +338,9 @@ function LandingHeader({
           <a className="flex min-w-0 items-center gap-3 no-underline" href="/">
             <img
               alt="ParaHoy"
-              className="h-12 w-auto max-w-[190px] object-contain sm:h-14 sm:max-w-[220px]"
+              className="h-14 w-auto max-w-[220px] object-contain drop-shadow-[0_12px_24px_rgba(7,94,84,0.12)] sm:h-16 sm:max-w-[250px] lg:h-[4.4rem] lg:max-w-[280px]"
               src="/parahoy-name.png"
             />
-            <p className="hidden truncate text-xs font-semibold text-[var(--marketing-muted)] xl:block">
-              Pedidos por WhatsApp para restaurantes
-            </p>
           </a>
 
           <nav className="hidden items-center gap-7 lg:flex">
@@ -422,11 +426,11 @@ function HeroSection({ heroOffset, heroStatusIndex }: { heroOffset: number; hero
             <span className="h-2.5 w-2.5 rounded-full bg-[var(--wa-green)]" />
             WhatsApp, IA y operacion conectados
           </div>
-          <h1 className="mt-6 max-w-3xl text-[2.75rem] font-extrabold leading-[0.94] tracking-[-0.06em] text-[var(--marketing-text)] sm:text-[4.25rem] xl:text-[4rem]">
-            Recibe, confirma y organiza pedidos por WhatsApp desde un solo lugar.
+          <h1 className="mt-6 max-w-3xl text-[2.8rem] font-extrabold leading-[0.94] tracking-[-0.06em] text-[var(--marketing-text)] sm:text-[4.4rem] xl:text-[4.2rem]">
+            Tu WhatsApp ya no tiene que ser un caos.
           </h1>
-          <p className="mt-5 max-w-2xl text-[1.02rem] leading-8 text-[var(--marketing-muted)] sm:text-[1.15rem]">
-            ParaHoy toma el mensaje del cliente, ordena el pedido y lo deja listo para cobro, cocina y entrega sin depender de chats desordenados.
+          <p className="mt-5 max-w-3xl text-[1.3rem] font-semibold leading-[1.18] tracking-[-0.03em] text-[var(--marketing-muted)] sm:text-[2.1rem] xl:text-[2rem]">
+            La IA lo atiende, ordena los pedidos y tu cocina prepara.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a
@@ -582,8 +586,8 @@ function FlowSection() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionIntro
             overline="Flujo"
-            subtitle="Cada paso muestra como el pedido pasa de mensajes incompletos a una orden clara para cocina."
-            title="De mensajes incompletos a pedidos claros para cocina."
+            subtitle="La conversacion se organiza, se valida y llega lista para que tu equipo prepare sin perder tiempo."
+            title="Del chat a la cocina, sin enredos."
           />
           <div className="mt-6 rounded-[28px] border border-[var(--marketing-border)] bg-white p-5 shadow-[0_16px_38px_rgba(18,24,20,0.05)]">
             <div className="flex items-center gap-3">
@@ -602,13 +606,14 @@ function FlowSection() {
           <div className="absolute left-6 top-6 hidden h-[calc(100%-3rem)] w-px bg-[linear-gradient(180deg,rgba(7,94,84,0.08),rgba(7,94,84,0.18),rgba(7,94,84,0.08))] lg:block" />
           <div className="space-y-4">
             {flowSteps.map((step, index) => {
-              const shift = (index - 1) * 24 - progress * 26 + index * 4;
+              const shiftX = (index - 1) * 24 - progress * 26 + index * 4;
+              const shiftY = (progress - 0.45) * (index + 1) * 14;
 
               return (
                 <article
                   className="rounded-[30px] border border-[var(--marketing-border)] bg-white p-6 shadow-[0_20px_46px_rgba(18,24,20,0.06)] transition-transform duration-300"
                   key={step.title}
-                  style={{ transform: `translate3d(${shift}px, 0, 0)` }}
+                  style={{ transform: `translate3d(${shiftX}px, ${shiftY}px, 0)` }}
                 >
                   <div className="grid gap-5 lg:grid-cols-[minmax(0,0.68fr)_minmax(0,0.32fr)] lg:items-center">
                     <div>
@@ -633,17 +638,22 @@ function FlowSection() {
 }
 
 function ProductSection() {
+  const { ref: progressRef, progress } = useElementProgress<HTMLElement>();
   const { ref, visible } = useReveal<HTMLElement>();
 
   return (
-    <section className="px-4 py-16 sm:px-6 sm:py-20" id="producto" ref={ref}>
+    <section className="px-4 py-16 sm:px-6 sm:py-20" id="producto" ref={progressRef}>
       <div className="mx-auto max-w-7xl">
         <SectionIntro
           overline="Vista del equipo"
           subtitle="Cada pedido llega con productos, notas, pago y siguientes pasos en una sola vista."
           title="Todo el pedido claro antes de que entre a cocina."
         />
-        <article className={cn("landing-reveal mt-8 overflow-hidden rounded-[30px] border border-[var(--marketing-border)] bg-white shadow-[0_24px_64px_rgba(18,24,20,0.08)]", visible && "is-visible")}>
+        <article
+          className={cn("landing-reveal mt-8 overflow-hidden rounded-[30px] border border-[var(--marketing-border)] bg-white shadow-[0_24px_64px_rgba(18,24,20,0.08)]", visible && "is-visible")}
+          ref={ref}
+          style={createFloatStyle((0.5 - progress) * 26)}
+        >
           <div className="grid lg:grid-cols-[240px_minmax(0,1fr)]">
             <aside className="border-b border-[rgba(7,94,84,0.08)] bg-[#f7f7f3] p-5 lg:border-b-0 lg:border-r">
               <div className="flex items-center gap-3">
@@ -776,19 +786,21 @@ function ProductSection() {
 }
 
 function FeatureSection() {
-  const { ref, visible } = useReveal<HTMLElement>();
+  const { ref: progressRef, progress } = useElementProgress<HTMLElement>();
+  const { ref, visible } = useReveal<HTMLDivElement>();
 
   return (
-    <section className="bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.96))] px-4 py-16 sm:px-6 sm:py-20" id="funciones" ref={ref}>
+    <section className="bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.96))] px-4 py-16 sm:px-6 sm:py-20" id="funciones" ref={progressRef}>
       <div className="mx-auto max-w-7xl">
         <SectionIntro
           overline="Funciones"
           subtitle="La plataforma esta pensada para que el pedido quede claro desde el primer mensaje hasta la entrega."
           title="Lo que necesitas para vender por WhatsApp con mas orden."
         />
-        <div className="mt-8 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-8 grid gap-4 lg:grid-cols-2 xl:grid-cols-3" ref={ref}>
           {featureCards.map((feature, index) => {
             const Icon = feature.icon;
+            const verticalOffset = (0.42 - progress) * (index % 3 === 1 ? 22 : 16);
             return (
               <article
                 className={cn(
@@ -796,7 +808,7 @@ function FeatureSection() {
                   visible && "is-visible",
                 )}
                 key={feature.title}
-                style={{ transitionDelay: `${index * 90}ms` }}
+                style={createFloatStyle(verticalOffset, `${index * 90}ms`)}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[rgba(7,94,84,0.08)] text-[var(--wa-green-dark)]">
@@ -829,17 +841,18 @@ function FeatureSection() {
 }
 
 function RestaurantUseCases() {
-  const { ref, visible } = useReveal<HTMLElement>();
+  const { ref: progressRef, progress } = useElementProgress<HTMLElement>();
+  const { ref, visible } = useReveal<HTMLDivElement>();
 
   return (
-    <section className="px-4 py-16 sm:px-6 sm:py-20" ref={ref}>
+    <section className="px-4 py-16 sm:px-6 sm:py-20" ref={progressRef}>
       <div className="mx-auto max-w-7xl">
         <SectionIntro
           overline="Para restaurantes"
           subtitle="Casos concretos donde el problema se repite todos los dias."
           title="Hecho para restaurantes que venden todos los dias por WhatsApp."
         />
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3" ref={ref}>
           {useCases.map((item, index) => (
             <article
               className={cn(
@@ -847,7 +860,7 @@ function RestaurantUseCases() {
                 visible && "is-visible",
               )}
               key={item.title}
-              style={{ transitionDelay: `${index * 75}ms` }}
+              style={createFloatStyle((0.45 - progress) * (12 + (index % 3) * 5), `${index * 75}ms`)}
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-lg font-bold tracking-[-0.03em] text-[var(--marketing-text)]">{item.title}</p>
@@ -865,12 +878,20 @@ function RestaurantUseCases() {
 }
 
 function HumanControlSection() {
-  const { ref, visible } = useReveal<HTMLElement>();
+  const { ref: progressRef, progress } = useElementProgress<HTMLElement>();
+  const { ref, visible } = useReveal<HTMLDivElement>();
 
   return (
-    <section className="px-4 py-16 sm:px-6 sm:py-20" ref={ref}>
+    <section className="px-4 py-16 sm:px-6 sm:py-20" ref={progressRef}>
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-center">
-        <div className="rounded-[30px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,#0b1613,#101827)] p-7 text-white shadow-[0_28px_72px_rgba(10,16,13,0.18)]">
+        <div
+          className={cn(
+            "landing-reveal rounded-[30px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,#0b1613,#101827)] p-7 text-white shadow-[0_28px_72px_rgba(10,16,13,0.18)]",
+            visible && "is-visible",
+          )}
+          ref={ref}
+          style={createFloatStyle((0.52 - progress) * 24)}
+        >
           <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[rgba(237,246,240,0.72)]">
             <ShieldCheck size={14} />
             Confianza operativa
@@ -891,7 +912,7 @@ function HumanControlSection() {
                 visible && "is-visible",
               )}
               key={point}
-              style={{ transitionDelay: `${index * 80}ms` }}
+              style={createFloatStyle((0.48 - progress) * (10 + index * 3), `${index * 80}ms`)}
             >
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="mt-1 shrink-0 text-[var(--wa-green)]" size={18} />
