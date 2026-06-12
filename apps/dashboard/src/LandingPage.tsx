@@ -250,6 +250,19 @@ function useElementProgress<T extends HTMLElement>() {
   return { progress, ref };
 }
 
+function useMinWidth(minWidth: number) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const update = () => setMatches(window.innerWidth >= minWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [minWidth]);
+
+  return matches;
+}
+
 function useReveal<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
   const [visible, setVisible] = useState(false);
@@ -328,7 +341,7 @@ function LandingHeader({
     <header className="sticky top-0 z-50 px-3 py-3 sm:px-5">
       <div
         className={cn(
-          "mx-auto max-w-7xl rounded-full border px-4 py-3 transition-all sm:px-5",
+          "mx-auto max-w-7xl rounded-[26px] border px-3 py-3 transition-all sm:rounded-full sm:px-5",
           headerSolid
             ? "border-[rgba(7,94,84,0.12)] bg-[rgba(255,253,248,0.86)] shadow-[0_18px_45px_rgba(16,22,18,0.08)] backdrop-blur-xl"
             : "border-[rgba(7,94,84,0.08)] bg-[rgba(255,253,248,0.6)] backdrop-blur-lg",
@@ -338,7 +351,7 @@ function LandingHeader({
           <a className="flex min-w-0 items-center gap-3 no-underline" href="/">
             <img
               alt="ParaHoy"
-              className="h-14 w-auto max-w-[220px] object-contain drop-shadow-[0_12px_24px_rgba(7,94,84,0.12)] sm:h-16 sm:max-w-[250px] lg:h-[4.4rem] lg:max-w-[280px]"
+              className="h-10 w-auto max-w-[155px] object-contain drop-shadow-[0_12px_24px_rgba(7,94,84,0.12)] sm:h-16 sm:max-w-[250px] lg:h-[4.4rem] lg:max-w-[280px]"
               src="/parahoy-name.png"
             />
           </a>
@@ -418,29 +431,29 @@ function HeroSection({ heroOffset, heroStatusIndex }: { heroOffset: number; hero
   };
 
   return (
-    <section className="relative overflow-hidden px-4 pb-16 pt-6 sm:px-6 sm:pb-22 sm:pt-10">
+    <section className="relative overflow-hidden px-4 pb-14 pt-4 sm:px-6 sm:pb-22 sm:pt-10">
       <div className="pointer-events-none absolute inset-x-0 top-[-180px] h-[460px] bg-[radial-gradient(circle_at_top,rgba(37,211,102,0.16),transparent_42%),radial-gradient(circle_at_16%_38%,rgba(255,122,26,0.2),transparent_26%),radial-gradient(circle_at_80%_16%,rgba(7,94,84,0.12),transparent_30%)]" />
-      <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-center">
+      <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-center lg:gap-10">
         <div className="relative z-10">
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[rgba(7,94,84,0.12)] bg-white/90 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--wa-green-dark)] shadow-[0_12px_30px_rgba(22,28,24,0.06)]">
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-[rgba(7,94,84,0.12)] bg-white/90 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--wa-green-dark)] shadow-[0_12px_30px_rgba(22,28,24,0.06)] sm:mt-4 sm:px-4 sm:text-[11px] sm:tracking-[0.18em]">
             <span className="h-2.5 w-2.5 rounded-full bg-[var(--wa-green)]" />
             WhatsApp, IA y operacion conectados
           </div>
-          <h1 className="mt-6 max-w-3xl text-[2.8rem] font-extrabold leading-[0.94] tracking-[-0.06em] text-[var(--marketing-text)] sm:text-[4.4rem] xl:text-[4.2rem]">
+          <h1 className="mt-5 max-w-3xl text-[2.2rem] font-extrabold leading-[0.92] tracking-[-0.06em] text-[var(--marketing-text)] sm:text-[4.4rem] xl:text-[4.2rem]">
             Tu WhatsApp ya no tiene que ser un caos.
           </h1>
-          <p className="mt-5 max-w-3xl text-[1.3rem] font-semibold leading-[1.18] tracking-[-0.03em] text-[var(--marketing-muted)] sm:text-[2.1rem] xl:text-[2rem]">
+          <p className="mt-4 max-w-3xl text-[1.15rem] font-semibold leading-[1.12] tracking-[-0.03em] text-[var(--marketing-muted)] sm:mt-5 sm:text-[2.1rem] xl:text-[2rem]">
             La IA lo atiende, ordena los pedidos y tu cocina prepara.
           </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <a
-              className="inline-flex h-13 items-center justify-center gap-2 rounded-full border border-[var(--marketing-border)] bg-white px-6 text-[15px] font-bold text-[var(--marketing-text)] transition hover:border-[var(--wa-green-dark)] hover:text-[var(--wa-green-dark)]"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[var(--marketing-border)] bg-white px-6 text-[15px] font-bold text-[var(--marketing-text)] transition hover:border-[var(--wa-green-dark)] hover:text-[var(--wa-green-dark)] sm:h-13"
               href="/login"
             >
               Ingresar
             </a>
             <a
-              className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[var(--wa-green)] px-6 text-[15px] font-bold text-[#032a1a] shadow-[0_20px_40px_rgba(37,211,102,0.24)] transition hover:bg-[var(--wa-green-dark)] hover:text-white"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[var(--wa-green)] px-6 text-[15px] font-bold text-[#032a1a] shadow-[0_20px_40px_rgba(37,211,102,0.24)] transition hover:bg-[var(--wa-green-dark)] hover:text-white sm:h-13"
               href={SALES_WHATSAPP_URL}
               rel="noreferrer"
               target="_blank"
@@ -449,16 +462,70 @@ function HeroSection({ heroOffset, heroStatusIndex }: { heroOffset: number; hero
               <ArrowRight size={18} />
             </a>
           </div>
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap gap-2.5 sm:mt-8 sm:gap-3">
             {["Carga menu por archivo o foto", "Estados claros", "Carta QR conectada"].map((chip) => (
-              <span className="rounded-full border border-[rgba(7,94,84,0.1)] bg-[rgba(255,255,255,0.88)] px-4 py-2 text-sm font-semibold text-[var(--marketing-muted)]" key={chip}>
+              <span className="rounded-full border border-[rgba(7,94,84,0.1)] bg-[rgba(255,255,255,0.88)] px-3 py-2 text-[13px] font-semibold text-[var(--marketing-muted)] sm:px-4 sm:text-sm" key={chip}>
                 {chip}
               </span>
             ))}
           </div>
         </div>
 
-        <div className="relative min-h-[660px] sm:min-h-[700px] lg:min-h-[680px]">
+        <div className="lg:hidden">
+          <div className="relative overflow-hidden rounded-[30px] border border-[rgba(7,94,84,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.88),rgba(255,255,255,0.56))] p-4 shadow-[0_24px_64px_rgba(16,22,18,0.1)]">
+            <div className="landing-grid absolute inset-0 opacity-35" />
+            <div className="pointer-events-none absolute inset-x-[18%] top-5 h-16 rounded-full bg-[radial-gradient(circle,rgba(37,211,102,0.14),transparent_68%)] blur-3xl" />
+            <div className="relative space-y-3">
+              <div
+                className="w-[88%] rounded-[24px] border border-[rgba(7,94,84,0.08)] bg-white p-4 shadow-[0_16px_30px_rgba(22,28,24,0.08)]"
+                style={{ transform: `translate3d(0, ${heroOffset * -10}px, 0) rotate(-3deg)` }}
+              >
+                <MiniSurfaceHeader icon={MessageCircle} subtitle="Cliente" title="WhatsApp" tone="light" />
+                <div className="mt-3 space-y-2.5 text-sm text-[#1f2937]">
+                  <ChatBubble align="left" copy="Hola, quiero 2 almuerzos y una limonada." />
+                  <ChatBubble align="right" copy="Te confirmo productos, entrega y pago." />
+                </div>
+              </div>
+
+              <div
+                className="ml-auto w-[82%] rounded-[24px] border border-[rgba(37,211,102,0.16)] bg-[linear-gradient(180deg,#ffffff,#f3fbf5)] p-4 shadow-[0_20px_32px_rgba(22,28,24,0.08)]"
+                style={{ transform: `translate3d(0, ${heroOffset * -6}px, 0)` }}
+              >
+                <MiniSurfaceHeader icon={Bot} subtitle="IA" title="Procesando pedido" tone="soft" />
+                <div className="mt-3 rounded-[20px] border border-[rgba(37,211,102,0.18)] bg-[rgba(37,211,102,0.08)] p-3">
+                  <div className="space-y-2">
+                    <KeyValueLine label="Items" value="2 almuerzos" />
+                    <KeyValueLine label="Pago" value="Transferencia" />
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className="rounded-[26px] border border-[rgba(16,24,39,0.08)] bg-[#101714] p-4 text-white shadow-[0_20px_36px_rgba(16,22,18,0.14)]"
+                style={{ transform: `translate3d(0, ${heroOffset * -8}px, 0)` }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[rgba(236,247,240,0.52)]">Pedido listo</p>
+                    <h3 className="mt-1 text-lg font-bold tracking-[-0.03em] text-white">Resumen para el equipo</h3>
+                  </div>
+                  <span className={cn("rounded-full px-3 py-1 text-[11px] font-bold transition-all", activeStatus.tone)}>
+                    {activeStatus.label}
+                  </span>
+                </div>
+                <div className="mt-3 rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-3">
+                  <p className="text-sm font-bold text-white">Pedido #2841 · Laura M.</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <HeroSummaryRow label="Pago" value="Transferencia pendiente" />
+                    <HeroSummaryRow label="Siguiente paso" value="Confirmar y enviar" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative hidden min-h-[700px] lg:block lg:min-h-[680px]">
           <div className="absolute inset-0 rounded-[34px] border border-[rgba(7,94,84,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0.42))] shadow-[0_28px_74px_rgba(16,22,18,0.12)] backdrop-blur-xl" />
           <div className="landing-grid absolute inset-0 rounded-[34px] opacity-40" />
           <div className="pointer-events-none absolute inset-x-[8%] top-[12%] h-24 rounded-full bg-[radial-gradient(circle,rgba(37,211,102,0.14),transparent_68%)] blur-3xl" />
@@ -549,7 +616,7 @@ function ProblemSection() {
             return (
               <article
                 className={cn(
-                  "landing-reveal rounded-[26px] border border-[var(--marketing-border)] bg-white p-5 shadow-[0_16px_38px_rgba(18,24,20,0.05)]",
+                  "landing-reveal rounded-[24px] border border-[var(--marketing-border)] bg-white p-4 shadow-[0_16px_38px_rgba(18,24,20,0.05)] sm:rounded-[26px] sm:p-5",
                   visible && "is-visible",
                 )}
                 key={card.title}
@@ -559,11 +626,11 @@ function ProblemSection() {
                   <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(7,94,84,0.08)] text-[var(--wa-green-dark)]">
                     <Icon size={18} />
                   </div>
-                  <span className="rounded-full border border-[rgba(7,94,84,0.08)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--marketing-muted)]">
+                  <span className="hidden rounded-full border border-[rgba(7,94,84,0.08)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--marketing-muted)] sm:inline-flex">
                     Riesgo
                   </span>
                 </div>
-                <h3 className="mt-4 text-xl font-bold tracking-[-0.03em] text-[var(--marketing-text)]">{card.title}</h3>
+                <h3 className="mt-4 text-lg font-bold tracking-[-0.03em] text-[var(--marketing-text)] sm:text-xl">{card.title}</h3>
                 <p className="mt-3 text-sm leading-7 text-[var(--marketing-muted)]">{card.copy}</p>
                 <div className="mt-4 rounded-[18px] border border-[rgba(7,94,84,0.08)] bg-[#fbfbf8] p-3">
                   <ProblemMiniVisual visual={card.visual} />
@@ -579,6 +646,7 @@ function ProblemSection() {
 
 function FlowSection() {
   const { progress, ref } = useElementProgress<HTMLElement>();
+  const isDesktop = useMinWidth(1024);
 
   return (
     <section className="bg-[linear-gradient(180deg,rgba(255,255,255,0.58),rgba(245,251,246,0.92))] px-4 py-16 sm:px-6 sm:py-20" id="como-funciona" ref={ref}>
@@ -606,12 +674,12 @@ function FlowSection() {
           <div className="absolute left-6 top-6 hidden h-[calc(100%-3rem)] w-px bg-[linear-gradient(180deg,rgba(7,94,84,0.08),rgba(7,94,84,0.18),rgba(7,94,84,0.08))] lg:block" />
           <div className="space-y-4">
             {flowSteps.map((step, index) => {
-              const shiftX = (index - 1) * 24 - progress * 26 + index * 4;
-              const shiftY = (progress - 0.45) * (index + 1) * 14;
+              const shiftX = isDesktop ? (index - 1) * 24 - progress * 26 + index * 4 : 0;
+              const shiftY = isDesktop ? (progress - 0.45) * (index + 1) * 14 : (progress - 0.45) * (index + 1) * 8;
 
               return (
                 <article
-                  className="rounded-[30px] border border-[var(--marketing-border)] bg-white p-6 shadow-[0_20px_46px_rgba(18,24,20,0.06)] transition-transform duration-300"
+                  className="rounded-[26px] border border-[var(--marketing-border)] bg-white p-5 shadow-[0_20px_46px_rgba(18,24,20,0.06)] transition-transform duration-300 sm:rounded-[30px] sm:p-6"
                   key={step.title}
                   style={{ transform: `translate3d(${shiftX}px, ${shiftY}px, 0)` }}
                 >
@@ -654,7 +722,71 @@ function ProductSection() {
           ref={ref}
           style={createFloatStyle((0.5 - progress) * 26)}
         >
-          <div className="grid lg:grid-cols-[240px_minmax(0,1fr)]">
+          <div className="space-y-4 p-4 lg:hidden">
+            <div className="flex items-center gap-3 rounded-[22px] bg-[#f7f7f3] p-4">
+              <img alt="ParaHoy" className="h-10 w-10 rounded-2xl object-cover" src="/Logo.png" />
+              <div>
+                <p className="text-sm font-bold text-[var(--marketing-text)]">ParaHoy</p>
+                <p className="text-xs text-[var(--marketing-muted)]">Pedidos en tiempo real</p>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--marketing-border)] bg-[#fcfcfa] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--marketing-muted)]">Seguimiento en tiempo real</p>
+              <h3 className="mt-2 text-[1.45rem] font-extrabold leading-none tracking-[-0.04em] text-[var(--marketing-text)]">
+                Pedidos de hoy
+              </h3>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <MetricPill label="18 nuevos" tone="green" />
+                <MetricPill label="7 en preparacion" tone="dark" />
+                <MetricPill label="4 pagos" tone="warm" />
+                <div className="flex items-center justify-center rounded-[18px] border border-[var(--marketing-border)] px-3 py-3 text-sm font-semibold text-[var(--marketing-muted)]">
+                  Buscar
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-[24px] border border-[var(--marketing-border)] bg-[#fbfbf8] p-3">
+              <StatusColumn
+                orders={[
+                  { customer: "Laura M.", total: "$34.000", channel: "WhatsApp", time: "Hace 2 min" },
+                  { customer: "Camilo P.", total: "$21.500", channel: "WhatsApp", time: "Hace 5 min" },
+                ]}
+                title="Nuevo"
+                tone="green"
+              />
+              <StatusColumn
+                orders={[
+                  { customer: "Sara T.", total: "$19.000", channel: "WhatsApp", time: "Pago pendiente" },
+                ]}
+                title="Pendiente de pago"
+                tone="warm"
+              />
+            </div>
+
+            <article className="rounded-[24px] border border-[var(--marketing-border)] bg-[#fcfcfa] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-[var(--marketing-text)]">Pedido #2841</p>
+                  <p className="mt-1 text-sm text-[var(--marketing-muted)]">Laura M. · WhatsApp</p>
+                </div>
+                <span className="rounded-full bg-[rgba(37,211,102,0.12)] px-3 py-1 text-xs font-bold text-[var(--wa-green-dark)]">
+                  Nuevo
+                </span>
+              </div>
+              <div className="mt-4 space-y-3 text-sm">
+                <DetailRow label="Productos" value="2 almuerzos del dia" />
+                <DetailRow label="Cantidades" value="2 platos + 1 limonada" />
+                <DetailRow label="Pago" value="Transferencia pendiente" />
+              </div>
+              <div className="mt-5 flex flex-col gap-2">
+                <ActionButton tone="primary">Confirmar</ActionButton>
+                <ActionButton tone="secondary">Enviar a cocina</ActionButton>
+              </div>
+            </article>
+          </div>
+
+          <div className="hidden lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
             <aside className="border-b border-[rgba(7,94,84,0.08)] bg-[#f7f7f3] p-5 lg:border-b-0 lg:border-r">
               <div className="flex items-center gap-3">
                 <img alt="ParaHoy" className="h-10 w-10 rounded-2xl object-cover" src="/Logo.png" />
@@ -805,6 +937,7 @@ function FeatureSection() {
               <article
                 className={cn(
                   "landing-reveal flex h-full flex-col rounded-[28px] border border-[var(--marketing-border)] bg-white p-5 shadow-[0_18px_46px_rgba(18,24,20,0.06)]",
+                  "sm:p-5 p-4",
                   visible && "is-visible",
                 )}
                 key={feature.title}
@@ -814,11 +947,11 @@ function FeatureSection() {
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[rgba(7,94,84,0.08)] text-[var(--wa-green-dark)]">
                     <Icon size={20} />
                   </div>
-                  <span className="rounded-full border border-[rgba(7,94,84,0.08)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--marketing-muted)]">
+                  <span className="hidden rounded-full border border-[rgba(7,94,84,0.08)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--marketing-muted)] sm:inline-flex">
                     Producto
                   </span>
                 </div>
-                <h3 className="mt-4 text-[1.35rem] font-bold tracking-[-0.04em] text-[var(--marketing-text)]">{feature.title}</h3>
+                <h3 className="mt-4 text-[1.15rem] font-bold tracking-[-0.04em] text-[var(--marketing-text)] sm:text-[1.35rem]">{feature.title}</h3>
                 <p className="mt-3 text-sm leading-7 text-[var(--marketing-muted)]">{feature.copy}</p>
                 <div className="mt-4 rounded-[18px] border border-[rgba(7,94,84,0.08)] bg-[#fbfbf8] p-3">
                   <FeatureMiniVisual visual={feature.visual} />
@@ -857,6 +990,7 @@ function RestaurantUseCases() {
             <article
               className={cn(
                 "landing-reveal rounded-[26px] border border-[var(--marketing-border)] bg-white p-5 shadow-[0_16px_40px_rgba(18,24,20,0.05)]",
+                "sm:p-5 p-4",
                 visible && "is-visible",
               )}
               key={item.title}
@@ -864,7 +998,7 @@ function RestaurantUseCases() {
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-lg font-bold tracking-[-0.03em] text-[var(--marketing-text)]">{item.title}</p>
-                <span className="rounded-full bg-[rgba(255,122,26,0.1)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--warm-accent)]">
+                <span className="hidden rounded-full bg-[rgba(255,122,26,0.1)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--warm-accent)] sm:inline-flex">
                   Caso real
                 </span>
               </div>
@@ -896,7 +1030,7 @@ function HumanControlSection() {
             <ShieldCheck size={14} />
             Confianza operativa
           </div>
-          <h2 className="mt-6 text-[2.15rem] font-extrabold leading-[1.02] tracking-[-0.05em]">
+          <h2 className="mt-6 text-[1.9rem] font-extrabold leading-[1.02] tracking-[-0.05em] sm:text-[2.15rem]">
             La IA ayuda, pero tu restaurante mantiene el control.
           </h2>
           <p className="mt-5 text-[15px] leading-8 text-[rgba(237,246,240,0.72)]">
@@ -1040,7 +1174,7 @@ function FAQAccordion() {
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
         <div className="rounded-[28px] border border-[var(--marketing-border)] bg-white p-6 shadow-[0_20px_50px_rgba(18,24,20,0.06)]">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--wa-green-dark)]">Preguntas frecuentes</p>
-          <h2 className="mt-4 text-[2.2rem] font-extrabold leading-[1.02] tracking-[-0.05em] text-[var(--marketing-text)]">
+          <h2 className="mt-4 text-[1.9rem] font-extrabold leading-[1.02] tracking-[-0.05em] text-[var(--marketing-text)] sm:text-[2.2rem]">
             Preguntas antes de automatizar pedidos por WhatsApp.
           </h2>
           <p className="mt-4 text-[15px] leading-8 text-[var(--marketing-muted)]">
@@ -1068,7 +1202,7 @@ function FinalCTA() {
     <section className="px-4 pb-8 pt-4 sm:px-6 sm:pb-10">
       <div className="mx-auto max-w-7xl overflow-hidden rounded-[32px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(135deg,#08140f,#101827_56%,#20110b_100%)] px-6 py-10 text-white shadow-[0_32px_80px_rgba(9,13,17,0.24)] sm:px-10 sm:py-14">
         <div className="max-w-3xl">
-          <h2 className="mt-4 text-[2.3rem] font-extrabold leading-[0.98] tracking-[-0.05em] sm:text-[3.3rem]">
+          <h2 className="mt-4 text-[2rem] font-extrabold leading-[0.98] tracking-[-0.05em] sm:text-[3.3rem]">
             Deja de copiar pedidos desde WhatsApp.
           </h2>
           <p className="mt-5 max-w-2xl text-[15px] leading-8 text-[rgba(232,242,236,0.72)]">
