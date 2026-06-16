@@ -1,6 +1,7 @@
 export type ApiBindings = {
   APP_ENV: string;
   APP_BASE_URL?: string;
+  DASHBOARD_ALLOWED_ORIGINS?: string;
 
   META_VERIFY_TOKEN: string;
   META_ACCESS_TOKEN: string;

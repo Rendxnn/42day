@@ -341,9 +341,14 @@ dashboardRoutes.post("/admin/restaurants", async (c) => {
   };
   const name = String(body.name ?? "").trim();
   const slug = normalizeTenantSlug(body.slug || name);
+  const ownerEmail = String(body.ownerEmail ?? "").trim().toLowerCase();
 
   if (!name || !slug) {
     return c.json({ error: "restaurant_name_required" }, 400);
+  }
+
+  if (!ownerEmail || !ownerEmail.includes("@")) {
+    return c.json({ error: "restaurant_owner_email_required" }, 400);
   }
 
   const schemaName = `tenant_${slug.replace(/-/g, "_")}`;
@@ -385,17 +390,23 @@ dashboardRoutes.post("/admin/restaurants", async (c) => {
     return c.json({ error: "restaurant_provision_failed" }, 500);
   }
 
-  let ownerPassword: string | undefined;
-  let ownerMember: Awaited<ReturnType<typeof createOrLinkRestaurantMember>> | undefined;
-  if (body.ownerEmail) {
-    ownerPassword = body.ownerPassword || buildDefaultRestaurantPassword(slug);
-    ownerMember = await createOrLinkRestaurantMember(c.env, tenant, {
-      email: body.ownerEmail,
-      name: body.ownerName || name,
-      password: ownerPassword,
-      role: "encargado",
-      resetPasswordIfUserExists: Boolean(body.ownerPassword),
-    });
+  await refreshPostgrestTenantSchemas(c.env);
+
+  const ownerPassword = body.ownerPassword || buildDefaultRestaurantPassword(slug);
+  const ownerMember = await createOrLinkRestaurantMember(c.env, tenant, {
+    email: ownerEmail,
+    name: body.ownerName || name,
+    password: ownerPassword,
+    role: "encargado",
+    resetPasswordIfUserExists: Boolean(body.ownerPassword),
+  });
+
+  const verification = await verifyProvisionedRestaurant(c.env, tenant, ownerMember.member.userId);
+  if (!verification.ok) {
+    return c.json({
+      error: "restaurant_provision_verification_failed",
+      details: verification.failures,
+    }, 500);
   }
 
   const restaurants = await listAdminRestaurants(c.env);
@@ -3001,6 +3012,28 @@ type AdminTenantSnapshot = {
   metrics?: AdminRestaurantMetrics | null;
 };
 
+const requiredTenantOperationTables = [
+  "locations",
+  "products",
+  "product_options",
+  "product_option_values",
+  "combos",
+  "combo_items",
+  "promotions",
+  "menus",
+  "menu_items",
+  "customers",
+  "conversations",
+  "messages",
+  "draft_orders",
+  "draft_order_items",
+  "orders",
+  "order_items",
+  "payment_proofs",
+  "human_intervention_alerts",
+  "app_events",
+];
+
 function mapAdminRestaurant(
   tenant: TenantRow,
   location?: LocationRow,
@@ -3128,6 +3161,110 @@ async function getTenantById(env: ApiBindings, tenantId: string): Promise<Tenant
   });
 
   return tenant;
+}
+
+async function refreshPostgrestTenantSchemas(env: ApiBindings) {
+  await createSupabaseRestClient(env).rpc<string>({
+    schema: "control",
+    functionName: "refresh_postgrest_tenant_schemas",
+  });
+}
+
+async function verifyProvisionedRestaurant(env: ApiBindings, tenant: TenantRow, ownerUserId: string): Promise<{ ok: true } | { ok: false; failures: string[] }> {
+  let lastFailures: string[] = [];
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const result = await inspectProvisionedRestaurant(env, tenant, ownerUserId);
+    if (result.ok) return result;
+    lastFailures = result.failures;
+    await sleep(450 * (attempt + 1));
+  }
+
+  return { ok: false, failures: lastFailures };
+}
+
+async function inspectProvisionedRestaurant(env: ApiBindings, tenant: TenantRow, ownerUserId: string): Promise<{ ok: true } | { ok: false; failures: string[] }> {
+  const supabase = createSupabaseRestClient(env);
+  const failures: string[] = [];
+
+  for (const table of requiredTenantOperationTables) {
+    await supabase.select({
+      schema: tenant.schema_name,
+      table,
+      query: { select: "id", limit: 1 },
+    }).catch((error) => {
+      const detail = error instanceof SupabaseRestError ? `${error.status}:${error.body}` : String(error);
+      failures.push(`missing_or_unreadable_table:${table}:${detail}`);
+      return [];
+    });
+  }
+
+  const [location] = await supabase.select<LocationRow>({
+    schema: tenant.schema_name,
+    table: "locations",
+    query: {
+      select: "id,name,address,phone,delivery_fee_fixed,pickup_enabled,delivery_enabled,automation_enabled,is_active",
+      is_active: "eq.true",
+      limit: 1,
+    },
+  }).catch((error) => {
+    const detail = error instanceof SupabaseRestError ? `${error.status}:${error.body}` : String(error);
+    failures.push(`primary_location_unreadable:${detail}`);
+    return [];
+  });
+
+  if (!location) {
+    failures.push("primary_location_missing");
+  }
+
+  if (location) {
+    const [menu] = await supabase.select<MenuRow>({
+      schema: tenant.schema_name,
+      table: "menus",
+      query: {
+        select: "id,location_id,date,name,status,published_at",
+        location_id: `eq.${location.id}`,
+        date: `eq.${resolveBusinessDate(undefined, tenant.timezone)}`,
+        status: "eq.published",
+        limit: 1,
+      },
+    }).catch((error) => {
+      const detail = error instanceof SupabaseRestError ? `${error.status}:${error.body}` : String(error);
+      failures.push(`today_menu_unreadable:${detail}`);
+      return [];
+    });
+
+    if (!menu) {
+      failures.push("today_published_menu_missing");
+    }
+  }
+
+  const [owner] = await supabase.select<TenantUserRow>({
+    schema: "control",
+    table: "tenant_users",
+    query: {
+      select: "tenant_id,user_id,role,status,created_at",
+      tenant_id: `eq.${tenant.id}`,
+      user_id: `eq.${ownerUserId}`,
+      role: "eq.encargado",
+      status: "eq.active",
+      limit: 1,
+    },
+  }).catch((error) => {
+    const detail = error instanceof SupabaseRestError ? `${error.status}:${error.body}` : String(error);
+    failures.push(`owner_membership_unreadable:${detail}`);
+    return [];
+  });
+
+  if (!owner) {
+    failures.push("owner_membership_missing");
+  }
+
+  return failures.length > 0 ? { ok: false, failures } : { ok: true };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function updatePrimaryLocation(

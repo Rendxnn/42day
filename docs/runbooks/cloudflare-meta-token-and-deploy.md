@@ -135,6 +135,7 @@ Para Ubuntu quedan en:
 - [Start-DashboardDev.sh](../../scripts/bash/Start-DashboardDev.sh)
 - [Start-LocalStack.sh](../../scripts/bash/Start-LocalStack.sh)
 - [Publish-Staging.sh](../../scripts/bash/Publish-Staging.sh)
+- [Publish-Production.sh](../../scripts/bash/Publish-Production.sh)
 
 ## Tengo que cambiar el token dentro del deploy?
 
@@ -196,6 +197,96 @@ Lo esperable en productivo es esto:
 - deploy con proceso mas controlado
 - posiblemente script de release o CI/CD
 - logs y alertas mas formales
+
+## Publicar dashboard + worker en productivo
+
+Estado actual del repo:
+
+- el Worker ya resuelve CORS para `/dashboard/*` desde [apps/api/src/index.ts](../../apps/api/src/index.ts),
+- el allowlist ya incluye `https://42day-dashboard.vercel.app` en `staging` y `production` en [apps/api/wrangler.toml](../../apps/api/wrangler.toml),
+- por eso el trabajo operativo real es desplegar el Worker `production` y apuntar Vercel a esa URL.
+
+### 1. Confirmar secrets de Cloudflare en `production`
+
+Si falta algun secret o lo vas a rotar:
+
+```bash
+bash scripts/bash/Set-CfWorkerSecret.sh META_VERIFY_TOKEN --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh META_ACCESS_TOKEN --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh META_PHONE_NUMBER_ID --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh META_WABA_ID --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_URL --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_SERVICE_ROLE_KEY --environment production
+```
+
+Opcionales segun el ambiente:
+
+```bash
+bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_ANON_KEY --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh DATABASE_URL --environment production
+bash scripts/bash/Set-CfWorkerSecret.sh GEMINI_API_KEY --environment production
+```
+
+### 2. Deploy del Worker productivo
+
+Opcion directa:
+
+```bash
+bash scripts/bash/Deploy-Api.sh --environment production
+```
+
+Opcion con health check:
+
+```bash
+bash scripts/bash/Publish-Production.sh --base-url https://42day-api-production.42day.workers.dev
+```
+
+Si tu `workers.dev` real usa otro subdominio o un dominio custom, pasa esa URL en `--base-url`.
+
+### 3. Verificar health y logs
+
+Health:
+
+```bash
+bash scripts/bash/Test-ApiHealth.sh --base-url https://42day-api-production.42day.workers.dev
+```
+
+Logs:
+
+```bash
+bash scripts/bash/Tail-WorkerLogs.sh --environment production
+```
+
+### 4. Configurar Vercel
+
+En el proyecto del dashboard en Vercel, configurar:
+
+```txt
+VITE_API_BASE_URL=https://42day-api-production.42day.workers.dev
+VITE_SUPABASE_URL=<supabase-url-produccion>
+VITE_SUPABASE_ANON_KEY=<supabase-anon-key-produccion>
+```
+
+Si el Worker productivo usa otra URL publica, usar esa en `VITE_API_BASE_URL`.
+
+### 5. Redeploy del dashboard en Vercel
+
+Despues de guardar variables en Vercel:
+
+- hacer redeploy del proyecto,
+- abrir `https://42day-dashboard.vercel.app`,
+- validar login,
+- validar una llamada autenticada a `/dashboard/me`,
+- validar que ya no haya errores CORS en navegador.
+
+### 6. Smoke test final
+
+Checklist minimo:
+
+- `GET /health` responde en el Worker productivo,
+- el dashboard desplegado carga contra `production`,
+- `https://42day-dashboard.vercel.app` puede consultar `/dashboard/*`,
+- Cloudflare logs muestran requests del frontend sin rechazo de CORS.
 
 ## Diferencia real entre hoy y produccion
 

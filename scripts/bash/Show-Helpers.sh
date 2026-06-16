@@ -18,6 +18,7 @@ declare -A descriptions=(
   ["Start-LocalStack.sh"]="Starts API and dashboard for local dev."
   ["Tail-WorkerLogs.sh"]="Tails Cloudflare Worker logs in real time."
   ["Publish-Staging.sh"]="Deploys staging and runs the health check."
+  ["Publish-Production.sh"]="Deploys production and runs the health check."
 )
 
 for helper in "$script_dir"/*.sh; do

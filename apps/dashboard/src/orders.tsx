@@ -335,7 +335,6 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
       setActionKey("");
     }
   }
-
   async function handleFinalizeOrder(order: OrderDetail) {
     setActionKey(`status:${order.id}:delivered`);
     try {
@@ -363,14 +362,14 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
   }
 
   return (
-    <section className="space-y-6">
-      <div className="app-panel rounded-[24px] px-5 py-4">
+    <section className="space-y-4 sm:space-y-6">
+      <div className="app-panel rounded-[22px] px-4 py-4 sm:rounded-[24px] sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Pedidos</p>
             <h2 className="mt-1 text-xl font-semibold text-[var(--text-strong)]">Bandeja operativa</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap sm:items-center">
             <MetricChip label="Pendientes" value={counts.pending} />
             <MetricChip label="Confirmados" value={counts.confirmed} />
             <MetricChip label="Cerrados" value={counts.closed} />
@@ -380,12 +379,12 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
       </div>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
-        <div className="app-panel flex flex-1 flex-wrap gap-2 rounded-[24px] p-2">
+        <div className="app-panel grid flex-1 grid-cols-1 gap-2 rounded-[22px] p-2 sm:grid-cols-3 sm:rounded-[24px]">
           {filterTabs.map((tab) => {
             const active = filter === tab.id;
             return (
               <button
-                className={`min-h-[78px] flex-1 rounded-[18px] border px-4 py-3 text-left transition ${
+                className={`min-h-[58px] rounded-[18px] border px-3 py-3 text-left transition sm:min-h-[72px] sm:px-4 ${
                   getFilterTabClasses(tab.id, active)
                 }`}
                 key={tab.id}
@@ -398,14 +397,14 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
                     {counts[tab.id]}
                   </span>
                 </div>
-                <p className="mt-1 text-xs leading-5 opacity-80">{tab.description}</p>
+                <p className="mt-1 hidden text-xs leading-5 opacity-80 sm:block">{tab.description}</p>
               </button>
             );
           })}
         </div>
 
         <button
-          className="inline-flex h-[78px] items-center justify-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[var(--surface-dark-button)] px-4 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.12)] disabled:cursor-not-allowed disabled:opacity-60 lg:min-w-[168px]"
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[var(--surface-dark-button)] px-4 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.12)] disabled:cursor-not-allowed disabled:opacity-60 lg:h-[72px] lg:min-w-[150px]"
           disabled={ordersRefreshing}
           onClick={() => void loadOrders("refresh")}
           type="button"
@@ -427,8 +426,8 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[430px_minmax(0,1fr)]">
-        <div className="app-panel rounded-[28px] overflow-hidden">
+      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="app-panel overflow-hidden rounded-[24px] sm:rounded-[28px]">
           <div className="border-b border-[rgba(118,93,71,0.12)] px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -487,7 +486,7 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
                   </button>
                 </div>
               </div>
-              <div className="app-scrollbar max-h-[760px] overflow-y-auto px-4 py-4">
+              <div className="app-scrollbar max-h-[58vh] overflow-y-auto px-3 py-3 sm:max-h-[760px] sm:px-4 sm:py-4">
                 <OrderBucketSection
                   emptyCopy={pendingLane === "restaurant"
                     ? "No hay pedidos esperando confirmacion del restaurante."
@@ -501,7 +500,7 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
               </div>
             </>
           ) : (
-            <div className="app-scrollbar max-h-[860px] space-y-3 overflow-y-auto px-4 py-4">
+            <div className="app-scrollbar max-h-[58vh] space-y-3 overflow-y-auto px-3 py-3 sm:max-h-[860px] sm:px-4 sm:py-4">
               {filteredOrders.map((order) => {
                 const active = order.id === selectedOrderId;
                 const acceptedStage = order.status === "accepted";
@@ -563,7 +562,7 @@ export function OrdersView({ menuItems, onNotify, tenantSlug }: OrdersViewProps)
 
         <div className="app-panel rounded-[28px] overflow-hidden">
           {!selectedOrderId ? (
-            <div className="grid min-h-[620px] place-items-center px-6 py-10 text-center">
+            <div className="grid min-h-[380px] place-items-center px-5 py-10 text-center sm:min-h-[520px]">
               <div>
                 <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[rgba(118,93,71,0.08)] text-[var(--text-faint)]">
                   <ClipboardList size={24} />
@@ -650,9 +649,8 @@ function OrderDetailPanel({
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
   const advanceLabel = order.fulfillmentType === "delivery" ? "Marcar delivery 30 min" : "Marcar listo para recoger";
-
   return (
-    <div className="flex min-h-[620px] flex-col">
+    <div className="flex min-h-[420px] flex-col sm:min-h-[620px]">
       <div className="border-b border-[rgba(118,93,71,0.12)] px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
@@ -781,7 +779,6 @@ function OrderDetailPanel({
               </div>
             )}
           </section>
-
           <section className="px-5 py-5 sm:px-6">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">Items del pedido</h4>
@@ -1346,7 +1343,7 @@ function InfoChip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
 
 function LoadingBlock({ copy }: { copy: string }) {
   return (
-    <div className="grid min-h-[620px] place-items-center px-6 py-10">
+    <div className="grid min-h-[380px] place-items-center px-5 py-10 sm:min-h-[620px]">
       <div className="inline-flex items-center gap-3 rounded-full bg-[rgba(248,241,232,0.72)] px-5 py-3 text-sm font-semibold text-[var(--text-soft)]">
         <Loader2 className="animate-spin" size={17} />
         {copy}
@@ -1357,7 +1354,7 @@ function LoadingBlock({ copy }: { copy: string }) {
 
 function ErrorBlock({ message }: { message: string }) {
   return (
-    <div className="grid min-h-[620px] place-items-center px-6 py-10">
+    <div className="grid min-h-[380px] place-items-center px-5 py-10 sm:min-h-[620px]">
       <div className="max-w-md rounded-[24px] border border-[rgba(180,94,84,0.18)] bg-[rgba(190,110,95,0.08)] px-5 py-5 text-sm leading-7 text-[#8c4e47]">
         {message}
       </div>
@@ -1460,7 +1457,6 @@ function getConfirmedProgressLabel(order: Pick<OrderSummary, "status" | "fulfill
 
   return "";
 }
-
 function getNotificationLabel(status?: OrderDetail["customerNotificationStatus"]) {
   if (status === "failed") {
     return "fallida";

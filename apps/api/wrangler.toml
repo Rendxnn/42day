@@ -28,6 +28,7 @@ name = "42day-api-staging"
 APP_ENV = "staging"
 META_GRAPH_API_VERSION = "v22.0"
 GEMINI_MODEL = "gemini-2.5-flash"
+DASHBOARD_ALLOWED_ORIGINS = "https://42day-dashboard.vercel.app"
 
 [env.production]
 name = "42day-api-production"
@@ -36,3 +37,4 @@ name = "42day-api-production"
 APP_ENV = "production"
 META_GRAPH_API_VERSION = "v22.0"
 GEMINI_MODEL = "gemini-2.5-flash"
+DASHBOARD_ALLOWED_ORIGINS = "https://42day-dashboard.vercel.app"

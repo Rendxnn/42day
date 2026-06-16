@@ -8,7 +8,7 @@ import { SupabaseRestError } from "./lib/supabase-rest";
 
 const app = new Hono<{ Bindings: ApiBindings }>();
 
-const dashboardOrigins = [
+const localDashboardOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://localhost:5174",
@@ -17,10 +17,22 @@ const dashboardOrigins = [
   "http://127.0.0.1:5175",
 ];
 
+function resolveDashboardOrigins(env: ApiBindings) {
+  const configuredOrigins = (env.DASHBOARD_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return new Set([...localDashboardOrigins, ...configuredOrigins]);
+}
+
 app.use(
   "/dashboard/*",
   cors({
-    origin: (origin) => (dashboardOrigins.includes(origin) ? origin : ""),
+    origin: (origin, c) => {
+      if (!origin) return "";
+      return resolveDashboardOrigins(c.env).has(origin) ? origin : "";
+    },
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Authorization", "Content-Type"],
     maxAge: 86400,
