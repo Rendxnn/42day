@@ -1,4 +1,10 @@
 {
   "buildCommand": "pnpm --filter @42day/dashboard build",
-  "outputDirectory": "apps/dashboard/dist"
+  "outputDirectory": "apps/dashboard/dist",
+  "rewrites": [
+    {
+      "source": "/((?!assets/|.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
