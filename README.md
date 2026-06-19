@@ -90,6 +90,7 @@ Importante para login/dashboard:
 
 - el Worker local lee secretos desde `apps/api/.dev.vars`,
 - Vite lee variables desde `apps/dashboard/.env` o `apps/dashboard/.env.local`,
+- en despliegue el backend debe permitir el origen web usando `DASHBOARD_ALLOWED_ORIGINS`,
 - el archivo raiz `.env` no reemplaza esos archivos en runtime local.
 
 ## Estructura

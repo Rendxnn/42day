@@ -56,7 +56,16 @@ SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 GEMINI_API_KEY
+DASHBOARD_ALLOWED_ORIGINS
 ```
+
+En despliegue, `DASHBOARD_ALLOWED_ORIGINS` debe incluir el dominio del dashboard, por ejemplo:
+
+```txt
+https://tu-dashboard.vercel.app
+```
+
+Si hay varios dominios, separar por comas.
 
 ## Desarrollo local
 

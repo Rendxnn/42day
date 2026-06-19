@@ -3,6 +3,7 @@ import { z } from "zod";
 export const appEnvSchema = z.object({
   APP_ENV: z.enum(["local", "staging", "production"]).default("local"),
   APP_BASE_URL: z.string().url().optional(),
+  DASHBOARD_ALLOWED_ORIGINS: z.string().optional(),
 
   META_VERIFY_TOKEN: z.string().min(1),
   META_ACCESS_TOKEN: z.string().min(1),

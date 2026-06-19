@@ -22,7 +22,6 @@ function resolveDashboardOrigins(env: ApiBindings) {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-
   return new Set([...localDashboardOrigins, ...configuredOrigins]);
 }
 
