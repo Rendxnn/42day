@@ -17,20 +17,32 @@ import type { RouteInboundMessageInput } from "./types";
 export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, signals: DetectedSignals): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
   let parsed: SemanticParserResult;
+  let providerId: "gemini" | "openrouter" = "gemini";
 
   try {
     markLlmAttempt(input);
-    parsed = await parseFreeFormOrder({
+    const execution = await parseFreeFormOrder({
       env: input.env,
       tenantId: input.tenant.id,
       rawMessage: input.message.text ?? signals.normalizedText,
       activeMenu: menu,
       conversationState: input.conversation.state,
     });
+    parsed = execution.parsed;
+    providerId = execution.providerId;
+    console.info("semantic_parser.completed", {
+      tenantId: input.tenant.id,
+      conversationId: input.conversation.id,
+      inboundProviderMessageId: input.message.providerMessageId,
+      provider: execution.providerId,
+      fallbackFromProviderId: execution.fallbackFromProviderId,
+      parsed,
+    });
   } catch (error) {
     markLlmOutcome(input, {
       used: false,
       outcome: "skipped_or_failed",
+      provider: providerId,
       reason: error instanceof Error ? error.message : String(error),
     });
     console.info("semantic_parser.skipped_or_failed", {
@@ -44,6 +56,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     markLlmOutcome(input, {
       used: true,
       outcome: "handled",
+      provider: providerId,
       parsed,
       reason: "support_or_handoff",
     });
@@ -61,6 +74,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     markLlmOutcome(input, {
       used: false,
       outcome: "low_confidence",
+      provider: providerId,
       parsed,
       reason: !menu.location ? "menu_location_missing" : "confidence_below_threshold",
     });
@@ -84,6 +98,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     markLlmOutcome(input, {
       used: false,
       outcome: "not_order",
+      provider: providerId,
       parsed,
       reason: parsed.intent !== "order" ? "intent_not_order" : "empty_items",
     });
@@ -131,6 +146,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
       markLlmOutcome(input, {
         used: true,
         outcome: "handled",
+        provider: providerId,
         parsed,
         reason: "semantic_order_clarification_requested",
       });
@@ -150,6 +166,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     markLlmOutcome(input, {
       used: false,
       outcome: "unresolved",
+      provider: providerId,
       parsed,
       reason: "items_not_resolved_against_menu",
     });
@@ -159,6 +176,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
   markLlmOutcome(input, {
     used: true,
     outcome: "handled",
+    provider: providerId,
     parsed,
     reason: "semantic_order_applied",
   });

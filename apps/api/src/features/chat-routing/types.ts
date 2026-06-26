@@ -9,12 +9,13 @@ export type ResponseRoutingTrace = {
     attempted: boolean;
     used: boolean;
     outcome: "handled" | "skipped_or_failed" | "low_confidence" | "unresolved" | "not_order";
-    provider?: "gemini";
+    provider?: "gemini" | "openrouter";
     reason?: string;
     intent?: SemanticParserResult["intent"];
     confidence?: number;
     itemCount?: number;
     editActionCount?: number;
+    parsed?: SemanticParserResult;
   };
 };
 

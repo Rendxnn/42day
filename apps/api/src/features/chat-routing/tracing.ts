@@ -16,6 +16,7 @@ export function markLlmAttempt(input: RouteInboundMessageInput): void {
 export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
   used: boolean;
   outcome: NonNullable<ResponseRoutingTrace["llm"]>["outcome"];
+  provider?: "gemini" | "openrouter";
   reason?: string;
   parsed?: SemanticParserResult;
 }): void {
@@ -27,12 +28,13 @@ export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
       attempted: true,
       used: payload.used,
       outcome: payload.outcome,
-      provider: "gemini",
+      provider: payload.provider ?? "gemini",
       reason: payload.reason,
       intent: payload.parsed?.intent,
       confidence: payload.parsed?.confidence,
       itemCount: payload.parsed?.items.length,
       editActionCount: payload.parsed?.editActions?.length,
+      parsed: payload.parsed,
     },
   };
 }

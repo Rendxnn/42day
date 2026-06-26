@@ -17,6 +17,10 @@ export const appEnvSchema = z.object({
   DATABASE_URL: z.string().optional(),
 
   OPENAI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof appEnvSchema>;

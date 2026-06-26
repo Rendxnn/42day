@@ -1,6 +1,12 @@
 # Estado actual
 
-Ultima actualizacion: 2026-06-08.
+Ultima actualizacion: 2026-06-26.
+
+Nota operativa reciente:
+
+- el numero nuevo de WhatsApp que se estaba probando fue reasignado temporalmente a `tenant_demo`, porque `tenant_thaledon` no tiene menu operativo publicado en su schema;
+- el fallback semantico `gemini -> openrouter` ya quedo implementado en codigo, pero requiere secret y deploy para quedar activo en `staging`;
+- detalle: [WhatsApp routing y fallback LLM](../runbooks/whatsapp-routing-and-llm-fallback-2026-06-26.md)
 
 ## Resumen ejecutivo
 
@@ -83,7 +89,7 @@ Eso significa poder:
 - orden en `pending_restaurant_confirmation`,
 - soporte de agotados y reemplazos,
 - metadata de routing por outbound,
-- fallback LLM con Gemini via `t-router`.
+- fallback LLM via `t-router`, con Gemini como primario y OpenRouter como respaldo cuando el ambiente tenga el secret configurado.
 
 ### Dashboard restaurante
 

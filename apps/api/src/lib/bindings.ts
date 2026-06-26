@@ -17,5 +17,7 @@ export type ApiBindings = {
   OPENAI_API_KEY?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_MODEL?: string;
   AI_CONFIG_ENCRYPTION_KEY?: string;
 };

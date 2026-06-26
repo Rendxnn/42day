@@ -1,7 +1,7 @@
-import { AiProviderRouter, createObjectTask, GeminiAdapter } from "@rendxnn/t-router";
+import { AiProviderRouter, AiRouterError, createObjectTask, GeminiAdapter, OpenRouterAdapter } from "@rendxnn/t-router";
 import type { Conversation, TodayMenuPayload } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
-import { loadTenantAiProviderConfig } from "../ai-provider-config/ai-provider-config";
+import { loadTenantAiFallbackProviderConfig, loadTenantAiProviderConfig } from "../ai-provider-config/ai-provider-config";
 
 export type SemanticOrderItem = {
   quantity?: number;
@@ -38,13 +38,19 @@ export type SemanticParserResult = {
   questions?: string[];
 };
 
+export type SemanticParserExecutionResult = {
+  providerId: "gemini" | "openrouter";
+  parsed: SemanticParserResult;
+  fallbackFromProviderId?: "gemini" | "openrouter";
+};
+
 export async function parseFreeFormOrder(input: {
   env: ApiBindings;
   tenantId: string;
   rawMessage: string;
   activeMenu: TodayMenuPayload;
   conversationState: Conversation["state"];
-}): Promise<SemanticParserResult> {
+}): Promise<SemanticParserExecutionResult> {
   const provider = await loadTenantAiProviderConfig({
     env: input.env,
     tenantId: input.tenantId,
@@ -54,37 +60,69 @@ export async function parseFreeFormOrder(input: {
     throw new Error("semantic_parser.not_configured");
   }
 
-  const router = new AiProviderRouter([new GeminiAdapter()]);
-  return router.generateObject<SemanticParserResult>({
-    provider,
-    task: createObjectTask({
-      schemaName: "semantic_order_parse",
-      outputSchema: semanticOrderSchema,
-      temperature: 0,
-      instructions: [
-        "Extrae estructura desde un mensaje de WhatsApp de un cliente de restaurante.",
-        "Devuelve solo textos mencionados por el usuario y confianza.",
-        "No inventes productos, precios, IDs, disponibilidad ni totales.",
-        "Si el usuario pide asesor, marca intent support o needsHuman.",
-        "Si parece pedido, usa intent order.",
-        "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
-        "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
-        "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
-        "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
-        "No conviertas una nota libre en valor de catalogo si el usuario no lo dijo claramente.",
-      ].join("\n"),
-      input: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            conversationState: input.conversationState,
-            message: input.rawMessage,
-            menu: summarizeMenu(input.activeMenu),
-          }),
-        },
-      ],
-    }),
+  const router = new AiProviderRouter([new GeminiAdapter(), new OpenRouterAdapter()]);
+  const task = createObjectTask({
+    schemaName: "semantic_order_parse",
+    outputSchema: semanticOrderSchema,
+    temperature: 0,
+    instructions: [
+      "Extrae estructura desde un mensaje de WhatsApp de un cliente de restaurante.",
+      "Devuelve solo textos mencionados por el usuario y confianza.",
+      "No inventes productos, precios, IDs, disponibilidad ni totales.",
+      "Si el usuario pide asesor, marca intent support o needsHuman.",
+      "Si parece pedido, usa intent order.",
+      "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
+      "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
+      "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
+      "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
+      "No conviertas una nota libre en valor de catalogo si el usuario no lo dijo claramente.",
+    ].join("\n"),
+    input: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          conversationState: input.conversationState,
+          message: input.rawMessage,
+          menu: summarizeMenu(input.activeMenu),
+        }),
+      },
+    ],
   });
+
+  try {
+    return {
+      providerId: provider.providerId,
+      parsed: await router.generateObject<SemanticParserResult>({
+        provider,
+        task,
+      }),
+    };
+  } catch (error) {
+    if (!shouldAttemptFallback(error)) {
+      throw error;
+    }
+
+    const fallbackProvider = await loadTenantAiFallbackProviderConfig({
+      env: input.env,
+      tenantId: input.tenantId,
+      excludeProviderId: provider.providerId,
+    });
+
+    if (!fallbackProvider) {
+      throw error;
+    }
+
+    const parsed = await router.generateObject<SemanticParserResult>({
+      provider: fallbackProvider,
+      task,
+    });
+
+    return {
+      providerId: fallbackProvider.providerId,
+      parsed,
+      fallbackFromProviderId: provider.providerId,
+    };
+  }
 }
 
 function summarizeMenu(menu: TodayMenuPayload): Record<string, unknown> {
@@ -245,3 +283,13 @@ const semanticOrderSchema = {
     },
   },
 };
+
+function shouldAttemptFallback(error: unknown): error is AiRouterError {
+  return error instanceof AiRouterError
+    && (
+      error.code === "provider_quota_exceeded" ||
+      error.code === "provider_unavailable" ||
+      error.code === "provider_timeout" ||
+      error.code === "provider_network_error"
+    );
+}

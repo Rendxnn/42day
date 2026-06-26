@@ -10,34 +10,49 @@ type TenantAiProviderConfigRow = {
   status: "active" | "inactive";
 };
 
+type SupportedProviderConfig = TenantProviderConfig & {
+  providerId: "gemini" | "openrouter";
+};
+
 export async function loadTenantAiProviderConfig(input: {
   env: ApiBindings;
   tenantId: string;
-}): Promise<TenantProviderConfig | null> {
+}): Promise<SupportedProviderConfig | null> {
   const dbConfig = await loadActiveDbConfig(input).catch(() => null);
   const providerId = dbConfig?.provider_id ?? "gemini";
-  const defaultModel = dbConfig?.default_model ?? input.env.GEMINI_MODEL ?? "gemini-2.5-flash";
-
-  if (providerId !== "gemini") {
-    return null;
-  }
-
-  // MVP path: use env secret now, while the DB row shape is ready for encrypted per-tenant keys.
-  if (!input.env.GEMINI_API_KEY) {
-    return null;
-  }
-
-  return {
+  return buildProviderConfig({
+    env: input.env,
     tenantId: input.tenantId,
     providerId,
-    authMode: "api_key",
-    defaultModel,
-    credentials: {
-      apiKey: input.env.GEMINI_API_KEY,
-      model: defaultModel,
-      extra: stringifyExtra(dbConfig?.provider_extra),
-    },
-  };
+    defaultModel: dbConfig?.default_model ?? undefined,
+    providerExtra: dbConfig?.provider_extra,
+  });
+}
+
+export async function loadTenantAiFallbackProviderConfig(input: {
+  env: ApiBindings;
+  tenantId: string;
+  excludeProviderId?: TenantProviderConfig["providerId"];
+}): Promise<SupportedProviderConfig | null> {
+  const fallbackOrder: Array<TenantProviderConfig["providerId"]> = ["openrouter"];
+
+  for (const providerId of fallbackOrder) {
+    if (providerId === input.excludeProviderId) {
+      continue;
+    }
+
+    const config = buildProviderConfig({
+      env: input.env,
+      tenantId: input.tenantId,
+      providerId,
+    });
+
+    if (config) {
+      return config;
+    }
+  }
+
+  return null;
 }
 
 async function loadActiveDbConfig(input: {
@@ -67,4 +82,56 @@ function stringifyExtra(extra: Record<string, unknown> | null | undefined): Reco
   return Object.fromEntries(
     Object.entries(extra).flatMap(([key, value]) => (typeof value === "string" ? [[key, value]] : [])),
   );
+}
+
+function buildProviderConfig(input: {
+  env: ApiBindings;
+  tenantId: string;
+  providerId: TenantProviderConfig["providerId"];
+  defaultModel?: string;
+  providerExtra?: Record<string, unknown> | null;
+}): SupportedProviderConfig | null {
+  const extra = stringifyExtra(input.providerExtra);
+
+  if (input.providerId === "gemini") {
+    const defaultModel = input.defaultModel ?? input.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+
+    if (!input.env.GEMINI_API_KEY) {
+      return null;
+    }
+
+    return {
+      tenantId: input.tenantId,
+      providerId: "gemini",
+      authMode: "api_key",
+      defaultModel,
+      credentials: {
+        apiKey: input.env.GEMINI_API_KEY,
+        model: defaultModel,
+        extra,
+      },
+    };
+  }
+
+  if (input.providerId === "openrouter") {
+    const defaultModel = input.defaultModel ?? input.env.OPENROUTER_MODEL ?? "openrouter/auto";
+
+    if (!input.env.OPENROUTER_API_KEY) {
+      return null;
+    }
+
+    return {
+      tenantId: input.tenantId,
+      providerId: "openrouter",
+      authMode: "api_key",
+      defaultModel,
+      credentials: {
+        apiKey: input.env.OPENROUTER_API_KEY,
+        model: defaultModel,
+        extra,
+      },
+    };
+  }
+
+  return null;
 }
