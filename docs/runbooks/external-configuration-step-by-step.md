@@ -500,7 +500,7 @@ from control.tenant_channels c
 join control.tenants t on t.id = c.tenant_id;
 ```
 
-Nota: el codigo actual todavia resuelve tenant por `META_PHONE_NUMBER_ID` desde env. Esta fila deja la DB lista para el siguiente paso de implementacion.
+Nota: el codigo actual ya resuelve el tenant por `control.tenant_channels.phone_number_id`. Esta fila no es preparacion futura: es parte del flujo real que usa el webhook hoy.
 
 ## 16. Configurar webhook en Meta
 

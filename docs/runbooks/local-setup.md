@@ -15,9 +15,21 @@ El repo ya tiene:
 
 - Node.js 20 o superior.
 - pnpm.
+- Python 3 para `scripts/dev_services.py`.
 - Cuenta Supabase.
 - Cuenta Meta Developers.
 - Cuenta Cloudflare.
+
+## Nota para Mac
+
+En Mac suele ser mas simple instalar `pnpm` globalmente y usarlo directo:
+
+```bash
+npm install -g pnpm@9.15.0
+pnpm --version
+```
+
+`corepack pnpm ...` tambien funciona si Corepack ya esta configurado en tu maquina.
 
 Si `pnpm` no esta disponible pero Node trae Corepack:
 
