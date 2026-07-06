@@ -3,7 +3,7 @@ import type { DraftOrder, OrderLineItem, PaymentMethod, ProductOption, TodayMenu
 const DEFAULT_ESTIMATED_MINUTES = 30;
 
 export function buildFulfillmentPrompt(_menu: TodayMenuPayload): string {
-  return "Con gusto 😊 ¿Prefieres que lo enviemos a domicilio o lo tendrás para recoger?";
+  return "Con gusto 😊 ¿El pedido es domicilio o para recoger?";
 }
 
 export function buildDeliveryAddressPrompt(): string {
@@ -35,7 +35,7 @@ export function buildOrderAdjustedPrompt(draft: DraftOrder): string {
   }
 
   return [
-    `Perfecto ✨ Ya actualicé tu pedido. Por ahora llevo ${formatDraftItemsInline(draft)}.`,
+    `Perfecto ✨ Ya actualicé tu pedido. Por ahora llevo:\n${formatDraftItemsInline(draft)}.`,
     `Subtotal parcial: ${formatCop(draft.subtotal)}.`,
     "",
     draft.fulfillmentType && draft.paymentMethod
@@ -49,7 +49,7 @@ export function buildCurrentDraftText(draft: DraftOrder): string {
     return "Aún no tengo productos registrados en tu pedido.";
   }
 
-  return `Hasta el momento llevo ${formatDraftItemsInline(draft)}.`;
+  return `Hasta el momento llevo:\n${formatDraftItemsInline(draft)}.`;
 }
 
 export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentMethod): string {
@@ -288,8 +288,8 @@ function formatDraftItemsInline(draft: DraftOrder): string {
   }
 
   return draft.items
-    .map((item) => `${item.quantity} x ${formatLineItemLabel(item)}`)
-    .join(", ");
+    .map((item) => `- ${item.quantity} x ${formatLineItemLabel(item)}`)
+    .join("\n");
 }
 
 function formatLineItemLabel(item: Pick<OrderLineItem, "name" | "options" | "notes">): string {
