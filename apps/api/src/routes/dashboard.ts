@@ -21,12 +21,17 @@ import type {
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
 } from "@42day/types";
-import type { ApiBindings } from "../lib/bindings";
-import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-rest";
-import { updateConversationState } from "../modules/conversation-service/conversation-service";
-import { processMenuFile } from "../modules/menu-upload/menuFileProcessor";
-import { logOutboundTextMessage } from "../modules/message-log/message-log";
-import { sendWhatsAppTextMessage } from "../modules/whatsapp-webhook/whatsapp-client";
+import type { ApiBindings } from "../lib/bindings.ts";
+import { createSupabaseRestClient, SupabaseRestError } from "../lib/supabase-rest.ts";
+import { updateConversationState } from "../modules/conversation-service/conversation-service.ts";
+import { processMenuFile } from "../modules/menu-upload/menuFileProcessor.ts";
+import { logOutboundTextMessage } from "../modules/message-log/message-log.ts";
+import { sendWhatsAppTextMessage } from "../modules/whatsapp-webhook/whatsapp-client.ts";
+import {
+  confirmLatestPaymentProofForOrder,
+  downloadLatestPaymentProofForOrder,
+  getLatestPaymentProofForOrder,
+} from "../features/payment-proofs/service.ts";
 
 type TenantRow = {
   id: string;
@@ -1049,6 +1054,25 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
     return c.json({ error: "order_not_found" }, 404);
   }
 
+  let paymentProof = undefined;
+  if (order.payment_proof_file_id) {
+    try {
+      paymentProof = await getLatestPaymentProofForOrder({
+        env: c.env,
+        schemaName: tenant.schema_name,
+        orderId: order.id,
+        paymentProofId: order.payment_proof_file_id,
+      });
+    } catch (error) {
+      console.error("dashboard.payment_proof_metadata_failed", {
+        orderId: order.id,
+        tenantSlug: tenant.slug,
+        paymentProofId: order.payment_proof_file_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const [customer, items] = await Promise.all([
     supabase.select<CustomerRow>({
       schema: tenant.schema_name,
@@ -1075,9 +1099,123 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
     deliveryAddress: order.delivery_address ?? undefined,
     deliveryAddressId: order.delivery_address_id ?? undefined,
     items: items.map(mapOrderLineItem),
+    paymentProof,
   };
 
   return c.json(detail);
+});
+
+dashboardRoutes.get("/:tenantSlug/orders/:orderId/payment-proof", async (c) => {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (!role) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const [order] = await createSupabaseRestClient(c.env).select<OrderRow>({
+    schema: tenant.schema_name,
+    table: "orders",
+    query: {
+      select:
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+      id: `eq.${c.req.param("orderId")}`,
+      limit: 1,
+    },
+  });
+
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  let paymentProof;
+  try {
+    paymentProof = await downloadLatestPaymentProofForOrder({
+      env: c.env,
+      schemaName: tenant.schema_name,
+      orderId: order.id,
+      paymentProofId: order.payment_proof_file_id ?? undefined,
+    });
+  } catch (error) {
+    return mapPaymentProofDownloadError(c, tenant.slug, order.id, error);
+  }
+
+  if (!paymentProof) {
+    return c.json({ error: "payment_proof_not_found" }, 404);
+  }
+
+  return new Response(paymentProof.data, {
+    headers: {
+      "Content-Type": paymentProof.contentType,
+      "Content-Disposition": `inline; filename="${paymentProof.filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+});
+
+dashboardRoutes.post("/:tenantSlug/orders/:orderId/payment-proof/confirm", async (c) => {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (!role) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await confirmLatestPaymentProofForOrder({
+      env: c.env,
+      schemaName: tenant.schema_name,
+      orderId: c.req.param("orderId"),
+      reviewedBy: authUser.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message === "payment_proof.order_not_found") {
+      return c.json({ error: "order_not_found" }, 404);
+    }
+
+    if (message === "payment_proof.not_found") {
+      return c.json({ error: "payment_proof_not_found" }, 404);
+    }
+
+    if (message === "payment_proof.order_not_pending_review") {
+      return c.json({ error: "order_not_pending_payment_review" }, 409);
+    }
+
+    throw error;
+  }
+
+  const [updatedOrder, customers] = await Promise.all([
+    createSupabaseRestClient(c.env).select<OrderRow>({
+      schema: tenant.schema_name,
+      table: "orders",
+      query: {
+        select:
+          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        id: `eq.${c.req.param("orderId")}`,
+        limit: 1,
+      },
+    }),
+    createSupabaseRestClient(c.env).select<CustomerRow>({
+      schema: tenant.schema_name,
+      table: "customers",
+      query: {
+        select: "id,phone,name",
+        limit: 500,
+      },
+    }),
+  ]);
+
+  const order = updatedOrder[0];
+  if (!order) {
+    return c.json({ error: "order_not_found" }, 404);
+  }
+
+  const customerById = new Map(customers.map((entry) => [entry.id, entry]));
+  return c.json(mapOrderSummary(order, customerById.get(order.customer_id)));
 });
 
 dashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
@@ -2338,6 +2476,38 @@ function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function mapPaymentProofDownloadError(
+  c: Context<{ Bindings: ApiBindings; Variables: DashboardVariables }>,
+  tenantSlug: string,
+  orderId: string,
+  error: unknown,
+) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("dashboard.payment_proof_download_failed", {
+    tenantSlug,
+    orderId,
+    error: message,
+  });
+
+  if (message.startsWith("payment_proof.sign_url_failed:")) {
+    return c.json({ error: "payment_proof_storage_sign_failed" }, 502);
+  }
+
+  if (message === "payment_proof.sign_url_invalid") {
+    return c.json({ error: "payment_proof_storage_sign_invalid" }, 502);
+  }
+
+  if (message.startsWith("payment_proof.signed_download_failed:404")) {
+    return c.json({ error: "payment_proof_storage_download_failed" }, 502);
+  }
+
+  if (message.startsWith("payment_proof.signed_download_failed:")) {
+    return c.json({ error: "payment_proof_storage_access_failed" }, 502);
+  }
+
+  throw error;
 }
 
 function mapOrderLineItem(row: OrderItemRow): OrderLineItem {

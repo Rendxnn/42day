@@ -3,9 +3,9 @@ import type {
   PaymentProofStatus,
   PaymentProofSummary,
 } from "@42day/types";
-import type { ApiBindings } from "../../lib/bindings";
-import { createSupabaseRestClient } from "../../lib/supabase-rest";
-import { buildPaymentProofStoragePath, resolvePaymentProofExtension } from "./helpers";
+import type { ApiBindings } from "../../lib/bindings.ts";
+import { createSupabaseRestClient } from "../../lib/supabase-rest.ts";
+import { buildPaymentProofStoragePath, resolvePaymentProofExtension } from "./helpers.ts";
 
 const PAYMENT_PROOFS_BUCKET = "payment-proofs";
 
@@ -78,6 +78,9 @@ export type StoredPaymentProofDownload = {
   filename: string;
 };
 
+/**
+ * Resolves the latest transfer order that can still accept a payment proof for the current conversation.
+ */
 export async function findActiveTransferOrderForConversation(input: {
   env: ApiBindings;
   schemaName: string;
@@ -134,6 +137,9 @@ export async function findActiveTransferOrderForConversation(input: {
   };
 }
 
+/**
+ * Downloads, stores and links an inbound transfer proof to the active transfer order.
+ */
 export async function storeInboundPaymentProof(input: {
   env: ApiBindings;
   schemaName: string;
@@ -303,6 +309,9 @@ export async function storeInboundPaymentProof(input: {
   };
 }
 
+/**
+ * Reads the latest persisted payment proof metadata for an order without downloading the file.
+ */
 export async function getLatestPaymentProofForOrder(input: {
   env: ApiBindings;
   schemaName: string;
@@ -324,6 +333,9 @@ export async function getLatestPaymentProofForOrder(input: {
   return row ? mapPaymentProofSummary(row) : undefined;
 }
 
+/**
+ * Downloads the latest payment proof file through a short-lived signed URL for private storage objects.
+ */
 export async function downloadLatestPaymentProofForOrder(input: {
   env: ApiBindings;
   schemaName: string;
@@ -346,19 +358,13 @@ export async function downloadLatestPaymentProofForOrder(input: {
     return undefined;
   }
 
-  const response = await fetch(
-    `${input.env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/${row.storage_bucket}/${encodeStoragePath(row.storage_path)}`,
-    {
-      method: "GET",
-      headers: {
-        apikey: input.env.SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${input.env.SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-    },
-  );
+  const signedUrl = await createSignedPaymentProofUrl(input.env, row);
+  const response = await fetch(signedUrl, {
+    method: "GET",
+  });
 
   if (!response.ok) {
-    throw new Error(`payment_proof.download_failed:${response.status}`);
+    throw new Error(`payment_proof.signed_download_failed:${response.status}`);
   }
 
   const contentType = row.mime_type ?? response.headers.get("content-type") ?? "application/octet-stream";
@@ -369,6 +375,9 @@ export async function downloadLatestPaymentProofForOrder(input: {
   };
 }
 
+/**
+ * Approves the current payment proof and unlocks the order to continue normal restaurant handling.
+ */
 export async function confirmLatestPaymentProofForOrder(input: {
   env: ApiBindings;
   schemaName: string;
@@ -454,6 +463,9 @@ export async function confirmLatestPaymentProofForOrder(input: {
   ]);
 }
 
+/**
+ * Maps a payment proof row into the summary shape expected by dashboard contracts.
+ */
 function mapPaymentProofSummary(row: PaymentProofRow): PaymentProofSummary {
   return {
     id: row.id,
@@ -464,6 +476,43 @@ function mapPaymentProofSummary(row: PaymentProofRow): PaymentProofSummary {
   };
 }
 
+/**
+ * Creates a short-lived signed URL for a private payment proof object in Supabase Storage.
+ */
+async function createSignedPaymentProofUrl(env: ApiBindings, row: PaymentProofRow): Promise<string> {
+  const response = await fetch(
+    `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/sign/${row.storage_bucket}/${encodeStoragePath(row.storage_path)}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        expiresIn: 60,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`payment_proof.sign_url_failed:${response.status}`);
+  }
+
+  const payload = (await response.json().catch(() => undefined)) as { signedURL?: string; signedUrl?: string } | undefined;
+  const signedPath = payload?.signedURL ?? payload?.signedUrl;
+  if (!signedPath) {
+    throw new Error("payment_proof.sign_url_invalid");
+  }
+
+  return signedPath.startsWith("http")
+    ? signedPath
+    : `${env.SUPABASE_URL.replace(/\/$/, "")}${signedPath}`;
+}
+
+/**
+ * Loads WhatsApp media metadata before the real file download happens.
+ */
 async function fetchWhatsAppMediaMetadata(env: ApiBindings, mediaId: string): Promise<WhatsAppMediaMetadata> {
   const version = env.META_GRAPH_API_VERSION ?? "v22.0";
   const response = await fetch(`https://graph.facebook.com/${version}/${mediaId}`, {
@@ -485,6 +534,9 @@ async function fetchWhatsAppMediaMetadata(env: ApiBindings, mediaId: string): Pr
   return metadata;
 }
 
+/**
+ * Downloads the raw media payload from Meta using the temporary WhatsApp media URL.
+ */
 async function downloadWhatsAppMedia(env: ApiBindings, mediaUrl: string): Promise<{ data: ArrayBuffer; contentType?: string }> {
   const response = await fetch(mediaUrl, {
     method: "GET",
@@ -503,6 +555,9 @@ async function downloadWhatsAppMedia(env: ApiBindings, mediaUrl: string): Promis
   };
 }
 
+/**
+ * Provides a fallback mime type when Meta metadata is incomplete for a proof message.
+ */
 function defaultMimeTypeForMessageType(type: NormalizedInboundMessage["type"]): string {
   if (type === "document") {
     return "application/pdf";
@@ -511,6 +566,9 @@ function defaultMimeTypeForMessageType(type: NormalizedInboundMessage["type"]): 
   return "image/jpeg";
 }
 
+/**
+ * Encodes each path segment safely for Supabase Storage endpoints.
+ */
 function encodeStoragePath(path: string): string {
   return path
     .split("/")
@@ -518,6 +576,9 @@ function encodeStoragePath(path: string): string {
     .join("/");
 }
 
+/**
+ * Builds a stable filename for browser downloads of stored payment proofs.
+ */
 function buildDownloadFilename(row: PaymentProofRow, contentType: string): string {
   const extension = resolvePaymentProofExtension({
     mimeType: row.mime_type ?? contentType,

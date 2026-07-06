@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { dashboardRoutes } from "./routes/dashboard";
-import { healthRoutes } from "./routes/health";
-import { whatsappRoutes } from "./routes/whatsapp";
-import type { ApiBindings } from "./lib/bindings";
-import { SupabaseRestError } from "./lib/supabase-rest";
+import { dashboardRoutes } from "./routes/dashboard.ts";
+import { healthRoutes } from "./routes/health.ts";
+import { whatsappRoutes } from "./routes/whatsapp.ts";
+import type { ApiBindings } from "./lib/bindings.ts";
+import { SupabaseRestError } from "./lib/supabase-rest.ts";
 
 const app = new Hono<{ Bindings: ApiBindings }>();
 

@@ -120,6 +120,7 @@ docs/
 ## Documentacion principal
 
 - [Contexto del proyecto](./PROJECT_CONTEXT.md)
+- [Estandar de ingenieria y estructura del monorepo](./docs/architecture/monorepo.md)
 - [Estado actual](./docs/planning/current-status.md)
 - [Scope congelado demo-ready](./docs/planning/business-decisions.md)
 - [Gap analysis demo-ready](./docs/planning/demo-ready-gap-analysis.md)

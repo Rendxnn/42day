@@ -1,5 +1,17 @@
 # Arquitectura backend
 
+## Relacion con el estandar de ingenieria
+
+La estructura objetivo y las reglas obligatorias de arquitectura, TDD y documentacion viven en [Estandar de ingenieria y estructura del monorepo](./monorepo.md).
+
+Este documento describe principalmente:
+
+- el runtime y flujo tecnico actual,
+- el reparto funcional del backend hoy,
+- la distancia entre el estado real y la estructura objetivo.
+
+Si alguna descripcion historica de este archivo entra en conflicto con el estandar del monorepo, prevalece el estandar del monorepo.
+
 ## Stack
 
 - Cloudflare Workers como runtime.
@@ -32,18 +44,22 @@ Meta WhatsApp
 
 ### Estado actual
 
-El backend ya no depende solo de `routes/*` y `modules/*`.
+El backend esta en una fase intermedia de migracion.
 
 Hoy la estructura real es:
 
 - `routes/*` como entrypoints HTTP,
-- `features/*` como implementacion real por dominio o flujo,
-- `modules/*` como fachadas de compatibilidad interna,
+- `features/*` como implementacion principal por dominio o flujo, aunque todavia con mezcla de roles internos,
+- `modules/*` como fachadas o costuras de compatibilidad heredadas,
 - `shared/*` para errores y helpers transversales.
 
-La orquestacion del flujo principal sigue concentrada funcionalmente en pocos lugares, pero ya no vive toda en los archivos heredados.
+Importante:
 
-Piezas ya refactorizadas:
+- esta NO es la estructura objetivo final,
+- la presencia actual de archivos grandes o mezclados NO debe tomarse como patron para codigo nuevo,
+- todo trabajo nuevo debe seguir la estructura definida en `docs/architecture/monorepo.md`.
+
+Piezas con avance parcial de separacion:
 
 - `features/chat-routing/*`
 - `features/conversations/*`
@@ -54,11 +70,12 @@ Piezas ya refactorizadas:
 - `features/dashboard/auth.ts`
 - `features/dashboard/types.ts`
 
-Piezas todavia pendientes de una pasada adicional:
+Piezas que siguen claramente transicionales o incompletas:
 
-- partir `features/dashboard/router.ts` en subrouters por dominio,
-- separar mas `draft-orders` y `orders` en repositorios y mapeos,
-- seguir descomponiendo handlers del flujo conversacional.
+- `routes/dashboard.ts`, que sigue siendo grande y activa,
+- `features/dashboard/router.ts`, que ya compone subrouters pero todavia concentra bastante logica y helpers,
+- `draft-orders` y `orders`, donde todavia hay mezcla de aplicacion, mapping y acceso a datos,
+- handlers del flujo conversacional, donde aun queda coordinacion pesada en pocos puntos.
 
 ### Objetivo demo-ready
 
@@ -100,7 +117,7 @@ Responsable de:
 Estado de refactor:
 
 - hoy actua como fachada hacia `features/conversations/service.ts`,
-- ese feature ya separa servicio, repositorio y mapeo.
+- ese feature ya mejoro separacion interna, pero todavia no representa por si solo la estructura objetivo final de `use-cases/domain/ports/adapters`.
 
 ### `message_router`
 
@@ -120,7 +137,7 @@ Estado de refactor:
 - `modules/message-router/router.ts` ya es una fachada,
 - la implementacion real vive en `features/chat-routing/router.ts`,
 - tracing, outbound y varios helpers ya salieron a modulos propios.
-- el subflujo de configurables y el subflujo de transferencia ya viven apoyados en features dedicados, aunque el coordinador central sigue grande.
+- el subflujo de configurables y el subflujo de transferencia ya viven apoyados en features dedicados, aunque el coordinador central sigue grande y todavia no debe tomarse como ejemplo de forma final.
 
 ### `semantic_parser`
 
@@ -147,7 +164,7 @@ Estado de refactor:
 
 - hoy es una fachada hacia `features/draft-orders/service.ts`,
 - ya soporta snapshots estructurados de configurables y `unitPrice` resuelto,
-- todavia falta separar mejor repositorio y mappers.
+- todavia falta una migracion mas clara hacia `use-cases`, `domain`, `ports` y `adapters`.
 
 ### `order_service`
 
@@ -161,7 +178,7 @@ Responsable de:
 Estado de refactor:
 
 - hoy es una fachada hacia `features/orders/service.ts`,
-- todavia falta separar mejor repositorio, mappers y piezas de reemplazo/notificaciones.
+- todavia falta separar mejor responsabilidades internas y migrar hacia la estructura objetivo del estandar.
 
 ### `dashboard_api`
 
@@ -177,10 +194,12 @@ Responsable de:
 
 Estado de refactor:
 
-- `routes/dashboard.ts` ya es fachada,
-- la implementacion real vive en `features/dashboard/router.ts`,
+- existe una capa historica importante en `routes/dashboard.ts`,
+- `features/dashboard/router.ts` ya concentra parte de la composicion nueva por dominio,
 - tipos y auth/tenant access ya salieron a modulos propios,
-- el siguiente paso natural es dividir ese router en subrouters de `admin`, `orders`, `alerts`, `settings`, `catalog`, `menu`, `uploads` y `diagnostics`.
+- aun asi, la zona dashboard sigue en transicion y no debe describirse como refactor cerrado.
+
+El objetivo desde ahora no es seguir creando nuevas piezas sobre la mezcla actual, sino mover incrementalmente cada cambio hacia la forma canonica del estandar del monorepo.
 
 ### `handoff_service`
 

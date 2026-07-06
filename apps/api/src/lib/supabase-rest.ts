@@ -1,4 +1,4 @@
-import type { ApiBindings } from "./bindings";
+import type { ApiBindings } from "./bindings.ts";
 
 export type SupabaseRestClient = {
   select: <T = Record<string, unknown>>(input: {
@@ -57,12 +57,17 @@ export type SupabaseRestClient = {
 };
 
 export class SupabaseRestError extends Error {
+  readonly status: number;
+  readonly body: string;
+
   constructor(
     message: string,
-    readonly status: number,
-    readonly body: string,
+    status: number,
+    body: string,
   ) {
     super(message);
+    this.status = status;
+    this.body = body;
   }
 }
 
