@@ -179,8 +179,10 @@ Si cancela:
 3. cuando el restaurante acepta, el cliente recibe instrucciones de pago y la conversacion queda en `awaiting_transfer_proof`,
 4. si llega una imagen o documento, el backend descarga el archivo real desde Meta, lo sube a `payment-proofs`, lo enlaza a la orden y mueve la orden a `payment_pending_review`,
 5. despues crea alerta operativa y la conversacion pasa a `manual`,
-6. si el cliente solo escribe algo como `ya pague` sin adjunto, el bot sigue pidiendo imagen o PDF,
-7. si llega audio u otro formato no soportado, el bot pide imagen o PDF y mantiene `awaiting_transfer_proof`.
+6. el dashboard live puede leer `paymentProof` en el detalle de la orden, descargar el archivo via `GET /dashboard/:tenantSlug/orders/:orderId/payment-proof` y confirmar via `POST /dashboard/:tenantSlug/orders/:orderId/payment-proof/confirm`,
+7. la descarga del comprobante se intenta primero con signed URL de Storage y, si esa lectura responde `404`, el backend hace fallback a descarga autenticada server-to-server antes de fallar,
+8. si el cliente solo escribe algo como `ya pague` sin adjunto, el bot sigue pidiendo imagen o PDF,
+9. si llega audio u otro formato no soportado, el bot pide imagen o PDF y mantiene `awaiting_transfer_proof`.
 
 ## Handoff humano
 

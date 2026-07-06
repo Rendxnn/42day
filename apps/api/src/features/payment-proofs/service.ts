@@ -56,21 +56,21 @@ export type TransferOrderContext = {
 
 export type StoreInboundPaymentProofResult =
   | {
-      kind: "stored";
-      orderId: string;
-      draftOrderId?: string;
-      paymentProof: PaymentProofSummary;
-      replacedPaymentProofId?: string;
-    }
+    kind: "stored";
+    orderId: string;
+    draftOrderId?: string;
+    paymentProof: PaymentProofSummary;
+    replacedPaymentProofId?: string;
+  }
   | {
-      kind: "duplicate";
-      orderId: string;
-      draftOrderId?: string;
-      paymentProof: PaymentProofSummary;
-    }
+    kind: "duplicate";
+    orderId: string;
+    draftOrderId?: string;
+    paymentProof: PaymentProofSummary;
+  }
   | {
-      kind: "no_active_order";
-    };
+    kind: "no_active_order";
+  };
 
 export type StoredPaymentProofDownload = {
   contentType: string;
@@ -359,13 +359,7 @@ export async function downloadLatestPaymentProofForOrder(input: {
   }
 
   const signedUrl = await createSignedPaymentProofUrl(input.env, row);
-  const response = await fetch(signedUrl, {
-    method: "GET",
-  });
-
-  if (!response.ok) {
-    throw new Error(`payment_proof.signed_download_failed:${response.status}`);
-  }
+  const response = await downloadPaymentProofObject(input.env, row, signedUrl);
 
   const contentType = row.mime_type ?? response.headers.get("content-type") ?? "application/octet-stream";
   return {
@@ -508,6 +502,44 @@ async function createSignedPaymentProofUrl(env: ApiBindings, row: PaymentProofRo
   return signedPath.startsWith("http")
     ? signedPath
     : `${env.SUPABASE_URL.replace(/\/$/, "")}${signedPath}`;
+}
+
+/**
+ * Downloads a stored proof, preferring a signed URL and falling back to authenticated object access on 404.
+ */
+async function downloadPaymentProofObject(
+  env: ApiBindings,
+  row: Pick<PaymentProofRow, "storage_bucket" | "storage_path">,
+  signedUrl: string,
+): Promise<Response> {
+  const signedResponse = await fetch(signedUrl, {
+    method: "GET",
+  });
+
+  if (signedResponse.ok) {
+    return signedResponse;
+  }
+
+  if (signedResponse.status !== 404) {
+    throw new Error(`payment_proof.signed_download_failed:${signedResponse.status}`);
+  }
+
+  const authenticatedResponse = await fetch(
+    `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/authenticated/${row.storage_bucket}/${encodeStoragePath(row.storage_path)}`,
+    {
+      method: "GET",
+      headers: {
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    },
+  );
+
+  if (!authenticatedResponse.ok) {
+    throw new Error(`payment_proof.authenticated_download_failed:${authenticatedResponse.status}`);
+  }
+
+  return authenticatedResponse;
 }
 
 /**

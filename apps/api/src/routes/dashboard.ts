@@ -2507,6 +2507,14 @@ function mapPaymentProofDownloadError(
     return c.json({ error: "payment_proof_storage_access_failed" }, 502);
   }
 
+  if (message.startsWith("payment_proof.authenticated_download_failed:404")) {
+    return c.json({ error: "payment_proof_storage_download_failed" }, 502);
+  }
+
+  if (message.startsWith("payment_proof.authenticated_download_failed:")) {
+    return c.json({ error: "payment_proof_storage_access_failed" }, 502);
+  }
+
   throw error;
 }
 

@@ -226,7 +226,8 @@ Responsable de:
 - subir el archivo a Supabase Storage,
 - persistir `payment_proofs`,
 - mover la orden a `payment_pending_review`,
-- exponer lectura y confirmacion minima desde dashboard.
+- exponer lectura y confirmacion minima desde dashboard,
+- resolver lectura privada desde backend con signed URL corta y fallback autenticado cuando Storage no sirve el objeto firmado.
 
 ## IA en backend
 

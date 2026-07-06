@@ -128,6 +128,7 @@ Para comprobantes:
 4. Postgres guarda metadata en `payment_proofs`.
 5. Se crea una alerta `transfer_payment_review`.
 6. La orden queda en `payment_pending_review`.
+7. Para lectura desde dashboard, el backend genera una signed URL corta para el bucket privado y, si la descarga firmada responde `404`, hace fallback a `/storage/v1/object/authenticated/...` con credenciales server-side.
 
 Bucket sugerido:
 
