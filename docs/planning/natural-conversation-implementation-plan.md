@@ -74,7 +74,7 @@ Cada outbound registra metadata para saber si fue:
 
 ## Estado actual implementado
 
-- fallback semantico con Gemini via `t-router`,
+- fallback semantico con Gemini via `t-router`, con respaldo a OpenRouter cuando el ambiente lo configura,
 - configuracion por tenant preparada en DB con fallback real a `GEMINI_API_KEY`,
 - soporte para pedidos multi-item simples,
 - soporte para ediciones semanticas del draft:
@@ -83,15 +83,26 @@ Cada outbound registra metadata para saber si fue:
   - reemplazar,
   - ajustar cantidad,
 - soporte para mezclar senales claras en un mismo mensaje,
-- saludos en medio de un pedido activo sin reiniciar la conversacion.
+- saludos en medio de un pedido activo sin reiniciar la conversacion,
+- validacion deterministica de configurables contra `product_options` y `product_option_values`,
+- aclaracion secuencial cuando falta un configurable requerido o una opcion queda ambigua,
+- bloqueo de confirmacion del draft si un item sigue con configuracion pendiente.
+
+## Validaciones que hoy si existen
+
+- el backend siempre revalida la salida del parser contra el menu real,
+- el LLM no fija IDs canonicos, no calcula precios y no decide disponibilidad,
+- `optionTexts` ya pasan por resolucion deterministica contra configurables reales,
+- se validan requeridos, ambiguedades, valores inactivos, limites `maxSelect` y `priceDelta`,
+- el draft no puede pasar a confirmacion si faltan items, fulfillment, direccion de delivery, pago o configuracion pendiente.
 
 ## Limitaciones actuales
 
-- las opciones configurables todavia no se validan de forma robusta contra `product_options`,
-- el parser ya devuelve `optionTexts`, pero esas opciones aun no pasan por una capa fuerte de validacion,
 - `addressText`, `confirmationText` y `questions` existen en el contrato del parser pero hoy casi no se explotan en el flujo,
-- el umbral de confianza es fijo en codigo,
-- no hay una suite automatizada amplia de pruebas conversacionales.
+- el umbral de confianza sigue fijo en codigo,
+- la cobertura automatizada de escenarios conversacionales sigue siendo insuficiente,
+- configurables exoticos o catalogos mal modelados pueden seguir cayendo en aclaracion o handoff,
+- la historia humana posterior al handoff todavia es mas debil en dashboard que en backend.
 
 ## Reglas actuales importantes
 
@@ -132,32 +143,34 @@ Debe intervenir en:
 
 ## Estado deseado demo-ready
 
-Para considerar esta capa lista para demos serias, deberiamos cerrar:
+Para considerar esta capa bien cerrada para demos serias, deberiamos cerrar:
 
-1. Validacion de configurables contra `product_options`.
-2. Mejor uso de los campos semanticos ya disponibles:
+1. Mejor uso de los campos semanticos ya disponibles:
    - `addressText`
    - `confirmationText`
    - `questions`
-3. Parametrizacion del umbral de confianza.
-4. Pruebas automatizadas de escenarios:
+2. Parametrizacion del umbral de confianza.
+3. Pruebas automatizadas de escenarios:
    - pedido natural simple,
    - pedido multi-item,
    - cambio de draft,
    - opciones configurables,
    - fallback a humano.
+4. Mejor visibilidad operativa del handoff y de alertas humanas en dashboard.
 
 ## Recomendacion de siguientes cambios
 
 ### Prioridad 1
 
-- crear una capa de `semantic candidate validation` antes de aceptar opciones configurables,
-- separar mejor matcher de producto, matcher de opcion y reglas de draft.
+- explotar mejor `addressText`, `confirmationText` y `questions`,
+- separar mejor matcher de producto, matcher de opcion y reglas de draft,
+- ampliar pruebas conversacionales alrededor del camino semantico.
 
 ### Prioridad 2
 
 - usar `addressText` del parser cuando el usuario manda una direccion ruidosa,
-- aceptar mejor cambios expresados dentro del resumen final.
+- aceptar mejor cambios expresados dentro del resumen final,
+- parametrizar mejor umbrales y fallback por tenant si hace falta.
 
 ### Prioridad 3
 

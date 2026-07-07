@@ -78,7 +78,8 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 - la transferencia se pide solo despues de que el restaurante acepta disponibilidad,
 - la validacion del pago es humana,
 - el comprobante debe terminar relacionado a mensaje y orden,
-- mientras eso no este completo, el caso debe ir a handoff.
+- el comprobante hoy ya queda persistido y relacionado a mensaje y orden,
+- despues de recibir comprobante, el caso pasa a handoff y queda en revision humana minima.
 
 ### IA
 
@@ -106,14 +107,14 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 
 - matcher de productos fuerte para items simples,
 - parser semantico controlado con fallback,
-- validacion parcial de configurables mientras no se prometa cobertura total del caso,
+- validacion deterministica de configurables para productos bien modelados en catalogo,
 - retries manuales de notificacion,
 - algunas rutas operativas dependientes de pasos internos de configuracion.
 
 ## Lo que no deberiamos prometer todavia
 
 - que cualquier configurable quedara perfectamente validado,
-- que transferencia ya esta cerrada end-to-end,
+- que la revision humana de transferencia ya esta completamente cerrada en UX,
 - que el dashboard ya es consola humana completa,
 - que la automatizacion apagada siempre genera trabajo visible sin huecos,
 - que el producto esta listo para operacion de alta escala o cero supervision.

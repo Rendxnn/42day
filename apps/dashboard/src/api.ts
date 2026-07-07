@@ -29,6 +29,8 @@ export class DashboardApiError extends Error {
   }
 }
 
+export type TenantRole = "encargado" | "trabajador";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
   const token = await getAccessToken();
@@ -111,6 +113,7 @@ export type DashboardTenant = {
   name: string;
   slug: string;
   schemaName: string;
+  role?: TenantRole;
 };
 
 export type DashboardMe = {
@@ -163,7 +166,6 @@ export type AdminRestaurant = {
     pickupEnabled: boolean;
     deliveryEnabled: boolean;
     automationEnabled: boolean;
-    transferPaymentInstructions?: string;
     isActive: boolean;
   };
   members: AdminRestaurantMember[];
@@ -207,7 +209,6 @@ export type UpdateAdminRestaurantPayload = Partial<{
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
   locationAutomationEnabled: boolean;
-  transferPaymentInstructions: string;
 }>;
 
 export type DashboardDiagnostics = {
