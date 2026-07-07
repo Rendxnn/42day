@@ -218,6 +218,7 @@ export type OrderSummary = {
   paymentConfirmedAt?: string;
   createdAt: string;
   updatedAt: string;
+  items?: OrderLineItem[];
 };
 
 export type OrderDetail = OrderSummary & {

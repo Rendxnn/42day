@@ -66,6 +66,12 @@ import { OrdersView } from "./orders";
 import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
+import {
+  formatDashboardDateTime as formatLocalizedDateTime,
+  formatDashboardPrice as formatLocalizedPrice,
+  LanguageToggle,
+  useDashboardLocale,
+} from "./i18n";
 
 type View = "menu" | "orders" | "summary" | "catalog" | "upload";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
@@ -82,6 +88,8 @@ const fallbackTenants: DashboardTenant[] = [
   { id: "local-arepas", name: "Arepas del Parque", slug: "arepas", schemaName: "tenant_arepas" },
   { id: "local-pizza", name: "Pizza Norte", slug: "pizza", schemaName: "tenant_pizza" },
 ];
+
+let activeDashboardLocale: "en" | "es" = "es";
 
 const fallbackProducts: Product[] = [
   {
@@ -124,61 +132,65 @@ const fallbackItems: MenuItem[] = fallbackProducts.map((product, index) => ({
   product,
 }));
 
-const navItems = [
-  {
-    id: "menu" as const,
-    label: "Hoy",
-    icon: Utensils,
-  },
-  {
-    id: "orders" as const,
-    label: "Pedidos",
-    icon: ClipboardList,
-  },
-  {
-    id: "summary" as const,
-    label: "Resumen",
-    icon: Home,
-  },
-  {
-    id: "catalog" as const,
-    label: "Catalogo",
-    icon: ChefHat,
-  },
-  {
-    id: "upload" as const,
-    label: "Subida",
-    icon: UploadCloud,
-  },
-];
+function getNavItems(locale: "en" | "es") {
+  return [
+    {
+      id: "menu" as const,
+      label: locale === "en" ? "Today" : "Hoy",
+      icon: Utensils,
+    },
+    {
+      id: "orders" as const,
+      label: locale === "en" ? "Orders" : "Pedidos",
+      icon: ClipboardList,
+    },
+    {
+      id: "summary" as const,
+      label: locale === "en" ? "Summary" : "Resumen",
+      icon: Home,
+    },
+    {
+      id: "catalog" as const,
+      label: locale === "en" ? "Catalog" : "Catalogo",
+      icon: ChefHat,
+    },
+    {
+      id: "upload" as const,
+      label: locale === "en" ? "Upload" : "Subida",
+      icon: UploadCloud,
+    },
+  ];
+}
 
-const viewCopy: Record<View, { eyebrow: string; title: string; description: string }> = {
-  menu: {
-    eyebrow: "Operacion diaria",
-    title: "Menu listo para WhatsApp",
-    description: "",
-  },
-  orders: {
-    eyebrow: "Centro de pedidos",
-    title: "Decision operativa en una sola bandeja",
-    description: "",
-  },
-  summary: {
-    eyebrow: "Resumen",
-    title: "Estado de servicio",
-    description: "",
-  },
-  catalog: {
-    eyebrow: "Productos",
-    title: "Catalogo del restaurante",
-    description: "",
-  },
-  upload: {
-    eyebrow: "Subida de menu",
-    title: "Cargar productos",
-    description: "",
-  },
-};
+function getViewCopy(locale: "en" | "es"): Record<View, { eyebrow: string; title: string; description: string }> {
+  return {
+    menu: {
+      eyebrow: locale === "en" ? "Daily operations" : "Operacion diaria",
+      title: locale === "en" ? "Menu ready for WhatsApp" : "Menu listo para WhatsApp",
+      description: "",
+    },
+    orders: {
+      eyebrow: locale === "en" ? "Live operation" : "Operacion en vivo",
+      title: locale === "en" ? "Order center" : "Centro de pedidos",
+      description: "",
+    },
+    summary: {
+      eyebrow: locale === "en" ? "Summary" : "Resumen",
+      title: locale === "en" ? "Service status" : "Estado de servicio",
+      description: "",
+    },
+    catalog: {
+      eyebrow: locale === "en" ? "Products" : "Productos",
+      title: locale === "en" ? "Restaurant catalog" : "Catalogo del restaurante",
+      description: "",
+    },
+    upload: {
+      eyebrow: locale === "en" ? "Menu upload" : "Subida de menu",
+      title: locale === "en" ? "Upload products" : "Cargar productos",
+      description: "",
+    },
+  };
+}
 
 let toastTimer = 0;
 const notifiableOrderStatuses = new Set<OrderSummary["status"]>([
@@ -308,6 +320,15 @@ const categorySections: Array<{ id: CategorySectionId; label: string }> = [
   { id: "bebida", label: "Bebidas" },
 ];
 
+function getCategorySectionLabel(sectionId: CategorySectionId, locale: "en" | "es") {
+  return {
+    desayuno: locale === "en" ? "Breakfast" : "Desayunos",
+    almuerzo: locale === "en" ? "Lunch" : "Almuerzos",
+    adicion: locale === "en" ? "Extras" : "Adiciones",
+    bebida: locale === "en" ? "Drinks" : "Bebidas",
+  }[sectionId];
+}
+
 function normalizeCategorySection(category?: string): CategorySectionId {
   const value = (category ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -432,20 +453,15 @@ function groupByCategorySection<T>(items: T[], getCategory: (item: T) => string 
 }
 
 function formatPrice(value: number | undefined) {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(Number(value ?? 0));
+  return formatLocalizedPrice(activeDashboardLocale, value);
+}
+
+function getLocalizedCategoryLabel(category: string | undefined, locale: "en" | "es") {
+  return getCategorySectionLabel(normalizeCategorySection(category), locale);
 }
 
 function formatDateTime(value?: string) {
-  if (!value) return "sin fecha";
-
-  return new Intl.DateTimeFormat("es-CO", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatLocalizedDateTime(activeDashboardLocale, value);
 }
 
 function keepSessionStableByUser(current: Session | null, next: Session | null) {
@@ -459,18 +475,18 @@ function isNotifiableOrder(order: OrderSummary) {
 
 function getOrderNotificationTitle(order: OrderSummary) {
   if (order.status === "needs_customer_replacement") {
-    return "Pedido esperando respuesta del cliente";
+    return activeDashboardLocale === "en" ? "Order waiting for customer response" : "Pedido esperando respuesta del cliente";
   }
 
   if (order.status === "pending_restaurant_confirmation") {
-    return "Nuevo pedido por confirmar";
+    return activeDashboardLocale === "en" ? "New order awaiting confirmation" : "Nuevo pedido por confirmar";
   }
 
-  return "Nuevo movimiento de pedido";
+  return activeDashboardLocale === "en" ? "New order update" : "Nuevo movimiento de pedido";
 }
 
 function getOrderNotificationDetail(order: OrderSummary) {
-  const customer = order.customerName || order.customerPhone || "Cliente sin nombre";
+  const customer = order.customerName || order.customerPhone || (activeDashboardLocale === "en" ? "Unnamed customer" : "Cliente sin nombre");
   return `${customer} - ${formatPrice(order.total)} - ${formatDateTime(order.createdAt)}`;
 }
 
@@ -533,12 +549,18 @@ function getPublicCartaUrl(tenantSlug: string) {
 }
 
 export function App() {
+  const { locale } = useDashboardLocale();
+
   if (isPublicCartaRoute()) return <PublicCartaPage />;
   if (isMarketingRoute()) return <LandingPage />;
-  return <DashboardApp />;
+  return <DashboardApp locale={locale} />;
 }
 
-function DashboardApp() {
+function DashboardApp({ locale }: { locale: "en" | "es" }) {
+  activeDashboardLocale = locale;
+  const { setLocale } = useDashboardLocale();
+  const navItems = useMemo(() => getNavItems(locale), [locale]);
+  const viewCopy = useMemo(() => getViewCopy(locale), [locale]);
   const [activeView, setActiveView] = useState<View>("menu");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -553,7 +575,7 @@ function DashboardApp() {
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
   const [imageColumnReady, setImageColumnReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
-  const [lastUpdated, setLastUpdated] = useState("hace 2 min");
+  const [lastUpdated, setLastUpdated] = useState(locale === "en" ? "2 min ago" : "hace 2 min");
   const [toast, setToast] = useState("");
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
@@ -861,10 +883,16 @@ function DashboardApp() {
 
       setProducts((current) => (product.id ? current.map((item) => (item.id === product.id ? persisted : item)) : [persisted, ...current]));
       setSaveStatus("saved");
-      notify(product.imageFile && !imageColumnReady ? "Producto creado sin imagen: falta migracion image_url" : product.id ? "Producto actualizado" : "Producto creado");
+      notify(
+        product.imageFile && !imageColumnReady
+          ? (locale === "en" ? "Product created without image: image_url migration is still missing" : "Producto creado sin imagen: falta migracion image_url")
+          : product.id
+            ? (locale === "en" ? "Product updated" : "Producto actualizado")
+            : (locale === "en" ? "Product created" : "Producto creado"),
+      );
     } catch {
       setSaveStatus("offline");
-      notify("No se pudo guardar. Conecta API y Supabase para persistir.");
+      notify(locale === "en" ? "Could not save. Connect API and Supabase to persist changes." : "No se pudo guardar. Conecta API y Supabase para persistir.");
       throw new Error("product_save_failed");
     }
   }
@@ -873,27 +901,27 @@ function DashboardApp() {
     await deleteProduct(tenantSlug, productId).catch(() => undefined);
     setProducts((current) => current.filter((product) => product.id !== productId));
     setItems((current) => current.filter((item) => item.productId !== productId));
-    notify("Producto desactivado");
+    notify(locale === "en" ? "Product disabled" : "Producto desactivado");
   }
 
   if (!authConfigured) {
-    return <ConfigRequiredScreen />;
+    return <ConfigRequiredScreen locale={locale} />;
   }
 
   if (authLoading) {
-    return <LoadingScreen />;
+    return <LoadingScreen locale={locale} />;
   }
 
   if (!session) {
-    return <LoginScreen error={loginError} onLogin={handleLogin} />;
+    return <LoginScreen error={loginError} locale={locale} onChangeLocale={setLocale} onLogin={handleLogin} />;
   }
 
   if (tenantLoading) {
-    return <TenantLoadingScreen />;
+    return <TenantLoadingScreen locale={locale} />;
   }
 
   if (tenantError) {
-    return <TenantErrorScreen error={tenantError} onLogout={handleLogout} />;
+    return <TenantErrorScreen error={tenantError} locale={locale} onLogout={handleLogout} />;
   }
 
   if (isSystemAdmin && adminOverview) {
@@ -901,25 +929,29 @@ function DashboardApp() {
   }
 
   if (tenants.length === 0) {
-    return <NoTenantScreen onLogout={handleLogout} />;
+    return <NoTenantScreen locale={locale} onLogout={handleLogout} />;
   }
 
   return (
-    <div className="min-h-screen px-2 py-2 sm:px-4 sm:py-4">
-      <div className="mx-auto flex min-h-[calc(100vh-1rem)] w-full max-w-[1700px] gap-4 sm:min-h-[calc(100vh-2rem)]">
+    <div className="min-h-screen px-0 py-0 sm:px-4 sm:py-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1700px] gap-4 sm:min-h-[calc(100vh-2rem)]">
         <Sidebar
           activeView={activeView}
+          locale={locale}
+          navItems={navItems}
           onNavigate={setActiveView}
           tenantName={activeTenant?.name ?? fallbackTenants[0]?.name ?? "Restaurante"}
         />
         <main className="min-w-0 flex-1">
-          <div className="app-shell reveal-up relative min-h-full overflow-hidden rounded-[30px] border border-[var(--shell-border)]">
+          <div className="app-shell reveal-up relative min-h-full overflow-hidden rounded-none border-x-0 border-y border-[var(--shell-border)] sm:rounded-[30px] sm:border">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
             <Header
               activeView={activeView}
               menuIsActive={menuIsActive}
               notifications={notifications}
               notificationsOpen={notificationsOpen}
+              locale={locale}
+              onChangeLocale={setLocale}
               saveStatus={saveStatus}
               tenantName={activeTenant?.name ?? fallbackTenants[0]?.name ?? "Restaurante"}
               unreadNotificationCount={unreadNotificationCount}
@@ -952,7 +984,7 @@ function DashboardApp() {
                   totalCount={items.length}
                 />
               )}
-              {activeView === "orders" && <OrdersView menuItems={items} onNotify={notify} tenantSlug={tenantSlug} />}
+              {activeView === "orders" && <OrdersView locale={locale} menuItems={items} onNotify={notify} tenantSlug={tenantSlug} />}
               {activeView === "catalog" && (
                 <Catalog
                   imageColumnReady={imageColumnReady}
@@ -986,7 +1018,7 @@ function DashboardApp() {
             </div>
           </div>
         </main>
-        <BottomNav activeView={activeView} onNavigate={setActiveView} />
+        <BottomNav activeView={activeView} navItems={navItems} onNavigate={setActiveView} />
       </div>
       {toast && <Toast message={toast} />}
     </div>
@@ -1214,9 +1246,11 @@ function PublicCartaCard({ item }: { item: MenuItem }) {
 
 function Header({
   activeView,
+  locale,
   menuIsActive,
   notifications,
   notificationsOpen,
+  onChangeLocale,
   onLogout,
   onToggleNotifications,
   saveStatus,
@@ -1225,9 +1259,11 @@ function Header({
   viewCopy,
 }: {
   activeView: View;
+  locale: "en" | "es";
   menuIsActive: boolean;
   notifications: DashboardNotification[];
   notificationsOpen: boolean;
+  onChangeLocale: (locale: "en" | "es") => void;
   onLogout: () => void;
   onToggleNotifications: () => void;
   saveStatus: SaveStatus;
@@ -1236,8 +1272,8 @@ function Header({
   viewCopy: { eyebrow: string; title: string; description: string };
 }) {
   return (
-    <header className="border-b border-[var(--shell-border)] px-4 pb-5 pt-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <header className={`border-b border-[var(--shell-border)] px-3 sm:px-6 lg:px-8 ${activeView === "orders" ? "pb-3 pt-3 sm:pb-4 sm:pt-4" : "pb-4 pt-4 sm:pb-5"}`}>
+      <div className={`flex flex-col xl:flex-row xl:items-end xl:justify-between ${activeView === "orders" ? "gap-3" : "gap-4"}`}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.58)] sm:text-[11px] sm:tracking-[0.18em]">
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.1)] bg-[rgba(255,248,240,0.04)] px-3 py-1.5">
@@ -1247,12 +1283,12 @@ function Header({
             <span className="hidden text-[rgba(246,236,223,0.34)] sm:inline">/</span>
             <span>{viewCopy.eyebrow}</span>
           </div>
-          <div className="mt-3 flex items-start gap-3 sm:mt-4">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[var(--text-on-dark)] lg:hidden">
+          <div className={`flex items-start gap-3 ${activeView === "orders" ? "mt-2" : "mt-3 sm:mt-4"}`}>
+            <div className={`grid shrink-0 place-items-center border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[var(--text-on-dark)] lg:hidden ${activeView === "orders" ? "h-10 w-10 rounded-[14px]" : "h-12 w-12 rounded-2xl"}`}>
               {activeView === "orders" ? <ClipboardList size={18} /> : <ChefHat size={18} />}
             </div>
             <div className="min-w-0">
-              <h1 className="app-display text-[2rem] leading-none text-[var(--text-on-dark)] sm:text-[2.7rem] xl:text-[3.25rem]">
+              <h1 className={`app-display leading-none text-[var(--text-on-dark)] ${activeView === "orders" ? "text-[1.55rem] sm:text-[2rem]" : "text-[1.8rem] sm:text-[2.5rem] xl:text-[3.25rem]"}`}>
                 {viewCopy.title}
               </h1>
               {viewCopy.description ? (
@@ -1264,24 +1300,27 @@ function Header({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="hidden h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)] md:inline-flex">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <LanguageToggle className={activeView === "orders" ? "inline-flex" : "hidden md:inline-flex"} locale={locale} onChange={onChangeLocale} />
+          <div className={`hidden h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[var(--text-on-dark)] ${activeView === "orders" ? "" : "md:inline-flex"}`}>
             <ChefHat size={16} />
             {tenantName}
           </div>
           <NotificationBell
+            compact={activeView === "orders"}
+            locale={locale}
             notifications={notifications}
             open={notificationsOpen}
             unreadCount={unreadNotificationCount}
             onToggle={onToggleNotifications}
           />
-          <SaveIndicator menuIsActive={menuIsActive} status={saveStatus} />
+          {activeView !== "orders" ? <SaveIndicator locale={locale} menuIsActive={menuIsActive} status={saveStatus} /> : null}
           <button
-            className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+            className={`inline-flex items-center justify-center border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)] ${activeView === "orders" ? "h-10 rounded-[14px] px-3 text-xs" : "h-12 rounded-2xl px-4 text-sm"}`}
             onClick={onLogout}
             type="button"
           >
-            Salir
+            {locale === "en" ? "Log out" : "Salir"}
           </button>
         </div>
       </div>
@@ -1290,11 +1329,15 @@ function Header({
 }
 
 function NotificationBell({
+  compact = false,
+  locale,
   notifications,
   onToggle,
   open,
   unreadCount,
 }: {
+  compact?: boolean;
+  locale: "en" | "es";
   notifications: DashboardNotification[];
   onToggle: () => void;
   open: boolean;
@@ -1304,8 +1347,10 @@ function NotificationBell({
     <div className="relative">
       <button
         aria-expanded={open}
-        aria-label={unreadCount > 0 ? `${unreadCount} notificaciones nuevas` : "Abrir notificaciones"}
-        className={`relative inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold transition ${
+        aria-label={unreadCount > 0
+          ? (locale === "en" ? `${unreadCount} new notifications` : `${unreadCount} notificaciones nuevas`)
+          : (locale === "en" ? "Open notifications" : "Abrir notificaciones")}
+        className={`relative inline-flex items-center justify-center border font-semibold transition ${compact ? "h-10 rounded-[14px] px-3 text-xs" : "h-12 rounded-2xl px-4 text-sm"} ${
           open
             ? "border-[rgba(213,192,154,0.34)] bg-[rgba(255,248,240,0.13)] text-[var(--text-on-dark)]"
             : "border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[rgba(246,236,223,0.82)] hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
@@ -1324,8 +1369,8 @@ function NotificationBell({
       {open ? (
         <div className="app-panel absolute right-0 z-30 mt-3 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-[24px]">
           <div className="border-b border-[var(--border)] px-4 py-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">Notificaciones</p>
-            <h2 className="mt-1 text-base font-extrabold text-[var(--text-strong)]">Pedidos en tiempo real</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Notifications" : "Notificaciones"}</p>
+            <h2 className="mt-1 text-base font-extrabold text-[var(--text-strong)]">{locale === "en" ? "Live orders" : "Pedidos en tiempo real"}</h2>
           </div>
           <div className="max-h-80 space-y-2 overflow-y-auto p-3 app-scrollbar">
             {notifications.length > 0 ? (
@@ -1340,7 +1385,7 @@ function NotificationBell({
               ))
             ) : (
               <div className="rounded-2xl border border-dashed border-[rgba(118,93,71,0.22)] p-4 text-sm leading-6 text-[var(--text-soft)]">
-                No hay pedidos nuevos desde que abriste el dashboard.
+                {locale === "en" ? "There are no new orders since you opened the dashboard." : "No hay pedidos nuevos desde que abriste el dashboard."}
               </div>
             )}
           </div>
@@ -1350,16 +1395,16 @@ function NotificationBell({
   );
 }
 
-function SaveIndicator({ status, menuIsActive }: { status: SaveStatus; menuIsActive: boolean }) {
+function SaveIndicator({ locale, status, menuIsActive }: { locale: "en" | "es"; status: SaveStatus; menuIsActive: boolean }) {
   const copy = {
-    loading: "Cargando datos",
-    saving: "Guardando cambios",
-    saved: "Todo sincronizado",
-    offline: "Modo local",
+    loading: locale === "en" ? "Loading data" : "Cargando datos",
+    saving: locale === "en" ? "Saving changes" : "Guardando cambios",
+    saved: locale === "en" ? "Everything synced" : "Todo sincronizado",
+    offline: locale === "en" ? "Local mode" : "Modo local",
   }[status];
 
   return (
-    <div className="inline-flex h-12 items-center gap-3 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(246,236,223,0.72)]">
+    <div className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-3 sm:px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(246,236,223,0.72)]">
       {status === "saving" || status === "loading" ? <Loader2 className="animate-spin" size={15} /> : <Check className="text-[#d5c09a]" size={15} />}
       <span className="hidden sm:inline">{copy}</span>
       <span className={`h-2.5 w-2.5 rounded-full ${menuIsActive ? "bg-[#bfa07f]" : "bg-[rgba(255,255,255,0.24)]"}`} />
@@ -1369,10 +1414,14 @@ function SaveIndicator({ status, menuIsActive }: { status: SaveStatus; menuIsAct
 
 function Sidebar({
   activeView,
+  locale,
+  navItems,
   onNavigate,
   tenantName,
 }: {
   activeView: View;
+  locale: "en" | "es";
+  navItems: ReturnType<typeof getNavItems>;
   onNavigate: (view: View) => void;
   tenantName: string;
 }) {
@@ -1392,7 +1441,7 @@ function Sidebar({
         </div>
 
         <div className="mt-6 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.34)]">
-          Workspace
+          {locale === "en" ? "Workspace" : "Workspace"}
         </div>
         <nav className="mt-3 space-y-2">
           {navItems.map((item) => {
@@ -1426,10 +1475,19 @@ function Sidebar({
   );
 }
 
-function BottomNav({ activeView, onNavigate }: { activeView: View; onNavigate: (view: View) => void }) {
+function BottomNav({
+  activeView,
+  navItems,
+  onNavigate,
+}: {
+  activeView: View;
+  navItems: ReturnType<typeof getNavItems>;
+  onNavigate: (view: View) => void;
+}) {
+  const locale = activeDashboardLocale;
   return (
-    <nav className="fixed inset-x-0 bottom-4 z-20 px-4 lg:hidden">
-      <div className="mx-auto max-w-xl rounded-[24px] border border-[rgba(255,242,227,0.12)] bg-[rgba(32,28,25,0.94)] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+    <nav className="fixed inset-x-0 bottom-3 z-20 px-3 sm:px-4 lg:hidden">
+      <div className="mx-auto max-w-xl rounded-[22px] border border-[rgba(255,242,227,0.12)] bg-[rgba(32,28,25,0.94)] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl sm:rounded-[24px] sm:p-2">
         <div
           className="grid gap-1"
           style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}
@@ -1439,7 +1497,7 @@ function BottomNav({ activeView, onNavigate }: { activeView: View; onNavigate: (
             const active = activeView === item.id;
             return (
               <button
-                className={`flex min-h-16 flex-col items-center justify-center rounded-[18px] px-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition ${
+                className={`flex min-h-[58px] flex-col items-center justify-center rounded-[16px] px-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] transition sm:min-h-16 sm:rounded-[18px] sm:px-2 sm:text-[11px] sm:tracking-[0.08em] ${
                   active
                     ? "bg-[rgba(236,215,198,0.14)] text-[var(--text-on-dark)]"
                     : "text-[rgba(246,236,223,0.54)] hover:bg-[rgba(255,248,240,0.06)] hover:text-[var(--text-on-dark)]"
@@ -1471,6 +1529,7 @@ function TodayMenu(props: {
   onDeleteDish: (itemId: string) => void;
   onUpdateDish: (itemId: string, patch: Partial<MenuItem>) => void;
 }) {
+  const locale = activeDashboardLocale;
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [reminderPreview, setReminderPreview] = useState<LunchReminderPreview | null>(null);
   const [reminderResult, setReminderResult] = useState<LunchReminderSendResult | null>(null);
@@ -1478,7 +1537,11 @@ function TodayMenu(props: {
   const [reminderSending, setReminderSending] = useState(false);
   const [reminderError, setReminderError] = useState("");
   const inactiveCount = Math.max(props.items.length - props.activeCount, 0);
-  const statusLabel = props.saveStatus === "saving" ? "Guardando" : props.saveStatus === "offline" ? "Sin conexion" : "Sincronizado";
+  const statusLabel = props.saveStatus === "saving"
+    ? (locale === "en" ? "Saving" : "Guardando")
+    : props.saveStatus === "offline"
+      ? (locale === "en" ? "Offline" : "Sin conexion")
+      : (locale === "en" ? "Synced" : "Sincronizado");
   const groups = groupMenuItemsByOrderType(props.items);
 
   useEffect(() => {
@@ -1494,7 +1557,7 @@ function TodayMenu(props: {
       .catch((error: unknown) => {
         if (!active) return;
         setReminderPreview(null);
-        setReminderError(error instanceof Error ? error.message : "No se pudo calcular el alcance del recordatorio.");
+        setReminderError(error instanceof Error ? error.message : (locale === "en" ? "The reminder audience could not be calculated." : "No se pudo calcular el alcance del recordatorio."));
       })
       .finally(() => {
         if (active) setReminderLoading(false);
@@ -1509,7 +1572,9 @@ function TodayMenu(props: {
     if (!reminderPreview?.canSend || reminderSending) return;
 
     const confirmed = window.confirm(
-      `Enviar WhatsApp a ${reminderPreview.recipientCount} cliente${reminderPreview.recipientCount === 1 ? "" : "s"} que pidieron en los ultimos ${reminderPreview.lookbackDays} dias?`,
+      locale === "en"
+        ? `Send WhatsApp to ${reminderPreview.recipientCount} customer${reminderPreview.recipientCount === 1 ? "" : "s"} who ordered in the last ${reminderPreview.lookbackDays} days?`
+        : `Enviar WhatsApp a ${reminderPreview.recipientCount} cliente${reminderPreview.recipientCount === 1 ? "" : "s"} que pidieron en los ultimos ${reminderPreview.lookbackDays} dias?`,
     );
     if (!confirmed) return;
 
@@ -1521,27 +1586,29 @@ function TodayMenu(props: {
       const nextPreview = await getLunchReminderPreview(props.tenantSlug).catch(() => reminderPreview);
       setReminderPreview(nextPreview);
     } catch (error) {
-      setReminderError(error instanceof Error ? error.message : "No se pudo enviar el recordatorio.");
+      setReminderError(error instanceof Error ? error.message : (locale === "en" ? "The reminder could not be sent." : "No se pudo enviar el recordatorio."));
     } finally {
       setReminderSending(false);
     }
   }
 
   return (
-    <section className="space-y-6 pb-28 lg:pb-32">
+    <section className="space-y-5 pb-28 lg:space-y-6 lg:pb-32">
       <div className="grid items-stretch gap-4 xl:grid-cols-3">
-        <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-6 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)]">
+        <div className="flex min-h-[240px] flex-col rounded-[24px] border border-[rgba(255,242,227,0.08)] bg-[rgba(223,201,178,0.08)] p-5 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.16)] sm:rounded-[28px] sm:p-6">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.5)]">
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.08)] px-3 py-1.5">
               <Clock size={14} />
-              Actualizado {props.lastUpdated}
+              {locale === "en" ? "Updated" : "Actualizado"} {props.lastUpdated}
             </span>
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,242,227,0.08)] px-3 py-1.5">
               <span className={`h-2 w-2 rounded-full ${props.menuIsActive ? "bg-[#d2b08e]" : "bg-[rgba(255,255,255,0.24)]"}`} />
-              {props.menuIsActive ? "Servicio publicado" : "Menu sin activar"}
+              {props.menuIsActive ? (locale === "en" ? "Service published" : "Servicio publicado") : (locale === "en" ? "Menu inactive" : "Menu sin activar")}
             </span>
           </div>
-          <h2 className="app-display mt-5 text-[2.35rem] leading-none sm:text-[3rem]">Curar el menu del dia</h2>
+          <h2 className="app-display mt-5 text-[2rem] leading-none sm:text-[3rem]">
+            {locale === "en" ? "Curate today's menu" : "Curar el menu del dia"}
+          </h2>
           <div className="mt-auto pt-6">
             <button
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-5 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
@@ -1549,7 +1616,7 @@ function TodayMenu(props: {
               type="button"
             >
               <Plus size={17} />
-              Agregar desde catalogo
+              {locale === "en" ? "Add from catalog" : "Agregar desde catalogo"}
             </button>
           </div>
         </div>
@@ -1572,14 +1639,14 @@ function TodayMenu(props: {
 
       {groups.length === 0 ? (
         <div className="app-panel rounded-[28px] px-6 py-16 text-center">
-          <p className="app-display text-[2.1rem] leading-none text-[var(--text-strong)]">Aun no hay platos publicados</p>
+          <p className="app-display text-[2.1rem] leading-none text-[var(--text-strong)]">{locale === "en" ? "There are no published dishes yet" : "Aun no hay platos publicados"}</p>
           <button
             className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923]"
             onClick={() => setCatalogOpen(true)}
             type="button"
           >
             <Plus size={17} />
-            Empezar con el menu
+            {locale === "en" ? "Start the menu" : "Empezar con el menu"}
           </button>
         </div>
       ) : (
@@ -1587,13 +1654,15 @@ function TodayMenu(props: {
           {groups.map((group) => (
             <div className="app-panel rounded-[28px] overflow-hidden" key={group.id}>
               <div className="border-b border-[rgba(118,93,71,0.12)] px-5 py-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
-                    <h3 className="app-display mt-2 text-[2rem] leading-none text-[var(--text-strong)]">{group.items.length} Items en Menu</h3>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
+                    <h3 className="app-display mt-2 text-[1.55rem] leading-none text-[var(--text-strong)] sm:text-[2rem]">
+                      {group.items.length} {locale === "en" ? "items on menu" : "Items en menu"}
+                    </h3>
                   </div>
                   <div className="rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-2 text-xs font-semibold text-[var(--warning)]">
-                    {group.activeCount} visibles ahora
+                    {group.activeCount} {locale === "en" ? "visible now" : "visibles ahora"}
                   </div>
                 </div>
               </div>
@@ -1635,21 +1704,22 @@ function MenuMetricsPanel({
   inactiveCount: number;
   statusLabel: string;
 }) {
+  const locale = activeDashboardLocale;
   return (
     <div className="flex min-h-[260px] flex-col rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.05)] p-5 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Metricas del menu</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Menu metrics" : "Metricas del menu"}</p>
       <div className="mt-4 grid flex-1 gap-3">
         <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos activos</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Active dishes" : "Platos activos"}</p>
           <p className="app-display mt-2 text-[2.6rem] leading-none">{activeCount}</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
           <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Ocultos</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Hidden" : "Ocultos"}</p>
             <p className="mt-2 text-2xl font-extrabold">{inactiveCount}</p>
           </div>
           <div className="rounded-[22px] bg-[rgba(255,248,240,0.07)] px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Sincronizacion</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Sync status" : "Sincronizacion"}</p>
             <p className="mt-2 truncate text-lg font-extrabold">{statusLabel}</p>
           </div>
         </div>
@@ -1673,21 +1743,22 @@ function LunchReminderPanel({
   result: LunchReminderSendResult | null;
   sending: boolean;
 }) {
+  const locale = activeDashboardLocale;
   const canSend = Boolean(preview?.canSend) && !loading && !sending;
   const disabledReason = !preview
-    ? "Calculando clientes recientes"
+    ? (locale === "en" ? "Calculating recent customers" : "Calculando clientes recientes")
     : preview.menuItemCount === 0
-      ? "Publica platos disponibles para hoy"
+      ? (locale === "en" ? "Publish today's available dishes first" : "Publica platos disponibles para hoy")
       : preview.recipientCount === 0
-        ? "No hay clientes con pedidos en los ultimos 3 dias"
+        ? (locale === "en" ? "There are no customers with orders in the last 3 days" : "No hay clientes con pedidos en los ultimos 3 dias")
         : "";
 
   return (
     <div className="flex min-h-[260px] flex-col overflow-hidden rounded-[28px] border border-[rgba(255,242,227,0.1)] bg-[rgba(255,248,240,0.08)] p-4 text-[var(--text-on-dark)] shadow-[0_18px_50px_rgba(0,0,0,0.12)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">Recordatorio WhatsApp</p>
-          <h3 className="mt-2 text-base font-extrabold">Activar clientes recientes</h3>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">WhatsApp</p>
+          <h3 className="mt-2 text-base font-extrabold">{locale === "en" ? "Reactivate recent customers" : "Activar clientes recientes"}</h3>
         </div>
         <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[rgba(255,248,240,0.08)] text-[rgba(246,236,223,0.78)]">
           <Bell size={17} />
@@ -1696,11 +1767,11 @@ function LunchReminderPanel({
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Clientes</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Customers" : "Clientes"}</p>
           <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.recipientCount ?? 0}</p>
         </div>
         <div className="rounded-2xl bg-[rgba(255,248,240,0.08)] px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">Platos</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.42)]">{locale === "en" ? "Dishes" : "Platos"}</p>
           <p className="mt-1 text-xl font-extrabold">{loading ? "..." : preview?.menuItemCount ?? 0}</p>
         </div>
       </div>
@@ -1713,7 +1784,7 @@ function LunchReminderPanel({
 
       {result ? (
         <div className="mt-3 rounded-2xl border border-[rgba(79,122,97,0.18)] bg-[rgba(79,122,97,0.12)] px-3 py-2.5 text-xs font-semibold text-[#d8f0dd]">
-          Enviado: {result.sentCount} exitosos, {result.failedCount} fallidos.
+          {locale === "en" ? "Sent" : "Enviado"}: {result.sentCount} {locale === "en" ? "successful" : "exitosos"}, {result.failedCount} {locale === "en" ? "failed" : "fallidos"}.
         </div>
       ) : null}
 
@@ -1729,7 +1800,7 @@ function LunchReminderPanel({
           type="button"
         >
           {sending || loading ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
-          {sending ? "Enviando recordatorio..." : "Enviar recordatorio"}
+          {sending ? (locale === "en" ? "Sending reminder..." : "Enviando recordatorio...") : (locale === "en" ? "Send reminder" : "Enviar recordatorio")}
         </button>
       </div>
     </div>
@@ -1737,6 +1808,7 @@ function LunchReminderPanel({
 }
 
 function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () => void; onUpdate: (patch: Partial<MenuItem>) => void }) {
+  const locale = activeDashboardLocale;
   const name = item.displayName ?? item.product?.name ?? "Producto sin nombre";
   const price = item.priceOverride ?? item.product?.basePrice ?? 0;
 
@@ -1756,7 +1828,7 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
                 <h3 className={`truncate text-sm font-semibold ${item.isAvailable ? "text-[var(--text-strong)]" : "text-[var(--text-soft)]"}`}>{name}</h3>
                 {!item.isAvailable && (
                   <span className="rounded-full bg-[rgba(118,93,71,0.08)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
-                    Oculto
+                    {locale === "en" ? "Hidden" : "Oculto"}
                   </span>
                 )}
               </div>
@@ -1767,8 +1839,8 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <label className="inline-flex h-12 min-w-0 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(250,245,238,0.72)] px-4 sm:w-40">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <label className="inline-flex h-12 min-w-0 w-full items-center rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(250,245,238,0.72)] px-4 sm:w-40">
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">COP</span>
             <input
               aria-label={`Precio de ${name}`}
@@ -1784,7 +1856,7 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
             <button
               className="grid h-12 w-12 place-items-center rounded-2xl border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] transition hover:border-[rgba(180,94,84,0.22)] hover:bg-[rgba(190,110,95,0.08)] hover:text-[#9a4b43]"
               onClick={onDelete}
-              title="Eliminar plato"
+              title={locale === "en" ? "Delete dish" : "Eliminar plato"}
               type="button"
             >
               <Trash2 size={16} />
@@ -1797,6 +1869,7 @@ function DishRow({ item, onDelete, onUpdate }: { item: MenuItem; onDelete: () =>
 }
 
 function AvailabilitySwitch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  const locale = activeDashboardLocale;
   return (
     <button
       aria-pressed={checked}
@@ -1809,12 +1882,13 @@ function AvailabilitySwitch({ checked, onChange }: { checked: boolean; onChange:
       type="button"
     >
       <span className={`h-2.5 w-2.5 rounded-full ${checked ? "bg-[var(--success)]" : "bg-[var(--text-faint)]"}`} />
-      {checked ? "Visible" : "Pausado"}
+      {checked ? (locale === "en" ? "Visible" : "Visible") : (locale === "en" ? "Paused" : "Pausado")}
     </button>
   );
 }
 
 function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (productId: string) => Promise<void>; onClose: () => void }) {
+  const locale = activeDashboardLocale;
   const [query, setQuery] = useState("");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1860,7 +1934,7 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
   }
 
   return (
-    <Modal title="Agregar desde catalogo" onClose={props.onClose}>
+    <Modal title={locale === "en" ? "Add from catalog" : "Agregar desde catalogo"} onClose={props.onClose}>
       <div className="sticky top-0 z-20 -mx-5 -mt-5 border-b border-[rgba(118,93,71,0.1)] bg-[var(--panel)] px-5 pb-4 pt-5 shadow-[0_14px_30px_rgba(20,14,10,0.08)] sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" size={17} />
@@ -1868,19 +1942,19 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
             autoFocus
             className="h-12 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] pl-11 pr-4 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-[var(--panel-strong)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar plato..."
+            placeholder={locale === "en" ? "Search dish..." : "Buscar plato..."}
             value={query}
           />
         </div>
         <div className="app-panel-muted mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-[var(--text-soft)]">
-          <span>{selectedProductIds.length} seleccionados</span>
-          <span className="text-xs text-[var(--text-faint)]">{availableProducts.length} disponibles</span>
+          <span>{selectedProductIds.length} {locale === "en" ? "selected" : "seleccionados"}</span>
+          <span className="text-xs text-[var(--text-faint)]">{availableProducts.length} {locale === "en" ? "available" : "disponibles"}</span>
         </div>
       </div>
       <div className="app-scrollbar mt-4 max-h-[420px] space-y-3 overflow-y-auto">
         {groupedProducts.length === 0 && (
           <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(248,241,232,0.72)] px-4 py-6 text-center text-sm text-[var(--text-soft)]">
-            No hay mas productos activos disponibles para agregar al menu.
+            {locale === "en" ? "There are no more active products available to add to the menu." : "No hay mas productos activos disponibles para agregar al menu."}
           </div>
         )}
         {groupedProducts.map((group) => {
@@ -1890,13 +1964,13 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
           return (
             <section className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.9)] p-3" key={group.id}>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
                 <button
                   className="inline-flex h-9 items-center rounded-xl border border-[rgba(118,93,71,0.12)] px-3 text-xs font-semibold text-[var(--text-soft)]"
                   onClick={() => toggleCategory(ids)}
                   type="button"
                 >
-                  {allSelected ? "Quitar seleccion" : "Seleccionar categoria"}
+                  {allSelected ? (locale === "en" ? "Clear selection" : "Quitar seleccion") : (locale === "en" ? "Select category" : "Seleccionar categoria")}
                 </button>
               </div>
               <div className="space-y-2">
@@ -1904,7 +1978,7 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
                   const selected = selectedProductIds.includes(product.id);
                   return (
                     <button
-                      className={`flex w-full items-center gap-3 rounded-[18px] border p-3 text-left transition ${selected ? "border-[rgba(197,123,87,0.25)] bg-[rgba(247,238,228,0.95)]" : "border-[rgba(118,93,71,0.1)] bg-white/80 hover:border-[rgba(197,123,87,0.22)] hover:bg-white"}`}
+                      className={`flex w-full flex-col items-start gap-3 rounded-[18px] border p-3 text-left transition sm:flex-row sm:items-center ${selected ? "border-[rgba(197,123,87,0.25)] bg-[rgba(247,238,228,0.95)]" : "border-[rgba(118,93,71,0.1)] bg-white/80 hover:border-[rgba(197,123,87,0.22)] hover:bg-white"}`}
                       key={product.id}
                       onClick={() => toggleSelect(product.id)}
                       type="button"
@@ -1919,7 +1993,7 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
                         <p className="truncate text-sm font-semibold text-[var(--text-strong)]">{product.name}</p>
                         <p className="mt-1 line-clamp-2 text-sm text-[var(--text-soft)]">{product.description}</p>
                       </div>
-                      <span className="text-sm font-semibold text-[var(--text-strong)]">{formatPrice(product.basePrice)}</span>
+                      <span className="text-sm font-semibold text-[var(--text-strong)] sm:ml-auto">{formatPrice(product.basePrice)}</span>
                     </button>
                   );
                 })}
@@ -1936,7 +2010,7 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
           type="button"
         >
           {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-          + Agregar desde catalogo
+          {locale === "en" ? "+ Add from catalog" : "+ Agregar desde catalogo"}
         </button>
       </div>
     </Modal>
@@ -1958,6 +2032,7 @@ function Summary({
   tenantSlug: string;
   totalCount: number;
 }) {
+  const locale = activeDashboardLocale;
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [ordersError, setOrdersError] = useState("");
@@ -1984,7 +2059,7 @@ function Summary({
         setOrdersError("");
       } catch (error) {
         if (!active) return;
-        setOrdersError(error instanceof Error ? error.message : "No se pudieron cargar los pedidos.");
+        setOrdersError(error instanceof Error ? error.message : (locale === "en" ? "Orders could not be loaded." : "No se pudieron cargar los pedidos."));
       } finally {
         if (active) {
           setOrdersLoading(false);
@@ -2035,12 +2110,16 @@ function Summary({
     <section className="space-y-6">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_420px]">
         <div className="rounded-[28px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.06)] p-6 text-[var(--text-on-dark)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Generalidades de menu</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">{locale === "en" ? "Menu overview" : "Generalidades de menu"}</p>
           <h2 className="app-display mt-4 text-[2.8rem] leading-none sm:text-[3.4rem]">
-            {activeCount > 0 ? "Menu alineado para vender hoy" : "Hace falta activar el menu"}
+            {activeCount > 0
+              ? (locale === "en" ? "Menu ready to sell today" : "Menu alineado para vender hoy")
+              : (locale === "en" ? "The menu still needs to be activated" : "Hace falta activar el menu")}
           </h2>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-[rgba(246,236,223,0.68)]">
-            {activeCount} platos visibles, {inactiveCount} ocultos y {activeCategoryCount} secciones activas en la carta del dia.
+            {locale === "en"
+              ? `${activeCount} visible dishes, ${inactiveCount} hidden and ${activeCategoryCount} active sections in today's menu.`
+              : `${activeCount} platos visibles, ${inactiveCount} ocultos y ${activeCategoryCount} secciones activas en la carta del dia.`}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -2049,7 +2128,7 @@ function Summary({
               type="button"
             >
               <Edit3 size={17} />
-              Ajustar menu de hoy
+              {locale === "en" ? "Adjust today's menu" : "Ajustar menu de hoy"}
             </button>
             <button
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.04)] px-5 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.08)]"
@@ -2057,16 +2136,16 @@ function Summary({
               type="button"
             >
               <ClipboardList size={17} />
-              Revisar pedidos
+              {locale === "en" ? "Review orders" : "Revisar pedidos"}
             </button>
           </div>
         </div>
 
         <div className="app-panel rounded-[28px] p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Cobertura del menu</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Menu coverage" : "Cobertura del menu"}</p>
           <p className="app-display mt-4 text-[4rem] leading-none text-[var(--text-strong)]">{coverage}%</p>
           <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">
-            Ticket promedio visible {formatPrice(averageMenuPrice)}.
+            {locale === "en" ? "Visible average ticket" : "Ticket promedio visible"} {formatPrice(averageMenuPrice)}.
           </p>
         </div>
       </div>
@@ -2075,26 +2154,26 @@ function Summary({
         <div className="app-panel rounded-[28px] p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Platos y menu</p>
-              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">Generalidades operativas</h3>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Dishes and menu" : "Platos y menu"}</p>
+              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">{locale === "en" ? "Operational overview" : "Generalidades operativas"}</h3>
             </div>
             <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
-              {activeCategoryCount} categorias activas
+              {activeCategoryCount} {locale === "en" ? "active categories" : "categorias activas"}
             </span>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <SummaryMetricCard label="Platos en menu" tone="neutral" value={String(activeCount)} />
-            <SummaryMetricCard label="Platos ocultos" tone="neutral" value={String(inactiveCount)} />
-            <SummaryMetricCard label="Total en carta" tone="neutral" value={String(totalCount)} />
-            <SummaryMetricCard label="Precio promedio" tone="neutral" value={formatPrice(averageMenuPrice)} />
+            <SummaryMetricCard label={locale === "en" ? "Menu dishes" : "Platos en menu"} tone="neutral" value={String(activeCount)} />
+            <SummaryMetricCard label={locale === "en" ? "Hidden dishes" : "Platos ocultos"} tone="neutral" value={String(inactiveCount)} />
+            <SummaryMetricCard label={locale === "en" ? "Total on menu" : "Total en carta"} tone="neutral" value={String(totalCount)} />
+            <SummaryMetricCard label={locale === "en" ? "Average price" : "Precio promedio"} tone="neutral" value={formatPrice(averageMenuPrice)} />
           </div>
         </div>
 
         <div className="app-panel rounded-[28px] p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Pedidos realizados</p>
-              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">Pulso comercial del dia</h3>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Orders placed" : "Pedidos realizados"}</p>
+              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">{locale === "en" ? "Today's sales pulse" : "Pulso comercial del dia"}</h3>
             </div>
             <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
               orderDelta > 0
@@ -2108,7 +2187,7 @@ function Summary({
           </div>
           {ordersLoading ? (
             <div className="mt-5 rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
-              Cargando pedidos del dia...
+              {locale === "en" ? "Loading today's orders..." : "Cargando pedidos del dia..."}
             </div>
           ) : ordersError ? (
             <div className="mt-5 rounded-[22px] border border-[rgba(180,94,84,0.18)] bg-[rgba(190,110,95,0.08)] px-4 py-4 text-sm text-[#8c4e47]">
@@ -2116,10 +2195,10 @@ function Summary({
             </div>
           ) : (
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <SummaryMetricCard label="Pedidos hoy" tone="info" value={String(todaysOrders.length)} />
-              <SummaryMetricCard label="Ventas del dia" tone="success" value={formatPrice(revenueToday)} />
-              <SummaryMetricCard label="Ticket promedio" tone="info" value={formatPrice(averageTicket)} />
-              <SummaryMetricCard label="Cerrados hoy" tone="neutral" value={String(closedTodayCount)} />
+              <SummaryMetricCard label={locale === "en" ? "Orders today" : "Pedidos hoy"} tone="info" value={String(todaysOrders.length)} />
+              <SummaryMetricCard label={locale === "en" ? "Revenue today" : "Ventas del dia"} tone="success" value={formatPrice(revenueToday)} />
+              <SummaryMetricCard label={locale === "en" ? "Average ticket" : "Ticket promedio"} tone="info" value={formatPrice(averageTicket)} />
+              <SummaryMetricCard label={locale === "en" ? "Closed today" : "Cerrados hoy"} tone="neutral" value={String(closedTodayCount)} />
             </div>
           )}
         </div>
@@ -2131,11 +2210,11 @@ function Summary({
         <div className="app-panel rounded-[28px] p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Grafico de ventas</p>
-              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">Recibos emitidos hoy</h3>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Sales chart" : "Grafico de ventas"}</p>
+              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">{locale === "en" ? "Receipts issued today" : "Recibos emitidos hoy"}</h3>
             </div>
             <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
-              {todaysOrders.length} recibos
+              {todaysOrders.length} {locale === "en" ? "receipts" : "recibos"}
             </span>
           </div>
           <div className="mt-5">
@@ -2146,17 +2225,17 @@ function Summary({
         <div className="app-panel rounded-[28px] p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Cuenta - factura</p>
-              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">Recibos del dia</h3>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Billing" : "Cuenta - factura"}</p>
+              <h3 className="mt-3 text-xl font-semibold text-[var(--text-strong)]">{locale === "en" ? "Today's receipts" : "Recibos del dia"}</h3>
             </div>
             <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
-              {productiveOrdersToday.length} activos
+              {productiveOrdersToday.length} {locale === "en" ? "active" : "activos"}
             </span>
           </div>
           <div className="app-scrollbar mt-5 max-h-[420px] space-y-3 overflow-y-auto pr-1">
             {todaysOrders.length === 0 ? (
               <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
-                Aun no hay recibos generados hoy.
+                {locale === "en" ? "There are no receipts generated today yet." : "Aun no hay recibos generados hoy."}
               </div>
             ) : (
               todaysOrders.map((order) => (
@@ -2164,10 +2243,10 @@ function Summary({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
-                        Factura #{getReceiptCode(order.id)}
+                        {locale === "en" ? "Receipt" : "Factura"} #{getReceiptCode(order.id)}
                       </p>
                       <p className="mt-2 text-sm font-semibold text-[var(--text-strong)]">
-                        {order.customerName?.trim() || order.customerPhone || "Cliente sin nombre"}
+                        {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Unnamed customer" : "Cliente sin nombre")}
                       </p>
                       <p className="mt-1 text-xs text-[var(--text-faint)]">
                         {formatDateTime(order.createdAt)} - {getSummaryOrderStatusLabel(order.status)}
@@ -2186,6 +2265,7 @@ function Summary({
 }
 
 function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
+  const locale = activeDashboardLocale;
   const cartaUrl = getPublicCartaUrl(tenantSlug);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [copied, setCopied] = useState(false);
@@ -2230,13 +2310,15 @@ function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
             <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface-base)] px-3 py-1.5">
               <QrCode size={14} />
-              Carta publica
+              {locale === "en" ? "Public menu" : "Carta publica"}
             </span>
-            <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-1.5 text-[var(--warning)]">Solo lectura</span>
+            <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-1.5 text-[var(--warning)]">{locale === "en" ? "Read only" : "Solo lectura"}</span>
           </div>
-          <h3 className="app-display mt-5 text-[3rem] leading-none text-[var(--text-strong)]">QR para clientes en mesa</h3>
+          <h3 className="app-display mt-5 text-[3rem] leading-none text-[var(--text-strong)]">{locale === "en" ? "QR for table customers" : "QR para clientes en mesa"}</h3>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--text-soft)]">
-            Este QR abre la carta publica del restaurante. Los clientes solo pueden consultar platos, precios y componentes; no pueden editar productos ni agregar al menu.
+            {locale === "en"
+              ? "This QR opens the restaurant's public menu. Customers can only view dishes, prices and components; they cannot edit products or add them to the menu."
+              : "Este QR abre la carta publica del restaurante. Los clientes solo pueden consultar platos, precios y componentes; no pueden editar productos ni agregar al menu."}
           </p>
           <div className="mt-6 rounded-[22px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-4 py-3 text-sm font-semibold text-[var(--text-soft)]">
             <span className="block truncate">{cartaUrl}</span>
@@ -2249,7 +2331,7 @@ function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
               target="_blank"
             >
               <ExternalLink size={17} />
-              Abrir carta
+              {locale === "en" ? "Open menu" : "Abrir carta"}
             </a>
             <button
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-5 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
@@ -2257,17 +2339,17 @@ function PublicCartaShareCard({ tenantSlug }: { tenantSlug: string }) {
               type="button"
             >
               <Copy size={17} />
-              {copied ? "Link copiado" : "Copiar link"}
+              {copied ? (locale === "en" ? "Link copied" : "Link copiado") : (locale === "en" ? "Copy link" : "Copiar link")}
             </button>
           </div>
         </div>
         <div className="grid place-items-center bg-[linear-gradient(145deg,#201a16,#443228)] p-6">
           <div className="rounded-[30px] bg-[#edf2f7] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
             {qrDataUrl ? (
-              <img alt="QR de la carta publica" className="h-56 w-56 rounded-[20px]" src={qrDataUrl} />
+              <img alt={locale === "en" ? "Public menu QR" : "QR de la carta publica"} className="h-56 w-56 rounded-[20px]" src={qrDataUrl} />
             ) : (
               <div className="grid h-56 w-56 place-items-center rounded-[20px] bg-white text-sm font-semibold text-[var(--text-soft)]">
-                Generando QR...
+                {locale === "en" ? "Generating QR..." : "Generando QR..."}
               </div>
             )}
           </div>
@@ -2301,10 +2383,11 @@ function SummaryMetricCard({
 }
 
 function SalesChart({ orders }: { orders: OrderSummary[] }) {
+  const locale = activeDashboardLocale;
   if (orders.length === 0) {
     return (
       <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-12 text-center text-sm text-[var(--text-soft)]">
-        Todavia no hay ventas registradas hoy para graficar.
+        {locale === "en" ? "There are no sales recorded today yet." : "Todavia no hay ventas registradas hoy para graficar."}
       </div>
     );
   }
@@ -2341,15 +2424,15 @@ function SalesChart({ orders }: { orders: OrderSummary[] }) {
       <div className="flex flex-wrap gap-2 text-xs font-semibold text-[var(--text-soft)]">
         <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface-confirmed)] px-3 py-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-[var(--success)]" />
-          Entregado
+          {locale === "en" ? "Delivered" : "Entregado"}
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface-pending)] px-3 py-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-[#7b92ab]" />
-          En curso
+          {locale === "en" ? "In progress" : "En curso"}
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-[rgba(197,123,87,0.1)] px-3 py-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-[rgba(197,123,87,0.6)]" />
-          Cancelado
+          {locale === "en" ? "Cancelled" : "Cancelado"}
         </span>
       </div>
     </div>
@@ -2366,28 +2449,30 @@ function getDayKey(value: string | Date) {
 }
 
 function getOrderDeltaLabel(delta: number) {
+  const locale = activeDashboardLocale;
   if (delta > 0) {
-    return `+${delta} vs ayer`;
+    return locale === "en" ? `+${delta} vs yesterday` : `+${delta} vs ayer`;
   }
 
   if (delta < 0) {
-    return `${delta} vs ayer`;
+    return locale === "en" ? `${delta} vs yesterday` : `${delta} vs ayer`;
   }
 
-  return "Igual que ayer";
+  return locale === "en" ? "Same as yesterday" : "Igual que ayer";
 }
 
 function getSummaryOrderStatusLabel(status: OrderSummary["status"]) {
+  const locale = activeDashboardLocale;
   return {
-    new: "Nuevo",
-    pending_restaurant_confirmation: "Pendiente restaurante",
-    needs_customer_replacement: "Pendiente cliente",
-    payment_pending_review: "Pago pendiente",
-    accepted: "Aceptado",
-    preparing: "Preparando",
-    on_the_way: "Listo / delivery 30",
-    delivered: "Entregado",
-    cancelled: "Cancelado",
+    new: locale === "en" ? "New" : "Nuevo",
+    pending_restaurant_confirmation: locale === "en" ? "Restaurant pending" : "Pendiente restaurante",
+    needs_customer_replacement: locale === "en" ? "Customer pending" : "Pendiente cliente",
+    payment_pending_review: locale === "en" ? "Payment pending" : "Pago pendiente",
+    accepted: locale === "en" ? "Accepted" : "Aceptado",
+    preparing: locale === "en" ? "Preparing" : "Preparando",
+    on_the_way: locale === "en" ? "Ready / 30 min delivery" : "Listo / delivery 30",
+    delivered: locale === "en" ? "Delivered" : "Entregado",
+    cancelled: locale === "en" ? "Cancelled" : "Cancelado",
   }[status];
 }
 
@@ -2397,7 +2482,7 @@ function getReceiptCode(orderId: string) {
 }
 
 function formatCompactPrice(value: number | undefined) {
-  return new Intl.NumberFormat("es-CO", {
+  return new Intl.NumberFormat(activeDashboardLocale === "en" ? "en-US" : "es-CO", {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(Number(value ?? 0));
@@ -2418,6 +2503,7 @@ function Catalog({
   onDelete: (productId: string) => Promise<void>;
   onSave: (product: ProductFormValue) => Promise<void>;
 }) {
+  const locale = activeDashboardLocale;
   const [modalProduct, setModalProduct] = useState<Partial<Product> | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
@@ -2502,8 +2588,8 @@ function Catalog({
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <SectionTitle title="Catalogo" subtitle={`${products.length} productos`} />
-        <div className="flex flex-wrap items-center gap-2">
+        <SectionTitle title={locale === "en" ? "Catalog" : "Catalogo"} subtitle={`${products.length} ${locale === "en" ? "products" : "productos"}`} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <div className="app-panel-muted flex rounded-2xl p-1">
             <button
               className={`inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition ${viewMode === "cards" ? "bg-[rgba(225,211,194,0.78)] text-[var(--text-strong)]" : "text-[var(--text-soft)]"}`}
@@ -2511,7 +2597,7 @@ function Catalog({
               type="button"
             >
               <LayoutGrid size={16} />
-              Tarjetas
+              {locale === "en" ? "Cards" : "Tarjetas"}
             </button>
             <button
               className={`inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition ${viewMode === "list" ? "bg-[rgba(225,211,194,0.78)] text-[var(--text-strong)]" : "text-[var(--text-soft)]"}`}
@@ -2519,41 +2605,41 @@ function Catalog({
               type="button"
             >
               <List size={16} />
-              Lista
+              {locale === "en" ? "List" : "Lista"}
             </button>
           </div>
           <button
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-5 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)]"
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--panel)] px-5 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--panel-strong)] sm:w-auto"
             onClick={() => setModalProduct({ isActive: true })}
             type="button"
           >
             <Plus size={17} />
-            Nuevo producto
+            {locale === "en" ? "New product" : "Nuevo producto"}
           </button>
           <button
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923]"
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] sm:w-auto"
             onClick={() => setModalProduct(createCompositeProductDraft())}
             type="button"
           >
             <Plus size={17} />
-            Nuevo compuesto
+            {locale === "en" ? "New combo" : "Nuevo compuesto"}
           </button>
         </div>
       </div>
 
-      <div className="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-[min(760px,calc(100vw-2rem))] -translate-x-1/2 flex-wrap items-center justify-between gap-3 rounded-[24px] border border-[rgba(255,242,227,0.16)] bg-[rgba(237,242,247,0.94)] px-4 py-3 text-[var(--text-strong)] shadow-[0_22px_70px_rgba(20,14,10,0.3)] backdrop-blur-xl lg:bottom-7">
-        <p className="text-sm font-semibold text-[var(--text-soft)]">
-          {selectedProductIds.length} seleccionados
-          {selectedProductIds.length > selectedAddableIds.length ? ` · ${selectedProductIds.length - selectedAddableIds.length} ya estan en menu` : ""}
+      <div className="fixed bottom-[calc(5.8rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-[min(760px,calc(100vw-1.25rem))] -translate-x-1/2 flex-col items-stretch gap-3 rounded-[22px] border border-[rgba(255,242,227,0.16)] bg-[rgba(237,242,247,0.94)] px-3 py-3 text-[var(--text-strong)] shadow-[0_22px_70px_rgba(20,14,10,0.3)] backdrop-blur-xl sm:w-[min(760px,calc(100vw-2rem))] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:rounded-[24px] sm:px-4 lg:bottom-7">
+        <p className="min-w-0 text-sm font-semibold text-[var(--text-soft)]">
+          {selectedProductIds.length} {locale === "en" ? "selected" : "seleccionados"}
+          {selectedProductIds.length > selectedAddableIds.length ? ` · ${selectedProductIds.length - selectedAddableIds.length} ${locale === "en" ? "already on the menu" : "ya estan en menu"}` : ""}
         </p>
         <button
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           disabled={selectedAddableIds.length === 0 || isAddingToMenu}
           onClick={() => void handleAddSelectedToMenu()}
           type="button"
         >
           {isAddingToMenu ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-          Agregar seleccion al menu
+          {locale === "en" ? "Add selection to menu" : "Agregar seleccion al menu"}
         </button>
       </div>
 
@@ -2566,9 +2652,9 @@ function Catalog({
           return (
             <section className="app-panel rounded-[28px] overflow-hidden" key={group.id}>
               <div className="flex flex-col gap-3 border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
-                  <h3 className="app-display mt-2 text-[2rem] leading-none text-[var(--text-strong)]">{group.items.length} productos</h3>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
+                  <h3 className="app-display mt-2 text-[1.55rem] leading-none text-[var(--text-strong)] sm:text-[2rem]">{group.items.length} {locale === "en" ? "products" : "productos"}</h3>
                 </div>
                 <button
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] disabled:opacity-60"
@@ -2576,7 +2662,7 @@ function Catalog({
                   disabled={selectableProductIds.length === 0}
                   type="button"
                 >
-                  {allSelected ? "Quitar seleccion" : "Seleccionar categoria"}
+                  {allSelected ? (locale === "en" ? "Clear selection" : "Quitar seleccion") : (locale === "en" ? "Select category" : "Seleccionar categoria")}
                 </button>
               </div>
 
@@ -2620,7 +2706,7 @@ function Catalog({
 
       {products.length === 0 && (
         <div className="app-panel rounded-[28px] px-6 py-14 text-center">
-          <p className="app-display text-[2rem] leading-none text-[var(--text-strong)]">Catalogo vacio</p>
+          <p className="app-display text-[2rem] leading-none text-[var(--text-strong)]">{locale === "en" ? "Empty catalog" : "Catalogo vacio"}</p>
         </div>
       )}
 
@@ -2658,6 +2744,7 @@ function ProductCard({
   onEdit: () => void;
   onToggleSelect: () => void;
 }) {
+  const locale = activeDashboardLocale;
   return (
     <article className={`group overflow-hidden rounded-[28px] border transition ${isSelected ? "border-[rgba(197,123,87,0.28)] bg-[rgba(228,215,198,0.92)]" : "app-panel"}`}>
       <div className="relative aspect-[4/2.45] overflow-hidden bg-[rgba(118,93,71,0.08)]">
@@ -2680,48 +2767,48 @@ function ProductCard({
           onClick={onToggleSelect}
           type="button"
         >
-          {inMenu ? "Ya en menu" : isSelected ? "Seleccionado" : "Seleccionar"}
+          {inMenu ? (locale === "en" ? "Already on menu" : "Ya en menu") : isSelected ? (locale === "en" ? "Selected" : "Seleccionado") : (locale === "en" ? "Select" : "Seleccionar")}
         </button>
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[rgba(22,18,16,0.7)] via-transparent to-transparent p-5">
           <span className="inline-flex rounded-full bg-[rgba(255,250,244,0.16)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/90 backdrop-blur">
-            {product.category || "sin categoria"}
+            {getLocalizedCategoryLabel(product.category, locale)}
           </span>
         </div>
       </div>
       <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-[var(--text-strong)]">{product.name}</h3>
             {product.productType === "composite" ? (
               <span className="mt-2 inline-flex rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-1 text-xs font-semibold text-[var(--warning)]">
-                Producto compuesto · {product.options?.length ?? 0} grupos
+                {locale === "en" ? "Composite product" : "Producto compuesto"} · {product.options?.length ?? 0} {locale === "en" ? "groups" : "grupos"}
               </span>
             ) : null}
             <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--text-soft)]">{product.description}</p>
           </div>
           <p className="shrink-0 text-sm font-semibold text-[var(--text-strong)]">{formatPrice(product.basePrice)}</p>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           <CategorySelect
             disabled={isCategorySaving}
             onChange={onCategoryChange}
             value={product.category}
           />
           <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)]"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] sm:w-auto"
             onClick={onEdit}
             type="button"
           >
             <Edit3 size={16} />
-            Editar
+            {locale === "en" ? "Edit" : "Editar"}
           </button>
           <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.18)] px-4 text-sm font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.18)] px-4 text-sm font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)] sm:w-auto"
             onClick={onDelete}
             type="button"
           >
             <Trash2 size={16} />
-            Eliminar
+            {locale === "en" ? "Delete" : "Eliminar"}
           </button>
         </div>
       </div>
@@ -2748,6 +2835,7 @@ function ProductListRow({
   onEdit: () => void;
   onToggleSelect: () => void;
 }) {
+  const locale = activeDashboardLocale;
   return (
     <article className={`rounded-[24px] border px-4 py-4 transition ${isSelected ? "border-[rgba(197,123,87,0.28)] bg-[rgba(228,215,198,0.92)]" : "border-[rgba(118,93,71,0.1)] bg-[rgba(226,214,198,0.82)]"}`}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -2762,11 +2850,11 @@ function ProductListRow({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="truncate text-base font-semibold text-[var(--text-strong)]">{product.name}</h3>
               <span className="rounded-full bg-[rgba(118,93,71,0.08)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
-                {product.category || "sin categoria"}
+                {getLocalizedCategoryLabel(product.category, locale)}
               </span>
               {product.productType === "composite" ? (
                 <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--warning)]">
-                  Compuesto · {product.options?.length ?? 0}
+                  {locale === "en" ? "Combo" : "Compuesto"} · {product.options?.length ?? 0}
                 </span>
               ) : null}
             </div>
@@ -2775,15 +2863,15 @@ function ProductListRow({
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="mr-2 text-sm font-semibold text-[var(--text-strong)]">{formatPrice(product.basePrice)}</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <p className="mr-0 text-sm font-semibold text-[var(--text-strong)] sm:mr-2">{formatPrice(product.basePrice)}</p>
           <button
-            className={`inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm font-semibold transition ${inMenu ? "cursor-not-allowed border border-[rgba(118,93,71,0.1)] bg-[rgba(98,84,72,0.12)] text-[var(--text-faint)]" : isSelected ? "bg-[var(--text-strong)] text-white" : "border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] hover:bg-[rgba(223,210,194,0.55)]"}`}
+            className={`inline-flex h-11 w-full items-center justify-center rounded-2xl px-4 text-sm font-semibold transition sm:w-auto ${inMenu ? "cursor-not-allowed border border-[rgba(118,93,71,0.1)] bg-[rgba(98,84,72,0.12)] text-[var(--text-faint)]" : isSelected ? "bg-[var(--text-strong)] text-white" : "border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] hover:bg-[rgba(223,210,194,0.55)]"}`}
             disabled={inMenu}
             onClick={onToggleSelect}
             type="button"
           >
-            {inMenu ? "Ya en menu" : isSelected ? "Seleccionado" : "Seleccionar"}
+            {inMenu ? (locale === "en" ? "Already on menu" : "Ya en menu") : isSelected ? (locale === "en" ? "Selected" : "Seleccionado") : (locale === "en" ? "Select" : "Seleccionar")}
           </button>
           <CategorySelect
             disabled={isCategorySaving}
@@ -2791,20 +2879,20 @@ function ProductListRow({
             value={product.category}
           />
           <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)]"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] sm:w-auto"
             onClick={onEdit}
             type="button"
           >
             <Edit3 size={16} />
-            Editar
+            {locale === "en" ? "Edit" : "Editar"}
           </button>
           <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.18)] px-4 text-sm font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.18)] px-4 text-sm font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)] sm:w-auto"
             onClick={onDelete}
             type="button"
           >
             <Trash2 size={16} />
-            Eliminar
+            {locale === "en" ? "Delete" : "Eliminar"}
           </button>
         </div>
       </div>
@@ -2821,16 +2909,17 @@ function CategorySelect({
   onChange: (nextCategory: string) => void;
   value?: string;
 }) {
+  const locale = activeDashboardLocale;
   const options = [
-    { id: "desayunos", label: "Desayunos" },
-    { id: "almuerzos", label: "Almuerzos" },
-    { id: "adiciones", label: "Adiciones" },
-    { id: "bebidas", label: "Bebidas" },
+    { id: "desayunos", label: locale === "en" ? "Breakfast" : "Desayunos" },
+    { id: "almuerzos", label: locale === "en" ? "Lunch" : "Almuerzos" },
+    { id: "adiciones", label: locale === "en" ? "Extras" : "Adiciones" },
+    { id: "bebidas", label: locale === "en" ? "Drinks" : "Bebidas" },
   ];
 
   return (
     <select
-      className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.45)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+      className="h-11 w-full min-w-0 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.45)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       value={value ?? "adiciones"}
@@ -2855,6 +2944,7 @@ function EmojiSelect({
   onChange: (emoji: string) => void;
   value?: string;
 }) {
+  const locale = activeDashboardLocale;
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
   const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 56);
@@ -2865,7 +2955,7 @@ function EmojiSelect({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Emoji</p>
-          <p className="mt-1 text-xs text-[var(--text-soft)]">Sugerido por nombre y descripcion</p>
+          <p className="mt-1 text-xs text-[var(--text-soft)]">{locale === "en" ? "Suggested from name and description" : "Sugerido por nombre y descripcion"}</p>
         </div>
         <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--panel-strong)] text-[1.5rem] ring-1 ring-[rgba(118,93,71,0.1)]">
           {selectedEmoji}
@@ -2874,7 +2964,7 @@ function EmojiSelect({
       <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
         {quickOptions.map((emoji) => (
           <button
-            aria-label={`Seleccionar emoji ${emoji}`}
+            aria-label={locale === "en" ? `Select emoji ${emoji}` : `Seleccionar emoji ${emoji}`}
             className={`grid h-9 w-9 place-items-center rounded-xl text-[1.25rem] transition ${
               selectedEmoji === emoji
                 ? "bg-[var(--text-strong)] shadow-[0_8px_20px_rgba(20,14,10,0.18)]"
@@ -2890,12 +2980,12 @@ function EmojiSelect({
       </div>
       <details className="mt-3 rounded-[18px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-3">
         <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-          Mas emojis
+          {locale === "en" ? "More emojis" : "Mas emojis"}
         </summary>
         <div className="mt-3 grid max-h-64 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
           {extendedOptions.map((emoji) => (
             <button
-              aria-label={`Seleccionar emoji ${emoji}`}
+              aria-label={locale === "en" ? `Select emoji ${emoji}` : `Seleccionar emoji ${emoji}`}
               className={`grid h-9 w-9 place-items-center rounded-xl text-[1.25rem] transition ${
                 selectedEmoji === emoji
                   ? "bg-[var(--text-strong)] shadow-[0_8px_20px_rgba(20,14,10,0.18)]"
@@ -2925,6 +3015,7 @@ function CompactEmojiButton({
   onChange: (emoji: string) => void;
   value?: string;
 }) {
+  const locale = activeDashboardLocale;
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
   const options = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji), ...availableProductEmojis])).slice(0, 132);
@@ -2942,7 +3033,7 @@ function CompactEmojiButton({
         <div className="grid max-h-56 grid-cols-7 gap-1.5 overflow-y-auto pr-1 app-scrollbar">
           {options.map((emoji) => (
             <button
-              aria-label={`Seleccionar emoji ${emoji}`}
+              aria-label={locale === "en" ? `Select emoji ${emoji}` : `Seleccionar emoji ${emoji}`}
               className={`grid h-9 place-items-center rounded-xl text-[1.15rem] transition ${
                 selectedEmoji === emoji
                   ? "bg-[var(--text-strong)] shadow-[0_8px_18px_rgba(20,14,10,0.18)]"
@@ -2962,22 +3053,23 @@ function CompactEmojiButton({
 }
 
 function ProductTypeSelector({ onChange, value }: { onChange: (value: Product["productType"]) => void; value: Product["productType"] }) {
+  const locale = activeDashboardLocale;
   const options = [
     {
       id: "simple" as const,
-      title: "Producto simple",
-      copy: "Plato fijo sin selecciones internas.",
+      title: locale === "en" ? "Simple product" : "Producto simple",
+      copy: locale === "en" ? "Fixed dish with no internal selections." : "Plato fijo sin selecciones internas.",
     },
     {
       id: "composite" as const,
-      title: "Producto compuesto",
-      copy: "Plato con grupos de componentes para elegir.",
+      title: locale === "en" ? "Composite product" : "Producto compuesto",
+      copy: locale === "en" ? "Dish with component groups to choose from." : "Plato con grupos de componentes para elegir.",
     },
   ];
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Tipo de producto</p>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Product type" : "Tipo de producto"}</p>
       <div className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => {
           const active = value === option.id;
@@ -3003,6 +3095,7 @@ function ProductTypeSelector({ onChange, value }: { onChange: (value: Product["p
 }
 
 function CompositeOptionsEditor({ onChange, options }: { onChange: (options: ProductOption[]) => void; options: ProductOption[] }) {
+  const locale = activeDashboardLocale;
   function updateOption(index: number, patch: Partial<ProductOption>) {
     onChange(options.map((option, optionIndex) => (optionIndex === index ? { ...option, ...patch } : option)));
   }
@@ -3047,9 +3140,11 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
     <section className="rounded-[26px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Componentes del plato</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Dish components" : "Componentes del plato"}</p>
           <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-            Crea grupos como Sopas, Proteina o Acompanante. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige.
+            {locale === "en"
+              ? "Create groups like Soups, Protein or Side. If a group has one active option, it is included; if it has several, the customer chooses."
+              : "Crea grupos como Sopas, Proteina o Acompanante. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige."}
           </p>
         </div>
         <button
@@ -3058,14 +3153,16 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
           type="button"
         >
           <Plus size={16} />
-          Agregar grupo
+          {locale === "en" ? "Add group" : "Agregar grupo"}
         </button>
       </div>
 
       <div className="mt-4 space-y-4">
         {options.length === 0 ? (
           <div className="rounded-[22px] border border-dashed border-[rgba(118,93,71,0.22)] px-4 py-8 text-center text-sm leading-6 text-[var(--text-soft)]">
-            Agrega al menos un grupo para convertir este producto en compuesto.
+            {locale === "en"
+              ? "Add at least one group to turn this product into a composite item."
+              : "Agrega al menos un grupo para convertir este producto en compuesto."}
           </div>
         ) : null}
 
@@ -3073,9 +3170,9 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
           <article className="rounded-[24px] border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-4" key={`option-${option.sortOrder}-${optionIndex}`}>
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px_130px_auto]">
               <TextInput
-                label="Grupo"
+                label={locale === "en" ? "Group" : "Grupo"}
                 onChange={(value) => updateOption(optionIndex, { name: value })}
-                placeholder="Ej. Sopas"
+                placeholder={locale === "en" ? "Ex. Soups" : "Ej. Sopas"}
                 value={option.name}
               />
               <TextInput
@@ -3097,7 +3194,7 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
                 onClick={() => onChange(options.filter((_, currentIndex) => currentIndex !== optionIndex))}
                 type="button"
               >
-                Quitar
+                {locale === "en" ? "Remove" : "Quitar"}
               </button>
             </div>
 
@@ -3108,7 +3205,7 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
                     <input
                       className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                       onChange={(event) => updateValue(optionIndex, valueIndex, { name: event.target.value, priceDelta: 0 })}
-                      placeholder="Ej. Sopa de lentejas"
+                      placeholder={locale === "en" ? "Ex. Lentil soup" : "Ej. Sopa de lentejas"}
                       value={value.name}
                     />
                     <label className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)]">
@@ -3117,17 +3214,17 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
                         onChange={(event) => updateValue(optionIndex, valueIndex, { isActive: event.target.checked })}
                         type="checkbox"
                       />
-                      Activo
+                      {locale === "en" ? "Active" : "Activo"}
                     </label>
                     <details className="group">
                       <summary className="inline-flex h-11 cursor-pointer list-none items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--panel-strong)]">
-                        Especificaciones
+                        {locale === "en" ? "Specifications" : "Especificaciones"}
                       </summary>
                       <div className="mt-2 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] p-3">
                         <textarea
                           className="min-h-20 w-full resize-none rounded-2xl border border-[rgba(118,93,71,0.12)] bg-white/70 px-3 py-2 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                           onChange={(event) => updateValue(optionIndex, valueIndex, { description: event.target.value })}
-                          placeholder="Ej. En salsa de ciruela"
+                          placeholder={locale === "en" ? "Ex. In plum sauce" : "Ej. En salsa de ciruela"}
                           value={value.description ?? ""}
                         />
                       </div>
@@ -3150,7 +3247,7 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
               type="button"
             >
               <Plus size={15} />
-              Agregar opcion
+              {locale === "en" ? "Add option" : "Agregar opcion"}
             </button>
           </article>
         ))}
@@ -3184,12 +3281,13 @@ function ProductModal({
   });
   const [previewUrl, setPreviewUrl] = useState(initialProduct.imageUrl ?? "");
   const [isSaving, setIsSaving] = useState(false);
+  const locale = activeDashboardLocale;
   const productType = form.productType ?? "simple";
   const modalTitle = form.id
-    ? "Editar producto"
+    ? (locale === "en" ? "Edit product" : "Editar producto")
     : productType === "composite"
-      ? "Nuevo producto compuesto"
-      : "Nuevo producto";
+      ? (locale === "en" ? "New composite product" : "Nuevo producto compuesto")
+      : (locale === "en" ? "New product" : "Nuevo producto");
 
   return (
     <Modal title={modalTitle} onClose={onClose}>
@@ -3215,10 +3313,10 @@ function ProductModal({
           }
         }}
       >
-        <TextInput label="Nombre" onChange={(value) => setForm({ ...form, name: value })} placeholder="Ej. Almuerzo ejecutivo" value={form.name ?? ""} />
-        <TextInput label="Precio base" onChange={(value) => setForm({ ...form, basePrice: Number(value) })} placeholder="22000" type="number" value={String(form.basePrice ?? "")} />
+        <TextInput label={locale === "en" ? "Name" : "Nombre"} onChange={(value) => setForm({ ...form, name: value })} placeholder={locale === "en" ? "Ex. Executive lunch" : "Ej. Almuerzo ejecutivo"} value={form.name ?? ""} />
+        <TextInput label={locale === "en" ? "Base price" : "Precio base"} onChange={(value) => setForm({ ...form, basePrice: Number(value) })} placeholder="22000" type="number" value={String(form.basePrice ?? "")} />
         <label className="block">
-          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Categoria</span>
+          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</span>
           <CategorySelect
             disabled={false}
             onChange={(category) => setForm({ ...form, category })}
@@ -3242,7 +3340,7 @@ function ProductModal({
           value={form.emoji}
         />
         <label className="block">
-          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Imagen</span>
+          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Image" : "Imagen"}</span>
           <div className="rounded-[22px] border border-dashed border-[rgba(118,93,71,0.18)] bg-[rgba(248,241,232,0.72)] p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="shrink-0">
@@ -3269,14 +3367,14 @@ function ProductModal({
                 />
                 <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
                   {imageColumnReady
-                    ? "Sube JPG, PNG o WebP. La imagen se guarda en el bucket product-images."
-                    : "Imagen desactivada: falta aplicar la migracion products.image_url. El producto igual se puede guardar."}
+                    ? (locale === "en" ? "Upload JPG, PNG or WebP. The image is stored in the product-images bucket." : "Sube JPG, PNG o WebP. La imagen se guarda en el bucket product-images.")
+                    : (locale === "en" ? "Image upload is disabled: the products.image_url migration is still missing. The product can still be saved." : "Imagen desactivada: falta aplicar la migracion products.image_url. El producto igual se puede guardar.")}
                 </p>
               </div>
             </div>
           </div>
         </label>
-        <TextInput label="Descripcion" onChange={(value) => setForm({ ...form, description: value })} placeholder="Descripcion corta para WhatsApp" value={form.description ?? ""} />
+        <TextInput label={locale === "en" ? "Description" : "Descripcion"} onChange={(value) => setForm({ ...form, description: value })} placeholder={locale === "en" ? "Short WhatsApp description" : "Descripcion corta para WhatsApp"} value={form.description ?? ""} />
         {productType === "composite" && (
           <CompositeOptionsEditor
             options={form.options ?? []}
@@ -3289,7 +3387,7 @@ function ProductModal({
             onClick={onClose}
             type="button"
           >
-            Cancelar
+            {locale === "en" ? "Cancel" : "Cancelar"}
           </button>
           <button
             className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-70"
@@ -3297,7 +3395,7 @@ function ProductModal({
             type="submit"
           >
             {isSaving && <Loader2 className="animate-spin" size={16} />}
-            {isSaving ? "Guardando" : "Guardar producto"}
+            {isSaving ? (locale === "en" ? "Saving" : "Guardando") : (locale === "en" ? "Save product" : "Guardar producto")}
           </button>
         </div>
       </form>
@@ -3314,6 +3412,7 @@ function SmartUpload({
   onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
   onNotify: (message: string) => void;
 }) {
+  const locale = activeDashboardLocale;
   const [preview, setPreview] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -3336,7 +3435,7 @@ function SmartUpload({
   function readFile(file?: File) {
     if (!file) return;
     if (!isSupportedMenuUploadFile(file)) {
-      setError("Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.");
+      setError(locale === "en" ? "Unsupported format. Upload Excel, CSV, PDF, TXT or image." : "Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.");
       return;
     }
 
@@ -3366,7 +3465,7 @@ function SmartUpload({
           description: product.description,
         }),
       })));
-      onNotify(payload.products.length > 0 ? "Menu analizado" : "No se detectaron platos");
+      onNotify(payload.products.length > 0 ? (locale === "en" ? "Menu analyzed" : "Menu analizado") : (locale === "en" ? "No dishes were detected" : "No se detectaron platos"));
     } catch (analysisError) {
       setError(getMenuUploadErrorMessage(analysisError));
     } finally {
@@ -3392,7 +3491,7 @@ function SmartUpload({
       .filter((product) => product.name && product.basePrice >= 0);
 
     if (sanitizedResults.length === 0) {
-      setError("No hay productos validos para confirmar. Revisa minimo el nombre de cada producto.");
+      setError(locale === "en" ? "There are no valid products to confirm. Check at least the name of each product." : "No hay productos validos para confirmar. Revisa minimo el nombre de cada producto.");
       return;
     }
 
@@ -3401,9 +3500,9 @@ function SmartUpload({
     try {
       await onCreateProducts(sanitizedResults);
       setResults([]);
-      onNotify("Productos agregados al catalogo");
+      onNotify(locale === "en" ? "Products added to the catalog" : "Productos agregados al catalogo");
     } catch {
-      setError("No se pudieron guardar todos los productos detectados.");
+      setError(locale === "en" ? "Not all detected products could be saved." : "No se pudieron guardar todos los productos detectados.");
     } finally {
       setIsImporting(false);
     }
@@ -3412,8 +3511,8 @@ function SmartUpload({
   return (
     <section className="space-y-6">
       <SectionTitle
-        title="Subida de menu"
-        subtitle="Excel, CSV, PDF, TXT o imagen."
+        title={locale === "en" ? "Menu upload" : "Subida de menu"}
+        subtitle={locale === "en" ? "Excel, CSV, PDF, TXT or image." : "Excel, CSV, PDF, TXT o imagen."}
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
         <label
@@ -3440,7 +3539,7 @@ function SmartUpload({
                 <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[rgba(255,248,240,0.12)]">
                   <UploadCloud size={26} />
                 </div>
-                <p className="app-display text-[2rem] leading-none sm:text-[2.3rem]">Sube el archivo del menu</p>
+                <p className="app-display text-[2rem] leading-none sm:text-[2.3rem]">{locale === "en" ? "Upload the menu file" : "Sube el archivo del menu"}</p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.52)]">
                   {[".xlsx", ".xls", ".csv", ".pdf", ".txt"].map((format) => (
                     <span className="rounded-full border border-[rgba(255,242,227,0.1)] px-3 py-1.5" key={format}>{format}</span>
@@ -3455,11 +3554,11 @@ function SmartUpload({
           {selectedFile && (
             <div className="mb-4 grid gap-2 rounded-[22px] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold text-[var(--text-strong)]">Archivo</span>
-                <span className="truncate text-right">{selectedFile.name}</span>
+                <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "File" : "Archivo"}</span>
+                <span className="min-w-0 truncate text-right">{selectedFile.name}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold text-[var(--text-strong)]">Formato detectado</span>
+                <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Detected format" : "Formato detectado"}</span>
                 <span>{selectedFileKind}</span>
               </div>
             </div>
@@ -3471,14 +3570,14 @@ function SmartUpload({
             type="button"
           >
             {isAnalyzing ? <Loader2 className="animate-spin" size={17} /> : <SearchCheck size={17} />}
-            {isAnalyzing ? "Analizando menu" : "Analizar menu"}
+            {isAnalyzing ? (locale === "en" ? "Analyzing menu" : "Analizando menu") : (locale === "en" ? "Analyze menu" : "Analizar menu")}
           </button>
           {analysisMeta && (
             <div className="mt-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3 text-sm text-[var(--text-soft)]">
               <p className="font-semibold text-[var(--text-strong)]">
-                {analysisMeta.source === "ai" ? "Interpretado con IA" : "Interpretado deterministicamente"}
+                {analysisMeta.source === "ai" ? (locale === "en" ? "Interpreted with AI" : "Interpretado con IA") : (locale === "en" ? "Interpreted deterministically" : "Interpretado deterministicamente")}
               </p>
-              <p className="mt-1 text-xs">Formato: {analysisMeta.fileType.toUpperCase()}</p>
+              <p className="mt-1 text-xs">{locale === "en" ? "Format" : "Formato"}: {analysisMeta.fileType.toUpperCase()}</p>
               {analysisMeta.warnings.length > 0 && (
                 <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
                   {analysisMeta.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
@@ -3495,15 +3594,15 @@ function SmartUpload({
             {results.length === 0 && (
               <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
                 <Camera className="mx-auto mb-3 text-[var(--text-faint)]" size={22} />
-                Los productos apareceran aqui antes de guardar.
+                {locale === "en" ? "Products will appear here before saving." : "Los productos apareceran aqui antes de guardar."}
               </div>
             )}
             {results.length > 0 && (
               <div className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-strong)]">Productos detectados</p>
-                    <p className="mt-1 text-xs text-[var(--text-faint)]">{results.length} productos detectados</p>
+                    <p className="text-sm font-semibold text-[var(--text-strong)]">{locale === "en" ? "Detected products" : "Productos detectados"}</p>
+                    <p className="mt-1 text-xs text-[var(--text-faint)]">{results.length} {locale === "en" ? "detected products" : "productos detectados"}</p>
                   </div>
                 </div>
               </div>
@@ -3521,7 +3620,7 @@ function SmartUpload({
                       />
                     </div>
                     <label className="block">
-                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Producto</span>
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Product" : "Producto"}</span>
                       <input
                         className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                         onChange={(event) => updateDetectedProduct(index, { name: event.target.value })}
@@ -3529,7 +3628,7 @@ function SmartUpload({
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Precio</span>
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Price" : "Precio"}</span>
                       <input
                         className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                         min="0"
@@ -3541,7 +3640,7 @@ function SmartUpload({
                   </div>
                   <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)]">
                     <label className="block">
-                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Categoria</span>
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</span>
                       <CategorySelect
                         disabled={false}
                         onChange={(category) => updateDetectedProduct(index, { category })}
@@ -3549,27 +3648,27 @@ function SmartUpload({
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Descripcion</span>
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Description" : "Descripcion"}</span>
                       <input
                         className="h-11 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] px-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                         onChange={(event) => updateDetectedProduct(index, { description: event.target.value })}
-                        placeholder="Descripcion corta para WhatsApp"
+                        placeholder={locale === "en" ? "Short description for WhatsApp" : "Descripcion corta para WhatsApp"}
                         value={item.description ?? ""}
                       />
                     </label>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
-                      {item.confidence !== undefined ? `Confianza ${Math.round(item.confidence * 100)}%` : "Producto detectado"}
-                      {item.options && item.options.length > 0 ? ` · ${item.options.length} opcion${item.options.length === 1 ? "" : "es"}` : ""}
+                      {item.confidence !== undefined ? `${locale === "en" ? "Confidence" : "Confianza"} ${Math.round(item.confidence * 100)}%` : (locale === "en" ? "Detected product" : "Producto detectado")}
+                      {item.options && item.options.length > 0 ? ` · ${item.options.length} ${locale === "en" ? `option${item.options.length === 1 ? "" : "s"}` : `opcion${item.options.length === 1 ? "" : "es"}`}` : ""}
                     </p>
                     <button
-                      className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[rgba(180,94,84,0.18)] px-3 text-xs font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)]"
+                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-[rgba(180,94,84,0.18)] px-3 text-xs font-semibold text-[#8c4e47] transition hover:bg-[rgba(190,110,95,0.08)] sm:w-auto"
                       onClick={() => removeDetectedProduct(index)}
                       type="button"
                     >
                       <Trash2 size={14} />
-                      Quitar
+                      {locale === "en" ? "Remove" : "Quitar"}
                     </button>
                   </div>
                 </div>
@@ -3584,7 +3683,7 @@ function SmartUpload({
               type="button"
             >
               {isImporting ? <Loader2 className="animate-spin" size={17} /> : <Check size={17} />}
-              {isImporting ? "Guardando resultados" : "Confirmar productos"}
+              {isImporting ? (locale === "en" ? "Saving results" : "Guardando resultados") : (locale === "en" ? "Confirm products" : "Confirmar productos")}
             </button>
           )}
         </div>
@@ -3608,45 +3707,52 @@ function getUploadFileKind(file: File) {
 }
 
 function getMenuUploadErrorMessage(error: unknown) {
+  const locale = activeDashboardLocale;
   if (error instanceof DashboardApiError) {
-    if (error.backendError === "gemini_quota_exhausted") return "Gemini no tiene creditos disponibles para interpretar este archivo.";
-    if (error.backendError === "gemini_not_configured") return "Gemini no esta configurado para interpretar archivos ambiguos.";
-    if (error.backendError === "unsupported_menu_file_type") return "Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.";
-    if (error.backendError === "menu_file_required") return "Selecciona un archivo de menu antes de analizar.";
+    if (error.backendError === "gemini_quota_exhausted") return locale === "en" ? "Gemini has no credits available to interpret this file." : "Gemini no tiene creditos disponibles para interpretar este archivo.";
+    if (error.backendError === "gemini_not_configured") return locale === "en" ? "Gemini is not configured to interpret ambiguous files." : "Gemini no esta configurado para interpretar archivos ambiguos.";
+    if (error.backendError === "unsupported_menu_file_type") return locale === "en" ? "Unsupported format. Upload Excel, CSV, PDF, TXT or image." : "Formato no soportado. Sube Excel, CSV, PDF, TXT o imagen.";
+    if (error.backendError === "menu_file_required") return locale === "en" ? "Select a menu file before analyzing." : "Selecciona un archivo de menu antes de analizar.";
   }
 
-  return "No se pudo analizar el archivo. Revisa el formato o intenta con otro documento.";
+  return locale === "en" ? "The file could not be analyzed. Check the format or try another document." : "No se pudo analizar el archivo. Revisa el formato o intenta con otro documento.";
 }
 
-function ConfigRequiredScreen() {
+function ConfigRequiredScreen({ locale }: { locale: "en" | "es" }) {
   return (
     <StandaloneFrame
-      eyebrow="Configuracion requerida"
-      title="Activa Supabase Auth para entrar al dashboard"
-      description="Antes de usar la interfaz, define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY para habilitar el login."
+      eyebrow={locale === "en" ? "Configuration required" : "Configuracion requerida"}
+      title={locale === "en" ? "Enable Supabase Auth to enter the dashboard" : "Activa Supabase Auth para entrar al dashboard"}
+      description={locale === "en"
+        ? "Before using the interface, define VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable login."
+        : "Antes de usar la interfaz, define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY para habilitar el login."}
     />
   );
 }
 
-function LoadingScreen() {
+function LoadingScreen({ locale }: { locale: "en" | "es" }) {
   return (
     <CenteredStatus
-      title="Cargando sesion"
-      description="Estamos recuperando la sesion del operador y preparando la shell del dashboard."
+      title={locale === "en" ? "Loading session" : "Cargando sesion"}
+      description={locale === "en"
+        ? "We are restoring the operator session and preparing the dashboard shell."
+        : "Estamos recuperando la sesion del operador y preparando la shell del dashboard."}
     />
   );
 }
 
-function TenantLoadingScreen() {
+function TenantLoadingScreen({ locale }: { locale: "en" | "es" }) {
   return (
     <CenteredStatus
-      title="Resolviendo empresa"
-      description="Validamos el usuario y buscamos los tenants asignados antes de cargar la operacion."
+      title={locale === "en" ? "Resolving restaurant" : "Resolviendo empresa"}
+      description={locale === "en"
+        ? "We are validating the user and loading assigned tenants before opening operations."
+        : "Validamos el usuario y buscamos los tenants asignados antes de cargar la operacion."}
     />
   );
 }
 
-function TenantErrorScreen({ error, onLogout }: { error: string; onLogout: () => Promise<void> }) {
+function TenantErrorScreen({ error, locale, onLogout }: { error: string; locale: "en" | "es"; onLogout: () => Promise<void> }) {
   return (
     <StandaloneFrame
       actions={(
@@ -3655,12 +3761,14 @@ function TenantErrorScreen({ error, onLogout }: { error: string; onLogout: () =>
           onClick={() => void onLogout()}
           type="button"
         >
-          Salir
+          {locale === "en" ? "Log out" : "Salir"}
         </button>
       )}
-      eyebrow="No se pudo cargar la empresa"
-      title="El usuario existe, pero el tenant no pudo resolverse"
-      description="La sesion esta activa, pero el dashboard no logro consultar el backend para resolver permisos o tenants visibles."
+      eyebrow={locale === "en" ? "Restaurant could not be loaded" : "No se pudo cargar la empresa"}
+      title={locale === "en" ? "The user exists, but the tenant could not be resolved" : "El usuario existe, pero el tenant no pudo resolverse"}
+      description={locale === "en"
+        ? "The session is active, but the dashboard could not resolve permissions or visible tenants from the backend."
+        : "La sesion esta activa, pero el dashboard no logro consultar el backend para resolver permisos o tenants visibles."}
     >
       <div className="rounded-[22px] border border-[rgba(180,94,84,0.18)] bg-[rgba(190,110,95,0.08)] px-4 py-4 text-sm leading-6 text-[#f4d6cf]">
         {error}
@@ -3669,13 +3777,23 @@ function TenantErrorScreen({ error, onLogout }: { error: string; onLogout: () =>
   );
 }
 
-function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: string, password: string) => Promise<void> }) {
+function LoginScreen({
+  error,
+  locale,
+  onChangeLocale,
+  onLogin,
+}: {
+  error: string;
+  locale: "en" | "es";
+  onChangeLocale: (locale: "en" | "es") => void;
+  onLogin: (email: string, password: string) => Promise<void>;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
-    <div className="grid min-h-screen place-items-center bg-[linear-gradient(180deg,#221d18_0%,#181512_100%)] px-4 py-6 sm:px-6 sm:py-8">
+    <div className="grid min-h-screen place-items-center bg-[linear-gradient(180deg,#221d18_0%,#181512_100%)] px-3 py-4 sm:px-6 sm:py-8">
       <div className="relative grid w-full max-w-[1380px] overflow-hidden rounded-[36px] border border-[rgba(255,250,244,0.16)] bg-[#17120f] shadow-[0_32px_100px_rgba(0,0,0,0.34)] lg:min-h-[820px] lg:grid-cols-[minmax(0,1fr)_520px]">
         <div
           className="absolute inset-0"
@@ -3690,6 +3808,9 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
         <div className="absolute inset-y-0 right-0 hidden w-[46%] bg-[linear-gradient(90deg,rgba(14,11,9,0.12)_0%,rgba(14,11,9,0.34)_18%,rgba(14,11,9,0.7)_46%,rgba(14,11,9,0.9)_100%)] lg:block" />
         <div className="absolute inset-y-0 right-0 hidden w-[44%] backdrop-blur-[12px] lg:block" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(255,209,146,0.14),transparent_24%),radial-gradient(circle_at_68%_18%,rgba(255,236,216,0.08),transparent_18%),linear-gradient(180deg,rgba(8,7,6,0.02),rgba(8,7,6,0.18))]" />
+        <div className="absolute right-4 top-4 z-20">
+          <LanguageToggle locale={locale} onChange={onChangeLocale} />
+        </div>
         <div className="relative hidden lg:block" />
         <form
           className="relative z-10 flex min-h-[100svh] items-center justify-center p-4 sm:p-6 lg:min-h-[820px] lg:justify-start lg:px-12 xl:px-16"
@@ -3703,15 +3824,30 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
             }
           }}
         >
-          <div className="w-full max-w-[432px] rounded-[34px] border border-[rgba(255,255,255,0.14)] bg-[rgba(18,14,11,0.38)] p-7 text-[var(--text-on-dark)] shadow-[0_28px_70px_rgba(0,0,0,0.3)] backdrop-blur-[20px] sm:p-9 lg:-translate-x-2">
+          <div className="w-full max-w-[432px] rounded-[30px] border border-[rgba(255,255,255,0.14)] bg-[rgba(18,14,11,0.38)] p-6 text-[var(--text-on-dark)] shadow-[0_28px_70px_rgba(0,0,0,0.3)] backdrop-blur-[20px] sm:rounded-[34px] sm:p-9 lg:-translate-x-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[rgba(246,236,223,0.52)]">42day dashboard</p>
-            <h1 className="app-display mt-5 text-[3.15rem] leading-none text-[var(--text-on-dark)] sm:text-[3.8rem]">Log in</h1>
+            <h1 className="app-display mt-5 text-[2.7rem] leading-none text-[var(--text-on-dark)] sm:text-[3.8rem]">{locale === "en" ? "Log in" : "Iniciar sesion"}</h1>
             <p className="mt-4 max-w-[28rem] text-[15px] leading-7 text-[rgba(246,236,223,0.72)]">
-              Acceso operativo para restaurantes y administracion.
+              {locale === "en" ? "Operational access for restaurants and administration." : "Acceso operativo para restaurantes y administracion."}
             </p>
             <div className="mt-9 space-y-5">
-              <TextInput label="Correo" onChange={setEmail} placeholder="empresa@correo.com" value={email} />
-              <TextInput label="Contrasena" onChange={setPassword} placeholder="********" type="password" value={password} />
+              <TextInput
+                hidePasswordLabel={locale === "en" ? "Hide password" : "Ocultar contrasena"}
+                label={locale === "en" ? "Email" : "Correo"}
+                onChange={setEmail}
+                placeholder="empresa@correo.com"
+                showPasswordLabel={locale === "en" ? "Show password" : "Mostrar contrasena"}
+                value={email}
+              />
+              <TextInput
+                hidePasswordLabel={locale === "en" ? "Hide password" : "Ocultar contrasena"}
+                label={locale === "en" ? "Password" : "Contrasena"}
+                onChange={setPassword}
+                placeholder="********"
+                showPasswordLabel={locale === "en" ? "Show password" : "Mostrar contrasena"}
+                type="password"
+                value={password}
+              />
             </div>
             {error && <p className="mt-4 text-sm font-medium text-[#9a4b43]">{error}</p>}
             <button
@@ -3720,7 +3856,7 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
               type="submit"
             >
               {isSubmitting && <Loader2 className="animate-spin" size={16} />}
-              {isSubmitting ? "Entrando" : "Iniciar sesion"}
+              {isSubmitting ? (locale === "en" ? "Signing in" : "Entrando") : (locale === "en" ? "Sign in" : "Iniciar sesion")}
             </button>
           </div>
         </form>
@@ -3729,7 +3865,7 @@ function LoginScreen({ error, onLogin }: { error: string; onLogin: (email: strin
   );
 }
 
-function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
+function NoTenantScreen({ locale, onLogout }: { locale: "en" | "es"; onLogout: () => Promise<void> }) {
   return (
     <StandaloneFrame
       actions={(
@@ -3738,12 +3874,14 @@ function NoTenantScreen({ onLogout }: { onLogout: () => Promise<void> }) {
           onClick={() => void onLogout()}
           type="button"
         >
-          Salir
+          {locale === "en" ? "Log out" : "Salir"}
         </button>
       )}
-      eyebrow="Usuario sin tenant"
-      title="La cuenta no tiene relacion activa con ningun tenant"
-      description="El usuario existe en Supabase Auth, pero aun no tiene una relacion activa en control.tenant_users."
+      eyebrow={locale === "en" ? "User without tenant" : "Usuario sin tenant"}
+      title={locale === "en" ? "This account has no active tenant relationship" : "La cuenta no tiene relacion activa con ningun tenant"}
+      description={locale === "en"
+        ? "The user exists in Supabase Auth, but still has no active relation in control.tenant_users."
+        : "El usuario existe en Supabase Auth, pero aun no tiene una relacion activa en control.tenant_users."}
     />
   );
 }
@@ -3804,23 +3942,25 @@ const emptyAdminMemberForm: AdminMemberForm = {
   password: "",
 };
 
-const adminStatusCopy: Record<AdminRestaurantStatus, { label: string; description: string; className: string }> = {
-  active: {
-    label: "Activo",
-    description: "Opera normalmente y aparece en accesos publicos.",
-    className: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
-  },
-  suspended: {
-    label: "Pausado",
-    description: "Acceso conservado, operacion y automatizacion detenidas.",
-    className: "bg-[rgba(158,108,72,0.14)] text-[var(--warning)]",
-  },
-  inactive: {
-    label: "Inactivo",
-    description: "Retirado de operacion diaria sin borrar datos historicos.",
-    className: "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]",
-  },
-};
+function getAdminStatusCopy(locale: "en" | "es"): Record<AdminRestaurantStatus, { label: string; description: string; className: string }> {
+  return {
+    active: {
+      label: locale === "en" ? "Active" : "Activo",
+      description: locale === "en" ? "Operating normally and visible in public access points." : "Opera normalmente y aparece en accesos publicos.",
+      className: "bg-[rgba(79,122,97,0.12)] text-[var(--success)]",
+    },
+    suspended: {
+      label: locale === "en" ? "Paused" : "Pausado",
+      description: locale === "en" ? "Access is preserved, but operations and automation are stopped." : "Acceso conservado, operacion y automatizacion detenidas.",
+      className: "bg-[rgba(158,108,72,0.14)] text-[var(--warning)]",
+    },
+    inactive: {
+      label: locale === "en" ? "Inactive" : "Inactivo",
+      description: locale === "en" ? "Removed from daily operations without deleting historical data." : "Retirado de operacion diaria sin borrar datos historicos.",
+      className: "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]",
+    },
+  };
+}
 
 function buildAdminRestaurantEditForm(restaurant: AdminRestaurant): AdminRestaurantEditForm {
   return {
@@ -3852,6 +3992,8 @@ function getAdminErrorMessage(error: unknown, fallback: string) {
 }
 
 function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; onLogout: () => Promise<void> }) {
+  const { locale, setLocale } = useDashboardLocale();
+  const adminStatusCopy = getAdminStatusCopy(locale);
   const [restaurants, setRestaurants] = useState<AdminRestaurant[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [restaurantSearch, setRestaurantSearch] = useState("");
@@ -3909,7 +4051,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
         setError("");
       } catch (loadError) {
         if (!mounted) return;
-        setError(getAdminErrorMessage(loadError, "No se pudieron cargar los restaurantes."));
+        setError(getAdminErrorMessage(loadError, locale === "en" ? "Restaurants could not be loaded." : "No se pudieron cargar los restaurantes."));
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -3942,12 +4084,12 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
   async function handleCreateRestaurant(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!createForm.name.trim()) {
-      setError("El nombre del restaurante es obligatorio.");
+      setError(locale === "en" ? "Restaurant name is required." : "El nombre del restaurante es obligatorio.");
       return;
     }
 
     if (!createForm.ownerEmail.trim()) {
-      setError("El correo del encargado es obligatorio.");
+      setError(locale === "en" ? "Owner email is required." : "El correo del encargado es obligatorio.");
       return;
     }
 
@@ -3968,15 +4110,15 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
       });
       await reloadRestaurants(payload.restaurant.id);
       setCreateForm(emptyAdminRestaurantCreateForm);
-      setNotice(`Restaurante creado: ${payload.restaurant.name}`);
+      setNotice(locale === "en" ? `Restaurant created: ${payload.restaurant.name}` : `Restaurante creado: ${payload.restaurant.name}`);
       if (payload.temporaryPassword) {
         setPasswordNotice({
-          label: payload.owner?.email ? `Owner ${payload.owner.email}` : "Owner inicial",
+          label: payload.owner?.email ? `Owner ${payload.owner.email}` : (locale === "en" ? "Initial owner" : "Owner inicial"),
           password: payload.temporaryPassword,
         });
       }
     } catch (createError) {
-      setError(getAdminErrorMessage(createError, "No se pudo crear el restaurante."));
+      setError(getAdminErrorMessage(createError, locale === "en" ? "The restaurant could not be created." : "No se pudo crear el restaurante."));
     } finally {
       setIsSaving(false);
     }
@@ -4011,9 +4153,9 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
       } else {
         await reloadRestaurants(selectedRestaurant.id);
       }
-      setNotice("Restaurante actualizado.");
+      setNotice(locale === "en" ? "Restaurant updated." : "Restaurante actualizado.");
     } catch (saveError) {
-      setError(getAdminErrorMessage(saveError, "No se pudo actualizar el restaurante."));
+      setError(getAdminErrorMessage(saveError, locale === "en" ? "The restaurant could not be updated." : "No se pudo actualizar el restaurante."));
     } finally {
       setIsSaving(false);
     }
@@ -4163,32 +4305,37 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
 
   return (
     <div className="min-h-screen px-3 py-3 sm:px-4">
-      <main className="mx-auto min-h-[calc(100vh-1.5rem)] w-full max-w-[1480px] rounded-[26px] border border-[var(--shell-border)] bg-[rgba(32,28,25,0.96)] p-4 text-[var(--text-on-dark)] shadow-[0_28px_90px_rgba(0,0,0,0.28)] sm:p-6">
+      <main className="mx-auto min-h-[calc(100vh-1.5rem)] w-full max-w-[1480px] rounded-[22px] border border-[var(--shell-border)] bg-[rgba(32,28,25,0.96)] p-3 text-[var(--text-on-dark)] shadow-[0_28px_90px_rgba(0,0,0,0.28)] sm:rounded-[26px] sm:p-6">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--shell-border)] pb-5">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Administrador 42day</p>
-            <h1 className="mt-2 text-2xl font-extrabold text-[var(--text-on-dark)] sm:text-3xl">Gestion de restaurantes</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">{locale === "en" ? "42day admin" : "Administrador 42day"}</p>
+            <h1 className="mt-2 text-2xl font-extrabold text-[var(--text-on-dark)] sm:text-3xl">{locale === "en" ? "Restaurant management" : "Gestion de restaurantes"}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[rgba(246,236,223,0.68)]">
-              Consola central para alta, usuarios, estado operativo, metricas y configuracion de cada restaurante.
+              {locale === "en"
+                ? "Central console for provisioning, users, operational status, metrics and configuration of each restaurant."
+                : "Consola central para alta, usuarios, estado operativo, metricas y configuracion de cada restaurante."}
             </p>
           </div>
-          <button
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
-            onClick={() => void onLogout()}
-            type="button"
-          >
-            Salir
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <LanguageToggle locale={locale} onChange={setLocale} />
+            <button
+              className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+              onClick={() => void onLogout()}
+              type="button"
+            >
+              {locale === "en" ? "Log out" : "Salir"}
+            </button>
+          </div>
         </header>
 
         <section className="grid gap-3 py-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <AdminMetricCard icon={<Store size={18} />} label="Restaurantes activos" value={String(activeRestaurantCount)} />
-          <AdminMetricCard icon={<Power size={18} />} label="Pausados" value={String(suspendedRestaurantCount)} />
-          <AdminMetricCard icon={<Users size={18} />} label="Usuarios vinculados" value={String(totalMemberCount)} />
-          <AdminMetricCard icon={<ClipboardList size={18} />} label="Pedidos hoy" value={String(totalOrdersToday)} />
-          <AdminMetricCard icon={<Bell size={18} />} label="Pendientes hoy" value={String(totalPendingOrders)} />
-          <AdminMetricCard icon={<Utensils size={18} />} label="Ingresos hoy" value={formatPrice(totalRevenueToday)} />
-          <AdminMetricCard icon={<Trash2 size={18} />} label="Inactivos" value={String(inactiveRestaurantCount)} />
+          <AdminMetricCard icon={<Store size={18} />} label={locale === "en" ? "Active restaurants" : "Restaurantes activos"} value={String(activeRestaurantCount)} />
+          <AdminMetricCard icon={<Power size={18} />} label={locale === "en" ? "Paused" : "Pausados"} value={String(suspendedRestaurantCount)} />
+          <AdminMetricCard icon={<Users size={18} />} label={locale === "en" ? "Linked users" : "Usuarios vinculados"} value={String(totalMemberCount)} />
+          <AdminMetricCard icon={<ClipboardList size={18} />} label={locale === "en" ? "Orders today" : "Pedidos hoy"} value={String(totalOrdersToday)} />
+          <AdminMetricCard icon={<Bell size={18} />} label={locale === "en" ? "Pending today" : "Pendientes hoy"} value={String(totalPendingOrders)} />
+          <AdminMetricCard icon={<Utensils size={18} />} label={locale === "en" ? "Revenue today" : "Ingresos hoy"} value={formatPrice(totalRevenueToday)} />
+          <AdminMetricCard icon={<Trash2 size={18} />} label={locale === "en" ? "Inactive" : "Inactivos"} value={String(inactiveRestaurantCount)} />
         </section>
 
         {(error || notice || passwordNotice) && (
@@ -4207,7 +4354,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
               <div className="rounded-[24px] border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">Contrasena temporal</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.48)]">{locale === "en" ? "Temporary password" : "Contrasena temporal"}</p>
                     <p className="mt-2 text-sm font-semibold text-[var(--text-on-dark)]">{passwordNotice.label}</p>
                     <p className="mt-1 rounded-2xl bg-[rgba(14,11,9,0.32)] px-3 py-2 font-mono text-sm text-[rgba(246,236,223,0.9)]">
                       {passwordNotice.password}
@@ -4219,7 +4366,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                     type="button"
                   >
                     <Copy size={16} />
-                    Copiar
+                    {locale === "en" ? "Copy" : "Copiar"}
                   </button>
                 </div>
               </div>
@@ -4232,8 +4379,8 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
             <div className="border-b border-[rgba(118,93,71,0.12)] p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Restaurantes</p>
-                  <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{restaurants.length} clientes</h2>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Restaurants" : "Restaurantes"}</p>
+                  <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{restaurants.length} {locale === "en" ? "clients" : "clientes"}</h2>
                 </div>
                 {isLoading && <Loader2 className="animate-spin text-[var(--text-soft)]" size={18} />}
               </div>
@@ -4242,7 +4389,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                 <input
                   className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-strong)] outline-none placeholder:text-[var(--text-faint)]"
                   onChange={(event) => setRestaurantSearch(event.target.value)}
-                  placeholder="Buscar por nombre, slug, schema o usuario"
+                  placeholder={locale === "en" ? "Search by name, slug, schema or user" : "Buscar por nombre, slug, schema o usuario"}
                   value={restaurantSearch}
                 />
               </label>
@@ -4251,7 +4398,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
             <div className="app-scrollbar max-h-[calc(100vh-390px)] min-h-[260px] overflow-y-auto p-3">
               {filteredRestaurants.length === 0 && !isLoading ? (
                 <div className="rounded-[18px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
-                  No hay restaurantes para ese filtro.
+                  {locale === "en" ? "No restaurants match this filter." : "No hay restaurantes para ese filtro."}
                 </div>
               ) : filteredRestaurants.map((restaurant) => (
                 <button
@@ -4271,10 +4418,10 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                     </div>
                     <AdminStatusBadge status={restaurant.status} />
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-bold text-[var(--text-soft)]">
-                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.members.length} usuarios</span>
-                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.metrics.ordersTodayCount} pedidos</span>
-                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.automationEnabled ? "Auto ON" : "Auto OFF"}</span>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-center text-[11px] font-bold text-[var(--text-soft)] sm:grid-cols-3">
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.members.length} {locale === "en" ? "users" : "usuarios"}</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.metrics.ordersTodayCount} {locale === "en" ? "orders" : "pedidos"}</span>
+                    <span className="rounded-xl bg-[var(--surface-base)] px-2 py-2">{restaurant.automationEnabled ? (locale === "en" ? "Auto ON" : "Auto ON") : (locale === "en" ? "Auto OFF" : "Auto OFF")}</span>
                   </div>
                 </button>
               ))}
@@ -4284,63 +4431,63 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-sm font-bold text-[var(--text-strong)] sm:px-5">
                 <span className="inline-flex items-center gap-2">
                   <UserPlus size={16} />
-                  Crear restaurante
+                  {locale === "en" ? "Create restaurant" : "Crear restaurante"}
                 </span>
                 <Plus size={16} className="text-[var(--text-faint)]" />
               </summary>
               <form className="grid gap-4 border-t border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.42)] p-4 sm:p-5" onSubmit={(event) => void handleCreateRestaurant(event)}>
                 <AdminTextInput
-                  label="Nombre restaurante"
+                  label={locale === "en" ? "Restaurant name" : "Nombre restaurante"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, name: value }))}
-                  placeholder="Ej. Arepas del Parque"
+                  placeholder={locale === "en" ? "Ex. Arepas del Parque" : "Ej. Arepas del Parque"}
                   value={createForm.name}
                 />
                 <AdminTextInput
-                  label="Slug publico"
+                  label={locale === "en" ? "Public slug" : "Slug publico"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, slug: value }))}
                   placeholder="arepas-del-parque"
                   value={createForm.slug}
                 />
                 <AdminTextInput
-                  label="Correo encargado"
+                  label={locale === "en" ? "Owner email" : "Correo encargado"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, ownerEmail: value }))}
                   placeholder="admin@restaurante.com"
                   required
                   value={createForm.ownerEmail}
                 />
                 <AdminTextInput
-                  label="Nombre encargado"
+                  label={locale === "en" ? "Owner name" : "Nombre encargado"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, ownerName: value }))}
-                  placeholder="Encargado"
+                  placeholder={locale === "en" ? "Manager" : "Encargado"}
                   value={createForm.ownerName}
                 />
                 <AdminTextInput
-                  label="Contrasena inicial"
+                  label={locale === "en" ? "Initial password" : "Contrasena inicial"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, ownerPassword: value }))}
-                  placeholder="vacio usa slug_42*password"
+                  placeholder={locale === "en" ? "leave empty to use slug_42*password" : "vacio usa slug_42*password"}
                   type="password"
                   value={createForm.ownerPassword}
                 />
                 <AdminTextInput
-                  label="Sede"
+                  label={locale === "en" ? "Location" : "Sede"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, locationName: value }))}
-                  placeholder="Sede principal"
+                  placeholder={locale === "en" ? "Main location" : "Sede principal"}
                   value={createForm.locationName}
                 />
                 <AdminTextInput
-                  label="Direccion"
+                  label={locale === "en" ? "Address" : "Direccion"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, locationAddress: value }))}
-                  placeholder="Direccion comercial"
+                  placeholder={locale === "en" ? "Business address" : "Direccion comercial"}
                   value={createForm.locationAddress}
                 />
                 <AdminTextInput
-                  label="Telefono sede"
+                  label={locale === "en" ? "Location phone" : "Telefono sede"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, locationPhone: value }))}
                   placeholder="+57..."
                   value={createForm.locationPhone}
                 />
                 <AdminTextInput
-                  label="Domicilio fijo"
+                  label={locale === "en" ? "Fixed delivery fee" : "Domicilio fijo"}
                   onChange={(value) => setCreateForm((current) => ({ ...current, deliveryFeeFixed: value }))}
                   placeholder="0"
                   type="number"
@@ -4352,7 +4499,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                 type="submit"
               >
                 {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-                Crear restaurante
+                {locale === "en" ? "Create restaurant" : "Crear restaurante"}
               </button>
             </form>
             </details>
@@ -4365,9 +4512,11 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                   <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--surface-base)] text-[var(--text-soft)]">
                     <Store size={20} />
                   </span>
-                  <h2 className="mt-5 text-2xl font-extrabold text-[var(--text-strong)]">Sin restaurante seleccionado</h2>
+                  <h2 className="mt-5 text-2xl font-extrabold text-[var(--text-strong)]">{locale === "en" ? "No restaurant selected" : "Sin restaurante seleccionado"}</h2>
                   <p className="mt-3 max-w-md text-sm leading-7 text-[var(--text-soft)]">
-                    Crea o selecciona un restaurante para editar informacion, usuarios y comportamiento operativo.
+                    {locale === "en"
+                      ? "Create or select a restaurant to edit information, users and operational behavior."
+                      : "Crea o selecciona un restaurante para editar informacion, usuarios y comportamiento operativo."}
                   </p>
                 </div>
               </div>
@@ -4382,7 +4531,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                           {selectedRestaurant.slug}
                         </span>
                         <span className="rounded-full bg-[var(--surface-base)] px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)]">
-                          {selectedRestaurant.automationEnabled ? "Automatizacion ON" : "Automatizacion OFF"}
+                          {selectedRestaurant.automationEnabled ? (locale === "en" ? "Automation ON" : "Automatizacion ON") : (locale === "en" ? "Automation OFF" : "Automatizacion OFF")}
                         </span>
                       </div>
                       <h2 className="mt-3 truncate text-3xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.name}</h2>
@@ -4390,32 +4539,32 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                         {adminStatusCopy[selectedRestaurant.status].description}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                       <a
-                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)] sm:w-auto"
                         href={selectedRestaurant.cartaUrlPath}
                         rel="noreferrer"
                         target="_blank"
                       >
                         <ExternalLink size={16} />
-                        Carta publica
+                        {locale === "en" ? "Public menu" : "Carta publica"}
                       </a>
                       <button
-                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+                        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)] sm:w-auto"
                         onClick={() => void copyToClipboard(selectedRestaurant.defaultPassword)}
                         type="button"
                       >
                         <Copy size={16} />
-                        Password default
+                        {locale === "en" ? "Default password" : "Password default"}
                       </button>
                     </div>
                   </div>
 
                   <nav className="mt-5 flex flex-wrap gap-2 rounded-[18px] bg-[var(--surface-base)] p-2">
                     {[
-                      { id: "overview" as const, label: "Resumen", icon: ClipboardList },
-                      { id: "settings" as const, label: "Ajustes", icon: Power },
-                      { id: "users" as const, label: "Usuarios", icon: Users },
+                      { id: "overview" as const, label: locale === "en" ? "Overview" : "Resumen", icon: ClipboardList },
+                      { id: "settings" as const, label: locale === "en" ? "Settings" : "Ajustes", icon: Power },
+                      { id: "users" as const, label: locale === "en" ? "Users" : "Usuarios", icon: Users },
                     ].map((tab) => {
                       const Icon = tab.icon;
                       const active = adminSection === tab.id;
@@ -4441,48 +4590,48 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                 {adminSection === "overview" && (
                   <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_330px]">
                     <div className="p-5 sm:p-6">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Comportamiento de hoy</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Today's behavior" : "Comportamiento de hoy"}</p>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        <AdminBehaviorMetric label="Productos activos" value={String(selectedRestaurant.metrics.activeProductCount)} />
-                        <AdminBehaviorMetric label="Platos en menu" value={String(selectedRestaurant.metrics.todayMenuItemCount)} />
-                        <AdminBehaviorMetric label="Pedidos hoy" value={String(selectedRestaurant.metrics.ordersTodayCount)} />
-                        <AdminBehaviorMetric label="Pendientes" value={String(selectedRestaurant.metrics.pendingOrderCount)} />
-                        <AdminBehaviorMetric label="Completados" value={String(selectedRestaurant.metrics.completedTodayCount)} />
-                        <AdminBehaviorMetric label="Ingresos hoy" value={formatPrice(selectedRestaurant.metrics.revenueToday)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Active products" : "Productos activos"} value={String(selectedRestaurant.metrics.activeProductCount)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Menu dishes" : "Platos en menu"} value={String(selectedRestaurant.metrics.todayMenuItemCount)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Orders today" : "Pedidos hoy"} value={String(selectedRestaurant.metrics.ordersTodayCount)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Pending" : "Pendientes"} value={String(selectedRestaurant.metrics.pendingOrderCount)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Completed" : "Completados"} value={String(selectedRestaurant.metrics.completedTodayCount)} />
+                        <AdminBehaviorMetric label={locale === "en" ? "Revenue today" : "Ingresos hoy"} value={formatPrice(selectedRestaurant.metrics.revenueToday)} />
                       </div>
 
-                      <div className="mt-6 grid gap-4 md:grid-cols-3">
+                      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                         <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Canales</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Channels" : "Canales"}</p>
                           <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">
-                            {selectedRestaurant.location?.pickupEnabled ? "Pickup activo" : "Pickup apagado"}
+                            {selectedRestaurant.location?.pickupEnabled ? (locale === "en" ? "Pickup enabled" : "Pickup activo") : (locale === "en" ? "Pickup disabled" : "Pickup apagado")}
                           </p>
                           <p className="mt-1 text-sm font-semibold text-[var(--text-strong)]">
-                            {selectedRestaurant.location?.deliveryEnabled ? "Domicilio activo" : "Domicilio apagado"}
+                            {selectedRestaurant.location?.deliveryEnabled ? (locale === "en" ? "Delivery enabled" : "Domicilio activo") : (locale === "en" ? "Delivery disabled" : "Domicilio apagado")}
                           </p>
                         </div>
                         <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Sede</p>
-                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">{selectedRestaurant.location?.name ?? "Sede principal"}</p>
-                          <p className="mt-1 text-sm text-[var(--text-soft)]">{selectedRestaurant.location?.phone || "Sin telefono"}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Location" : "Sede"}</p>
+                          <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">{selectedRestaurant.location?.name ?? (locale === "en" ? "Main location" : "Sede principal")}</p>
+                          <p className="mt-1 text-sm text-[var(--text-soft)]">{selectedRestaurant.location?.phone || (locale === "en" ? "No phone" : "Sin telefono")}</p>
                         </div>
                         <div className="rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.6)] p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">Usuarios</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Users" : "Usuarios"}</p>
                           <p className="mt-3 text-2xl font-extrabold text-[var(--text-strong)]">{selectedRestaurant.members.length}</p>
-                          <p className="text-sm text-[var(--text-soft)]">vinculados al restaurante</p>
+                          <p className="text-sm text-[var(--text-soft)]">{locale === "en" ? "linked to the restaurant" : "vinculados al restaurante"}</p>
                         </div>
                       </div>
                     </div>
 
                     <aside className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Resumen tecnico</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Technical summary" : "Resumen tecnico"}</p>
                       <div className="mt-4 space-y-3 text-sm text-[var(--text-soft)]">
                         <AdminInfoLine label="Tenant ID" value={selectedRestaurant.id} />
                         <AdminInfoLine label="Schema" value={selectedRestaurant.schemaName} />
-                        <AdminInfoLine label="Carta" value={selectedRestaurant.cartaUrlPath} />
-                        <AdminInfoLine label="Ultimo pedido" value={formatDateTime(selectedRestaurant.metrics.lastOrderAt)} />
-                        <AdminInfoLine label="Creado" value={formatDateTime(selectedRestaurant.createdAt)} />
-                        <AdminInfoLine label="Actualizado" value={formatDateTime(selectedRestaurant.updatedAt)} />
+                        <AdminInfoLine label={locale === "en" ? "Menu" : "Carta"} value={selectedRestaurant.cartaUrlPath} />
+                        <AdminInfoLine label={locale === "en" ? "Last order" : "Ultimo pedido"} value={formatDateTime(selectedRestaurant.metrics.lastOrderAt)} />
+                        <AdminInfoLine label={locale === "en" ? "Created" : "Creado"} value={formatDateTime(selectedRestaurant.createdAt)} />
+                        <AdminInfoLine label={locale === "en" ? "Updated" : "Actualizado"} value={formatDateTime(selectedRestaurant.updatedAt)} />
                       </div>
                     </aside>
                   </div>
@@ -4491,78 +4640,78 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                 {adminSection === "settings" && (
                   <div className="p-5 sm:p-6">
                     <div className="max-w-5xl">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Configuracion operativa</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Operational settings" : "Configuracion operativa"}</p>
                       <div className="grid gap-4 md:grid-cols-2">
                         <AdminTextInput
-                          label="Nombre"
+                          label={locale === "en" ? "Name" : "Nombre"}
                           onChange={(value) => setEditForm((current) => current ? { ...current, name: value } : current)}
-                          placeholder="Nombre comercial"
+                          placeholder={locale === "en" ? "Business name" : "Nombre comercial"}
                           value={editForm.name}
                         />
                         <AdminSelect
-                          label="Estado"
+                          label={locale === "en" ? "Status" : "Estado"}
                           onChange={(value) => setEditForm((current) => current ? { ...current, status: value as AdminRestaurantStatus } : current)}
                           value={editForm.status}
                         >
-                          <option value="active">Activo</option>
-                          <option value="suspended">Pausado</option>
-                          <option value="inactive">Inactivo</option>
+                          <option value="active">{locale === "en" ? "Active" : "Activo"}</option>
+                          <option value="suspended">{locale === "en" ? "Paused" : "Pausado"}</option>
+                          <option value="inactive">{locale === "en" ? "Inactive" : "Inactivo"}</option>
                         </AdminSelect>
                         <AdminTextInput
-                          label="Zona horaria"
+                          label={locale === "en" ? "Timezone" : "Zona horaria"}
                           onChange={(value) => setEditForm((current) => current ? { ...current, timezone: value } : current)}
                           placeholder="America/Bogota"
                           value={editForm.timezone}
                         />
                         <AdminTextInput
-                          label="Moneda"
+                          label={locale === "en" ? "Currency" : "Moneda"}
                           onChange={(value) => setEditForm((current) => current ? { ...current, currency: value } : current)}
                           placeholder="COP"
                           value={editForm.currency}
                         />
                       </div>
 
-                      <div className="mt-5 grid gap-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] p-4 md:grid-cols-3">
+                      <div className="mt-5 grid gap-3 rounded-[20px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] p-4 sm:grid-cols-2 xl:grid-cols-3">
                         <AdminToggle
                           checked={editForm.automationEnabled}
-                          label="Automatizacion tenant"
+                          label={locale === "en" ? "Tenant automation" : "Automatizacion tenant"}
                           onChange={(checked) => setEditForm((current) => current ? { ...current, automationEnabled: checked } : current)}
                         />
                         <AdminToggle
                           checked={editForm.pickupEnabled}
-                          label="Recoger en local"
+                          label={locale === "en" ? "Pickup" : "Recoger en local"}
                           onChange={(checked) => setEditForm((current) => current ? { ...current, pickupEnabled: checked } : current)}
                         />
                         <AdminToggle
                           checked={editForm.deliveryEnabled}
-                          label="Domicilio"
+                          label={locale === "en" ? "Delivery" : "Domicilio"}
                           onChange={(checked) => setEditForm((current) => current ? { ...current, deliveryEnabled: checked } : current)}
                         />
                       </div>
 
                       <div className="mt-6">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Informacion del restaurante</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Restaurant information" : "Informacion del restaurante"}</p>
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <AdminTextInput
-                            label="Nombre sede"
+                            label={locale === "en" ? "Location name" : "Nombre sede"}
                             onChange={(value) => setEditForm((current) => current ? { ...current, locationName: value } : current)}
-                            placeholder="Sede principal"
+                            placeholder={locale === "en" ? "Main location" : "Sede principal"}
                             value={editForm.locationName}
                           />
                           <AdminTextInput
-                            label="Telefono"
+                            label={locale === "en" ? "Phone" : "Telefono"}
                             onChange={(value) => setEditForm((current) => current ? { ...current, locationPhone: value } : current)}
                             placeholder="+57..."
                             value={editForm.locationPhone}
                           />
                           <AdminTextInput
-                            label="Direccion"
+                            label={locale === "en" ? "Address" : "Direccion"}
                             onChange={(value) => setEditForm((current) => current ? { ...current, locationAddress: value } : current)}
-                            placeholder="Direccion comercial"
+                            placeholder={locale === "en" ? "Business address" : "Direccion comercial"}
                             value={editForm.locationAddress}
                           />
                           <AdminTextInput
-                            label="Domicilio fijo"
+                            label={locale === "en" ? "Fixed delivery fee" : "Domicilio fijo"}
                             onChange={(value) => setEditForm((current) => current ? { ...current, deliveryFeeFixed: value } : current)}
                             placeholder="0"
                             type="number"
@@ -4570,19 +4719,19 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                           />
                         </div>
                         <label className="mt-4 block">
-                          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Instrucciones transferencia</span>
+                          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Transfer instructions" : "Instrucciones transferencia"}</span>
                           <textarea
                             className="min-h-24 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-4 py-3 text-sm text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:bg-white focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
                             onChange={(event) => setEditForm((current) => current ? { ...current, transferPaymentInstructions: event.target.value } : current)}
-                            placeholder="Cuenta, banco o instrucciones de pago..."
+                            placeholder={locale === "en" ? "Account, bank or payment instructions..." : "Cuenta, banco o instrucciones de pago..."}
                             value={editForm.transferPaymentInstructions}
                           />
                         </label>
                       </div>
 
-                      <div className="mt-6 flex flex-wrap gap-3">
+                      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                         <button
-                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-5 text-sm font-semibold text-white transition hover:bg-[#312923] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                           disabled={isSaving}
                           onClick={() => void handleSaveRestaurant()}
                           type="button"
@@ -4591,7 +4740,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                           Guardar cambios
                         </button>
                         <button
-                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(158,108,72,0.24)] px-5 text-sm font-semibold text-[var(--warning)] transition hover:bg-[rgba(158,108,72,0.08)]"
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(158,108,72,0.24)] px-5 text-sm font-semibold text-[var(--warning)] transition hover:bg-[rgba(158,108,72,0.08)] sm:w-auto"
                           onClick={() => void handleRestaurantStatus(selectedRestaurant.status === "active" ? "suspended" : "active")}
                           type="button"
                         >
@@ -4599,7 +4748,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                           {selectedRestaurant.status === "active" ? "Pausar" : "Reactivar"}
                         </button>
                         <button
-                          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.24)] px-5 text-sm font-semibold text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(180,94,84,0.24)] px-5 text-sm font-semibold text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)] sm:w-auto"
                           onClick={() => void handleDeleteRestaurant()}
                           type="button"
                         >
@@ -4616,15 +4765,15 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                     <div className="p-5 sm:p-6">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Usuarios</p>
-                          <h3 className="mt-2 text-lg font-semibold text-[var(--text-strong)]">{selectedRestaurant.members.length} miembros</h3>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Users" : "Usuarios"}</p>
+                          <h3 className="mt-2 text-lg font-semibold text-[var(--text-strong)]">{selectedRestaurant.members.length} {locale === "en" ? "members" : "miembros"}</h3>
                         </div>
                         <Users className="text-[var(--text-faint)]" size={18} />
                       </div>
                     <div className="mt-4 space-y-3">
                       {selectedRestaurant.members.length === 0 ? (
                         <div className="rounded-[22px] bg-[var(--surface-base)] px-4 py-8 text-center text-sm text-[var(--text-soft)]">
-                          Este restaurante aun no tiene usuarios.
+                          {locale === "en" ? "This restaurant does not have users yet." : "Este restaurante aun no tiene usuarios."}
                         </div>
                       ) : selectedRestaurant.members.map((member) => (
                         <AdminMemberRow
@@ -4640,31 +4789,31 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                   </div>
 
                   <form className="border-t border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.46)] p-5 xl:border-l xl:border-t-0 sm:p-6" onSubmit={(event) => void handleCreateMember(event)}>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Nuevo miembro</p>
-                    <h3 className="mt-2 text-lg font-bold text-[var(--text-strong)]">Agregar usuario</h3>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "New member" : "Nuevo miembro"}</p>
+                    <h3 className="mt-2 text-lg font-bold text-[var(--text-strong)]">{locale === "en" ? "Add user" : "Agregar usuario"}</h3>
                     <div className="mt-5 space-y-4">
                       <AdminTextInput
-                        label="Correo"
+                        label={locale === "en" ? "Email" : "Correo"}
                         onChange={(value) => setMemberForm((current) => ({ ...current, email: value }))}
                         placeholder="usuario@restaurante.com"
                         value={memberForm.email}
                       />
                       <AdminTextInput
-                        label="Nombre"
+                        label={locale === "en" ? "Name" : "Nombre"}
                         onChange={(value) => setMemberForm((current) => ({ ...current, name: value }))}
-                        placeholder="Nombre visible"
+                        placeholder={locale === "en" ? "Display name" : "Nombre visible"}
                         value={memberForm.name}
                       />
                       <AdminSelect
-                        label="Rol"
+                        label={locale === "en" ? "Role" : "Rol"}
                         onChange={(value) => setMemberForm((current) => ({ ...current, role: value as AdminRestaurantMember["role"] }))}
                         value={memberForm.role}
                       >
-                        <option value="encargado">Encargado</option>
-                        <option value="trabajador">Trabajador</option>
+                        <option value="encargado">{locale === "en" ? "Manager" : "Encargado"}</option>
+                        <option value="trabajador">{locale === "en" ? "Worker" : "Trabajador"}</option>
                       </AdminSelect>
                       <AdminTextInput
-                        label="Contrasena"
+                        label={locale === "en" ? "Password" : "Contrasena"}
                         onChange={(value) => setMemberForm((current) => ({ ...current, password: value }))}
                         placeholder={selectedRestaurant.defaultPassword}
                         type="password"
@@ -4677,7 +4826,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                       type="submit"
                     >
                       {isSaving ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
-                      Agregar miembro
+                      {locale === "en" ? "Add member" : "Agregar miembro"}
                     </button>
                   </form>
                 </div>
@@ -4772,6 +4921,8 @@ function AdminToggle({ checked, label, onChange }: { checked: boolean; label: st
 }
 
 function AdminStatusBadge({ status }: { status: AdminRestaurantStatus }) {
+  const locale = activeDashboardLocale;
+  const adminStatusCopy = getAdminStatusCopy(locale);
   return (
     <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${adminStatusCopy[status].className}`}>
       {adminStatusCopy[status].label}
@@ -4780,10 +4931,11 @@ function AdminStatusBadge({ status }: { status: AdminRestaurantStatus }) {
 }
 
 function AdminInfoLine({ label, value }: { label: string; value?: string }) {
+  const locale = activeDashboardLocale;
   return (
     <div className="rounded-2xl bg-[rgba(255,251,246,0.62)] px-3 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{label}</p>
-      <p className="mt-1 break-all text-xs font-semibold text-[var(--text-strong)]">{value || "sin dato"}</p>
+      <p className="mt-1 break-all text-xs font-semibold text-[var(--text-strong)]">{value || (locale === "en" ? "no data" : "sin dato")}</p>
     </div>
   );
 }
@@ -4801,6 +4953,7 @@ function AdminMemberRow({
   onResetPassword: () => void;
   onUpdate: (patch: Partial<Pick<AdminRestaurantMember, "role" | "status" | "name">>) => void;
 }) {
+  const locale = activeDashboardLocale;
   return (
     <article className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.72)] p-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -4812,44 +4965,44 @@ function AdminMemberRow({
                 ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
                 : "bg-[rgba(118,93,71,0.1)] text-[var(--text-soft)]"
             }`}>
-              {member.status === "active" ? "Activo" : "Inactivo"}
+              {member.status === "active" ? (locale === "en" ? "Active" : "Activo") : (locale === "en" ? "Inactive" : "Inactivo")}
             </span>
           </div>
           <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
-            {member.name || "Sin nombre"} · Ultimo ingreso {formatDateTime(member.lastSignInAt)}
+            {(member.name || (locale === "en" ? "Unnamed" : "Sin nombre"))} | {locale === "en" ? "Last login" : "Ultimo ingreso"} {formatDateTime(member.lastSignInAt)}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <select
-            className="h-10 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none"
+            className="h-10 w-full rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(255,251,246,0.82)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none sm:w-auto"
             disabled={isSaving}
             onChange={(event) => onUpdate({ role: event.target.value as AdminRestaurantMember["role"] })}
             value={member.role}
           >
-            <option value="encargado">Encargado</option>
-            <option value="trabajador">Trabajador</option>
+            <option value="encargado">{locale === "en" ? "Manager" : "Encargado"}</option>
+            <option value="trabajador">{locale === "en" ? "Worker" : "Trabajador"}</option>
           </select>
           <button
-            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            className="inline-flex h-10 w-full items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)] sm:w-auto"
             disabled={isSaving}
             onClick={() => onUpdate({ status: member.status === "active" ? "inactive" : "active" })}
             type="button"
           >
-            {member.status === "active" ? "Pausar" : "Activar"}
+            {member.status === "active" ? (locale === "en" ? "Pause" : "Pausar") : (locale === "en" ? "Activate" : "Activar")}
           </button>
           <button
-            className="inline-flex h-10 items-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)]"
+            className="inline-flex h-10 w-full items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[var(--surface-base)] sm:w-auto"
             disabled={isSaving}
             onClick={onResetPassword}
             type="button"
           >
-            Reset password
+            {locale === "en" ? "Reset password" : "Restablecer contrasena"}
           </button>
           <button
-            className="grid h-10 w-10 place-items-center rounded-2xl border border-[rgba(180,94,84,0.2)] text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)]"
+            className="grid h-10 w-full place-items-center rounded-2xl border border-[rgba(180,94,84,0.2)] text-[#9a4b43] transition hover:bg-[rgba(190,110,95,0.08)] sm:w-10"
             disabled={isSaving}
             onClick={onRemove}
-            title="Quitar acceso"
+            title={locale === "en" ? "Remove access" : "Quitar acceso"}
             type="button"
           >
             <Trash2 size={15} />
@@ -4863,7 +5016,7 @@ function AdminMemberRow({
 function Modal({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.55)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="app-panel reveal-up max-h-[92vh] w-full overflow-hidden rounded-t-[28px] sm:max-w-2xl sm:rounded-[30px]">
+      <div className="app-panel reveal-up max-h-[96vh] w-full overflow-hidden rounded-t-[28px] sm:max-h-[92vh] sm:max-w-2xl sm:rounded-[30px]">
         <div className="flex items-center justify-between border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:px-6">
           <h3 className="app-display text-[2rem] leading-none text-[var(--text-strong)]">{title}</h3>
           <button
@@ -4874,7 +5027,7 @@ function Modal({ children, onClose, title }: { children: ReactNode; onClose: () 
             <X size={18} />
           </button>
         </div>
-        <div className="app-scrollbar max-h-[calc(92vh-84px)] overflow-y-auto p-5 sm:p-6">{children}</div>
+        <div className="app-scrollbar max-h-[calc(96vh-84px)] overflow-y-auto p-4 sm:max-h-[calc(92vh-84px)] sm:p-6">{children}</div>
       </div>
     </div>
   );
@@ -4895,9 +5048,9 @@ function StandaloneFrame({
 }) {
   return (
     <div className="grid min-h-screen place-items-center px-4 py-8">
-      <div className="w-full max-w-[720px] rounded-[34px] border border-[rgba(255,242,227,0.1)] bg-[rgba(30,26,23,0.92)] p-8 text-[var(--text-on-dark)] shadow-[0_30px_90px_rgba(0,0,0,0.32)] sm:p-10">
+      <div className="w-full max-w-[720px] rounded-[30px] border border-[rgba(255,242,227,0.1)] bg-[rgba(30,26,23,0.92)] p-6 text-[var(--text-on-dark)] shadow-[0_30px_90px_rgba(0,0,0,0.32)] sm:rounded-[34px] sm:p-10">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.42)]">{eyebrow}</p>
-        <h1 className="app-display mt-6 text-[3rem] leading-none sm:text-[3.6rem]">{title}</h1>
+        <h1 className="app-display mt-6 text-[2.5rem] leading-none sm:text-[3.6rem]">{title}</h1>
         <p className="mt-4 text-sm leading-7 text-[rgba(246,236,223,0.72)] sm:text-[15px]">{description}</p>
         {children && <div className="mt-6">{children}</div>}
         {actions && <div className="mt-7 flex flex-wrap gap-3">{actions}</div>}
@@ -4938,7 +5091,15 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function TextInput(props: { label: string; onChange: (value: string) => void; placeholder: string; type?: string; value: string }) {
+function TextInput(props: {
+  hidePasswordLabel?: string;
+  label: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  showPasswordLabel?: string;
+  type?: string;
+  value: string;
+}) {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = props.type === "password";
   const resolvedType = isPassword ? (showPassword ? "text" : "password") : props.type ?? "text";
@@ -4956,7 +5117,7 @@ function TextInput(props: { label: string; onChange: (value: string) => void; pl
         />
         {isPassword ? (
           <button
-            aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
+            aria-label={showPassword ? (props.hidePasswordLabel ?? "Ocultar contrasena") : (props.showPasswordLabel ?? "Mostrar contrasena")}
             className="absolute inset-y-0 right-1 my-1 grid w-10 place-items-center rounded-xl text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.08)] hover:text-[var(--text-strong)]"
             onClick={() => setShowPassword((current) => !current)}
             type="button"
@@ -4982,6 +5143,7 @@ function ProductImage({
   large?: boolean;
   name: string;
 }) {
+  const locale = activeDashboardLocale;
   const size = large ? "h-24 w-24 rounded-[22px]" : "h-16 w-16 rounded-[18px]";
 
   if (!imageUrl) {
@@ -4990,10 +5152,10 @@ function ProductImage({
     return (
       <div
         className={`grid shrink-0 place-items-center bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.52),transparent_42%),linear-gradient(135deg,var(--surface-base),var(--surface-strong))] ring-1 ring-[rgba(118,93,71,0.1)] ${size}`}
-        title={`Emoji del producto: ${resolvedEmoji}`}
+        title={locale === "en" ? `Product emoji: ${resolvedEmoji}` : `Emoji del producto: ${resolvedEmoji}`}
       >
         <span
-          aria-label={`Emoji del producto para ${name}`}
+          aria-label={locale === "en" ? `Product emoji for ${name}` : `Emoji del producto para ${name}`}
           className={`${large ? "text-[2.7rem]" : "text-[1.9rem]"} drop-shadow-[0_8px_14px_rgba(20,14,10,0.12)]`}
           role="img"
         >

@@ -816,7 +816,6 @@ export async function resolveReplacementOptions(input: {
   price?: number;
 }>> {
   const supabase = createSupabaseRestClient(input.env);
-  const targetCategory = input.orderItem.category_snapshot ?? undefined;
   const activeMenuId = input.orderItem.menu_item_id
     ? await resolveMenuIdForMenuItem(supabase, input.schemaName, input.orderItem.menu_item_id)
     : await resolveActiveMenuId(supabase, input.schemaName, input.tenantTimezone);
@@ -862,6 +861,14 @@ export async function resolveReplacementOptions(input: {
     }
   }
 
+  const targetCategory = await resolveOrderItemTargetCategory({
+    supabase,
+    schemaName: input.schemaName,
+    orderItem: input.orderItem,
+    productById,
+  });
+  const normalizedTargetCategory = normalizeCategoryKey(targetCategory);
+
   const replacements: Array<{
     menuItemId: string;
     productId?: string;
@@ -876,10 +883,18 @@ export async function resolveReplacementOptions(input: {
       continue;
     }
 
+    if (item.product_id && input.orderItem.product_id && item.product_id === input.orderItem.product_id) {
+      continue;
+    }
+
+    if (item.combo_id && input.orderItem.combo_id && item.combo_id === input.orderItem.combo_id) {
+      continue;
+    }
+
     const product = item.product_id ? productById.get(item.product_id) : undefined;
     const category = product?.category;
 
-    if (targetCategory && category && category !== targetCategory) {
+    if (input.requestedReplacementMenuItemIds.length === 0 && normalizedTargetCategory && normalizeCategoryKey(category) !== normalizedTargetCategory) {
       continue;
     }
 
@@ -899,6 +914,76 @@ export async function resolveReplacementOptions(input: {
   }
 
   return replacements.slice(0, 3);
+}
+
+async function resolveOrderItemTargetCategory(input: {
+  supabase: ReturnType<typeof createSupabaseRestClient>;
+  schemaName: string;
+  orderItem: {
+    category_snapshot?: string | null;
+    product_id?: string | null;
+    menu_item_id?: string | null;
+  };
+  productById: Map<string, ProductRow>;
+}) {
+  if (input.orderItem.category_snapshot) {
+    return input.orderItem.category_snapshot;
+  }
+
+  if (input.orderItem.product_id) {
+    const cachedProduct = input.productById.get(input.orderItem.product_id);
+    if (cachedProduct?.category) {
+      return cachedProduct.category;
+    }
+
+    const [product] = await input.supabase.select<ProductRow>({
+      schema: input.schemaName,
+      table: "products",
+      query: {
+        select: "id,name,description,base_price,category,emoji,image_url,is_active",
+        id: `eq.${input.orderItem.product_id}`,
+        limit: 1,
+      },
+    });
+
+    if (product?.category) {
+      return product.category;
+    }
+  }
+
+  if (input.orderItem.menu_item_id) {
+    const [menuItem] = await input.supabase.select<MenuItemRow>({
+      schema: input.schemaName,
+      table: "menu_items",
+      query: {
+        select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
+        id: `eq.${input.orderItem.menu_item_id}`,
+        limit: 1,
+      },
+    });
+
+    if (menuItem?.product_id) {
+      const cachedProduct = input.productById.get(menuItem.product_id);
+      if (cachedProduct?.category) {
+        return cachedProduct.category;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeCategoryKey(value?: string | null) {
+  const normalized = (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized.length <= 4) return normalized;
+  if (normalized.endsWith("ces")) return `${normalized.slice(0, -3)}z`;
+  if (normalized.endsWith("s")) return normalized.slice(0, -1);
+  return normalized;
 }
 
 export async function resolveMenuIdForMenuItem(
