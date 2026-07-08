@@ -128,6 +128,7 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
   let orders: OrderRow[] = [];
   let customers: CustomerRow[] = [];
   let alerts: AlertRow[] = [];
+  let orderItems: OrderItemRow[] = [];
 
   try {
     [orders, customers, alerts] = await Promise.all([
@@ -159,8 +160,36 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
     }
   }
 
+  if (orders.length > 0) {
+    try {
+      const orderIds = orders.map((order) => order.id);
+      const batches = Array.from({ length: Math.ceil(orderIds.length / 50) }, (_, index) => orderIds.slice(index * 50, index * 50 + 50));
+      orderItems = (await Promise.all(batches.map((batch) => supabase.select<OrderItemRow>({
+        schema: tenant.schema_name,
+        table: "order_items",
+        query: {
+          select: ORDER_ITEM_SELECT,
+          order_id: `in.(${batch.join(",")})`,
+        },
+      })))).flat();
+    } catch (error) {
+      if (!isMissingTableError(error)) {
+        throw error;
+      }
+    }
+  }
+
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
-  const summaries = orders.map((order) => mapOrderSummary(order, customerById.get(order.customer_id)));
+  const itemsByOrderId = new Map<string, OrderItemRow[]>();
+  for (const item of orderItems) {
+    const current = itemsByOrderId.get(item.order_id) ?? [];
+    current.push(item);
+    itemsByOrderId.set(item.order_id, current);
+  }
+  const summaries = orders.map((order) => ({
+    ...mapOrderSummary(order, customerById.get(order.customer_id)),
+    items: (itemsByOrderId.get(order.id) ?? []).map(mapOrderLineItem),
+  }));
   const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
   const openAlerts = alerts.filter((alert) => alert.status === "open");
   const payload: OrdersDashboardPayload = {

@@ -149,3 +149,7 @@ Tambien puedes usar el helper del repo:
 ```bash
 python scripts/dev_services.py --start
 ```
+
+## Estructura recomendada
+
+La guia viva para mantener la separacion entre shell, features e integracion backend esta en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
