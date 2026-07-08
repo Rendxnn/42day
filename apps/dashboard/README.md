@@ -33,6 +33,21 @@ El dashboard ya cubre una parte importante del flujo `demo-ready`:
 
 No es todavia una consola humana completa para conversaciones manuales.
 
+## Regla de arquitectura vigente
+
+La arquitectura vigente del dashboard es **Gradual Feature-First Hybrid**.
+
+En corto:
+
+- `src/App.tsx` debe actuar como shell/orquestador,
+- la logica grande de negocio debe ir migrando a `src/features/<feature>/`,
+- la migracion es gradual y ocurre junto con mejoras funcionales,
+- no se hara un refactor masivo separado solo para “limpiar”.
+
+La referencia canonica y normativa esta en:
+
+- [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1)
+
 ## Contrato actual
 
 El frontend consume solo `apps/api`. No accede directo a tablas operativas desde UI para menu, pedidos, alertas o cambios de estado.
@@ -152,6 +167,6 @@ Tambien puedes usar el helper del repo:
 python scripts/dev_services.py --start
 ```
 
-## Estructura recomendada
+## Documentacion relacionada
 
-La guia viva para mantener la separacion entre shell, features e integracion backend esta en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
+- Arquitectura canonica del dashboard: [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1)

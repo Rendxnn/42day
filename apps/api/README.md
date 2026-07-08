@@ -31,6 +31,20 @@ Cambios recientes ya integrados:
 - fallback conversacional a efectivo cuando no hay metodo de transferencia activo,
 - eliminacion del camino legacy basado en `transfer_payment_instructions` desde el flujo vivo.
 
+## Nota de arquitectura del dashboard frontend
+
+El dashboard frontend sigue una arquitectura **Gradual Feature-First Hybrid**.
+
+Regla corta:
+
+- `apps/dashboard/src/App.tsx` debe quedar como shell/orquestador,
+- la logica grande de negocio debe moverse gradualmente a `apps/dashboard/src/features/<feature>/`,
+- esa migracion se hace junto con trabajo funcional futuro, no como refactor masivo aparte.
+
+La referencia canonica de esa decision esta en:
+
+- [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1)
+
 ## Runtime y entrypoints
 
 - runtime: Cloudflare Workers
@@ -80,6 +94,8 @@ Eso significa que:
 - `src/routes/dashboard.ts` ya no es la fuente canonica,
 - hoy funciona como capa de compatibilidad fina para no romper imports y tests,
 - el refactor principal ya avanzo, pero todavia queda limpiar restos legacy y seguir partiendo responsabilidades.
+
+No deben agregarse nuevos comportamientos live de dashboard al router legacy salvo una razon de compatibilidad muy acotada.
 
 ### 2. Orquestacion conversacional todavia concentrada
 

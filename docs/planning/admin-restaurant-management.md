@@ -1,5 +1,7 @@
 # Admin: gestion de restaurantes y miembros
 
+> Nota: este documento es de planning/alcance funcional. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1). Si aquí se menciona `App.tsx` u otra ubicación actual de código, debe leerse como estado de implementación de ese momento, no como estructura objetivo normativa.
+
 ## Objetivo
 
 El admin de 42day puede crear restaurantes clientes, asignar usuarios, editar datos operativos, pausar/inactivar restaurantes y restablecer contrasenas sin entrar al tenant del restaurante.

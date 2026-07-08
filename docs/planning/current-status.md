@@ -1,5 +1,7 @@
 # Estado actual
 
+> Nota: este archivo describe estado funcional y operativo. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
+
 Ultima actualizacion: 2026-06-26.
 
 Nota operativa reciente:
