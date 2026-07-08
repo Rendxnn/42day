@@ -22,6 +22,7 @@ export function DeliveryCoverageView({ locale, onNotify, tenantSlug }: DeliveryC
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -41,7 +42,7 @@ export function DeliveryCoverageView({ locale, onNotify, tenantSlug }: DeliveryC
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [locale, tenantSlug]);
+  }, [locale, reloadKey, tenantSlug]);
 
   const coordinatesReady = form?.latitude !== undefined && form.longitude !== undefined;
   const changed = useMemo(() => Boolean(settings && form && JSON.stringify(form) !== JSON.stringify(toForm(settings))), [form, settings]);
@@ -99,7 +100,21 @@ export function DeliveryCoverageView({ locale, onNotify, tenantSlug }: DeliveryC
   }
 
   if (!form) {
-    return <CoverageState icon={<AlertCircle size={20} />} text={error || (locale === "en" ? "Coverage is unavailable." : "La cobertura no esta disponible.")} />;
+    return (
+      <CoverageState
+        action={
+          <button
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] bg-[var(--text-strong)] px-4 text-sm font-semibold text-white"
+            onClick={() => setReloadKey((current) => current + 1)}
+            type="button"
+          >
+            {locale === "en" ? "Try again" : "Intentar de nuevo"}
+          </button>
+        }
+        icon={<AlertCircle size={20} />}
+        text={formatCoverageLoadError(error, locale)}
+      />
+    );
   }
 
   return (
@@ -236,8 +251,18 @@ function MessageField({ label, onChange, value }: { label: string; onChange: (va
   return <label className="block text-xs font-semibold text-[var(--text-soft)]">{label}<textarea className="mt-2 min-h-32 w-full resize-y rounded-[14px] border border-[rgba(118,93,71,0.16)] bg-white/80 px-3 py-3 text-sm leading-6 text-[var(--text-strong)] outline-none focus:border-[var(--success)]" maxLength={1000} onChange={(event) => onChange(event.target.value)} value={value} /></label>;
 }
 
-function CoverageState({ icon, text }: { icon: ReactNode; text: string }) {
-  return <div className="app-panel grid min-h-[420px] place-items-center rounded-[22px] px-5 text-center"><div className="flex flex-col items-center gap-3 text-sm font-semibold text-[var(--text-soft)]">{icon}{text}</div></div>;
+function CoverageState({ action, icon, text }: { action?: ReactNode; icon: ReactNode; text: string }) {
+  return <div className="app-panel grid min-h-[240px] place-items-center rounded-[22px] px-5 py-10 text-center sm:min-h-[300px]"><div className="flex max-w-md flex-col items-center gap-3 text-sm font-semibold leading-6 text-[var(--text-soft)]">{icon}<p>{text}</p>{action}</div></div>;
+}
+
+function formatCoverageLoadError(error: string, locale: "en" | "es") {
+  const missingEndpoint = /not_found|404/i.test(error);
+  if (missingEndpoint) {
+    return locale === "en"
+      ? "Delivery coverage is temporarily unavailable. The service needs to be updated before it can be configured."
+      : "La cobertura de domicilios no esta disponible temporalmente. El servicio debe actualizarse antes de configurarla.";
+  }
+  return error || (locale === "en" ? "Coverage is unavailable." : "La cobertura no esta disponible.");
 }
 
 function toForm(settings: DeliveryCoverageSettings): UpdateDeliveryCoverageSettingsRequest {
