@@ -455,6 +455,14 @@ export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSum
     fulfillmentType: row.fulfillment_type,
     serviceTiming: row.service_timing ?? "asap",
     scheduledFor: row.scheduled_for ?? undefined,
+    customerAddressText: row.customer_address_text ?? undefined,
+    customerLatitude: row.customer_latitude ?? undefined,
+    customerLongitude: row.customer_longitude ?? undefined,
+    deliveryDistanceKm: row.delivery_distance_km ?? undefined,
+    isInsideDeliveryCoverage: row.is_inside_delivery_coverage ?? undefined,
+    coverageValidationMethod: row.coverage_validation_method ?? undefined,
+    coverageConfidence: row.coverage_confidence ?? undefined,
+    coverageCheckedAt: row.coverage_checked_at ?? undefined,
     paymentMethod: row.payment_method,
     subtotal: row.subtotal,
     deliveryFee: row.delivery_fee,
@@ -593,7 +601,7 @@ export async function loadOrderNotificationContext(
     table: "orders",
     query: {
       select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
       id: `eq.${orderId}`,
       limit: 1,
     },

@@ -18,6 +18,25 @@ export type AutomationSettings = {
   locationAutomationEnabled?: boolean;
 };
 
+export type DeliveryCoverageSettings = {
+  locationId: string;
+  deliveryEnabled: boolean;
+  latitude?: number;
+  longitude?: number;
+  restaurantCity?: string;
+  restaurantDepartment?: string;
+  restaurantCountry: string;
+  deliveryRadiusKm: number;
+  allowWrittenAddressReference: boolean;
+  tryGeocodeWrittenAddresses: boolean;
+  allowOutOfCoverageOrders: boolean;
+  requestLocationMessage: string;
+  writtenAddressFallbackMessage: string;
+  outOfCoverageMessage: string;
+};
+
+export type UpdateDeliveryCoverageSettingsRequest = Omit<DeliveryCoverageSettings, "locationId">;
+
 export type TenantChannel = {
   id: string;
   tenantId: string;

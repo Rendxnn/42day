@@ -102,6 +102,12 @@ export async function loadTodayPublishedMenu(input: {
           pickupEnabled: location.pickup_enabled,
           deliveryEnabled: location.delivery_enabled,
           automationEnabled: location.automation_enabled,
+          latitude: location.latitude ?? undefined,
+          longitude: location.longitude ?? undefined,
+          restaurantCity: location.restaurant_city ?? undefined,
+          restaurantDepartment: location.restaurant_department ?? undefined,
+          restaurantCountry: location.restaurant_country ?? undefined,
+          deliveryRadiusKm: location.delivery_radius_km ?? undefined,
           isActive: location.is_active,
         }
       : undefined,

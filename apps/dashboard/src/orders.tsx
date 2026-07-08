@@ -4,6 +4,7 @@ import {
   acceptOrder,
   confirmOrderPaymentProof,
   DashboardApiError,
+  getDeliveryCoverageSettings,
   getOrder,
   getOrderPaymentProof,
   listOrders,
@@ -80,6 +81,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
   const [actionKey, setActionKey] = useState("");
   const [modalOrder, setModalOrder] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [deliveryRadiusKm, setDeliveryRadiusKm] = useState<number | undefined>();
 
   const loadOrders = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
@@ -162,6 +164,18 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
       window.clearInterval(intervalId);
     };
   }, [loadOrders, tenantSlug]);
+
+  useEffect(() => {
+    let active = true;
+    getDeliveryCoverageSettings(tenantSlug)
+      .then((settings) => {
+        if (active) setDeliveryRadiusKm(settings.deliveryRadiusKm);
+      })
+      .catch(() => {
+        if (active) setDeliveryRadiusKm(undefined);
+      });
+    return () => { active = false; };
+  }, [tenantSlug]);
 
   const allOrders = payload?.orders ?? [];
   const alertOrders = useMemo(
@@ -598,6 +612,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
           ) : selectedOrder ? (
             <OrderDetailPanel
               actionKey={actionKey}
+              deliveryRadiusKm={deliveryRadiusKm}
               menuItems={menuItems}
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -626,6 +641,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
             ) : selectedOrder ? (
               <OrderDetailPanel
                 actionKey={actionKey}
+                deliveryRadiusKm={deliveryRadiusKm}
                 menuItems={menuItems}
                 onAccept={() => void handleAccept(selectedOrder.id)}
                 onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -749,6 +765,7 @@ function OperationalOrderCard({
 
 function OrderDetailPanel({
   actionKey,
+  deliveryRadiusKm,
   menuItems,
   onAccept,
   onAdvanceConfirmed,
@@ -763,6 +780,7 @@ function OrderDetailPanel({
   selectedSummary,
 }: {
   actionKey: string;
+  deliveryRadiusKm?: number;
   menuItems: MenuItem[];
   onAccept: () => void;
   onAdvanceConfirmed: () => void;
@@ -913,6 +931,9 @@ function OrderDetailPanel({
                 <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {order.deliveryAddress}
               </p>
             )}
+            {order.fulfillmentType === "delivery" ? (
+              <DeliveryCoverageDetail deliveryRadiusKm={deliveryRadiusKm} locale={locale} order={order} />
+            ) : null}
             {order.restaurantReviewNote && (
               <p className="mt-4 text-sm leading-7 text-[var(--text-soft)]">
                 <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Internal note:" : "Nota interna:"}</span> {order.restaurantReviewNote}
@@ -1254,6 +1275,57 @@ function OutOfStockModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DeliveryCoverageDetail({
+  deliveryRadiusKm,
+  locale,
+  order,
+}: {
+  deliveryRadiusKm?: number;
+  locale: "en" | "es";
+  order: OrderDetail;
+}) {
+  const requiresLocation = order.coverageValidationMethod === "written_address_reference"
+    && (order.customerLatitude === undefined || order.customerLongitude === undefined);
+  const status = requiresLocation
+    ? (locale === "en" ? "Location required" : "Requiere ubicacion")
+    : order.isInsideDeliveryCoverage === true
+      ? (locale === "en" ? "Inside coverage" : "Dentro de cobertura")
+      : order.isInsideDeliveryCoverage === false
+        ? (locale === "en" ? "Outside coverage" : "Fuera de cobertura")
+        : (locale === "en" ? "Not validated" : "No validado");
+  const statusClass = order.isInsideDeliveryCoverage === true
+    ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
+    : "bg-[rgba(197,123,87,0.12)] text-[var(--warning)]";
+  const method = {
+    whatsapp_location: locale === "en" ? "WhatsApp location" : "Ubicacion de WhatsApp",
+    written_address_reference: locale === "en" ? "Written address reference" : "Direccion escrita como referencia",
+    geocoded_address: locale === "en" ? "Geocoded address" : "Direccion geocodificada",
+    not_validated: locale === "en" ? "Not validated" : "No validado",
+  }[order.coverageValidationMethod ?? "not_validated"];
+
+  return (
+    <div className="mt-5 border-t border-[rgba(118,93,71,0.12)] pt-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">{locale === "en" ? "Delivery" : "Domicilio"}</h4>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{status}</span>
+      </div>
+      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <SummaryRow label={locale === "en" ? "Method" : "Metodo"} value={method} />
+        <SummaryRow label={locale === "en" ? "Distance" : "Distancia"} value={order.deliveryDistanceKm !== undefined ? `${order.deliveryDistanceKm.toFixed(1)} km` : (locale === "en" ? "Not calculated" : "Sin calcular")} />
+        <SummaryRow label={locale === "en" ? "Allowed radius" : "Radio permitido"} value={deliveryRadiusKm !== undefined ? `${deliveryRadiusKm} km` : (locale === "en" ? "Not available" : "No disponible")} />
+        <SummaryRow label={locale === "en" ? "Coordinates" : "Coordenadas"} value={order.customerLatitude !== undefined && order.customerLongitude !== undefined ? `${order.customerLatitude.toFixed(6)}, ${order.customerLongitude.toFixed(6)}` : (locale === "en" ? "Not received" : "No recibidas")} />
+      </div>
+      {order.customerAddressText ? <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Customer reference:" : "Referencia del cliente:"}</span> {order.customerAddressText}</p> : null}
+      {requiresLocation ? (
+        <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
+          <AlertCircle className="mt-0.5 shrink-0" size={16} />
+          {locale === "en" ? "The customer wrote an address, but coverage has not been validated with an exact location yet." : "El cliente escribio una direccion, pero todavia no se valido cobertura con ubicacion exacta."}
+        </div>
+      ) : null}
     </div>
   );
 }

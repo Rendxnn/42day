@@ -53,6 +53,18 @@ export type LocationRow = {
   pickup_enabled?: boolean;
   delivery_enabled?: boolean;
   automation_enabled?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  restaurant_city?: string | null;
+  restaurant_department?: string | null;
+  restaurant_country?: string | null;
+  delivery_radius_km?: number | null;
+  allow_written_address_reference?: boolean | null;
+  try_geocode_written_addresses?: boolean | null;
+  allow_out_of_coverage_orders?: boolean | null;
+  request_location_message?: string | null;
+  written_address_fallback_message?: string | null;
+  out_of_coverage_message?: string | null;
   is_active: boolean;
 };
 
@@ -129,6 +141,14 @@ export type OrderRow = {
   scheduled_for?: string | null;
   delivery_address?: string | null;
   delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: "whatsapp_location" | "written_address_reference" | "geocoded_address" | "not_validated" | null;
+  coverage_confidence?: "high" | "medium" | "low" | "failed" | null;
+  coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
   subtotal: number;

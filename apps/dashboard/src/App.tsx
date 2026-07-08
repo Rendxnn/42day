@@ -63,6 +63,7 @@ import {
   X,
 } from "lucide-react";
 import { OrdersView } from "./orders";
+import { DeliveryCoverageView } from "./DeliveryCoverage";
 import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
@@ -73,7 +74,7 @@ import {
   useDashboardLocale,
 } from "./i18n";
 
-type View = "menu" | "orders" | "summary" | "catalog" | "upload";
+type View = "menu" | "orders" | "summary" | "catalog" | "upload" | "coverage";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
 type ProductFormValue = Partial<Product> & { imageFile?: File };
 type DashboardNotification = {
@@ -159,6 +160,11 @@ function getNavItems(locale: "en" | "es") {
       label: locale === "en" ? "Upload" : "Subida",
       icon: UploadCloud,
     },
+    {
+      id: "coverage" as const,
+      label: locale === "en" ? "Coverage" : "Cobertura",
+      icon: MapPin,
+    },
   ];
 }
 
@@ -187,6 +193,11 @@ function getViewCopy(locale: "en" | "es"): Record<View, { eyebrow: string; title
     upload: {
       eyebrow: locale === "en" ? "Menu upload" : "Subida de menu",
       title: locale === "en" ? "Upload products" : "Cargar productos",
+      description: "",
+    },
+    coverage: {
+      eyebrow: locale === "en" ? "Delivery settings" : "Configuracion de domicilios",
+      title: locale === "en" ? "Delivery coverage" : "Cobertura de domicilios",
       description: "",
     },
   };
@@ -985,6 +996,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                 />
               )}
               {activeView === "orders" && <OrdersView locale={locale} menuItems={items} onNotify={notify} tenantSlug={tenantSlug} />}
+              {activeView === "coverage" && <DeliveryCoverageView locale={locale} onNotify={notify} tenantSlug={tenantSlug} />}
               {activeView === "catalog" && (
                 <Catalog
                   imageColumnReady={imageColumnReady}
@@ -1285,7 +1297,7 @@ function Header({
           </div>
           <div className={`flex items-start gap-3 ${activeView === "orders" ? "mt-2" : "mt-3 sm:mt-4"}`}>
             <div className={`grid shrink-0 place-items-center border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] text-[var(--text-on-dark)] lg:hidden ${activeView === "orders" ? "h-10 w-10 rounded-[14px]" : "h-12 w-12 rounded-2xl"}`}>
-              {activeView === "orders" ? <ClipboardList size={18} /> : <ChefHat size={18} />}
+              {activeView === "orders" ? <ClipboardList size={18} /> : activeView === "coverage" ? <MapPin size={18} /> : <ChefHat size={18} />}
             </div>
             <div className="min-w-0">
               <h1 className={`app-display leading-none text-[var(--text-on-dark)] ${activeView === "orders" ? "text-[1.55rem] sm:text-[2rem]" : "text-[1.8rem] sm:text-[2.5rem] xl:text-[3.25rem]"}`}>
@@ -1507,7 +1519,7 @@ function BottomNav({
                 type="button"
               >
                 <Icon size={17} />
-                <span className="mt-1.5">{item.label}</span>
+                <span className="mt-1.5 max-w-full overflow-hidden text-ellipsis text-[9px] sm:text-[11px]">{item.label}</span>
               </button>
             );
           })}

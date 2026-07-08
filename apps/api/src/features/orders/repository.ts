@@ -13,6 +13,14 @@ export type OrderRow = {
   scheduled_for?: string | null;
   delivery_address?: string | null;
   delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: OrderRowCoverageMethod | null;
+  coverage_confidence?: OrderRowCoverageConfidence | null;
+  coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
   subtotal: number;
@@ -32,6 +40,9 @@ export type OrderRow = {
   created_at: string;
   updated_at: string;
 };
+
+type OrderRowCoverageMethod = "whatsapp_location" | "written_address_reference" | "geocoded_address" | "not_validated";
+type OrderRowCoverageConfidence = "high" | "medium" | "low" | "failed";
 
 export type OrderItemRow = {
   id: string;
@@ -59,6 +70,14 @@ export type DraftOrderRow = {
   scheduled_for?: string | null;
   delivery_address?: string | null;
   delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: OrderRowCoverageMethod | null;
+  coverage_confidence?: OrderRowCoverageConfidence | null;
+  coverage_checked_at?: string | null;
   payment_method?: "cash" | "transfer" | null;
   subtotal: number;
   delivery_fee: number;
@@ -128,7 +147,7 @@ export async function loadPendingCustomerReplacementOrderContext(input: {
     table: "orders",
     query: {
       select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
       draft_order_id: `in.(${Array.from(candidateDraftIds).join(",")})`,
       status: "eq.needs_customer_replacement",
       order: "updated_at.desc",
@@ -147,7 +166,7 @@ export async function loadPendingCustomerReplacementOrderContext(input: {
           table: "draft_orders",
           query: {
             select:
-              "id,conversation_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,subtotal,delivery_fee,discount_total,total,validation_errors,expires_at,created_at,updated_at",
+              "id,conversation_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,subtotal,delivery_fee,discount_total,total,validation_errors,expires_at,created_at,updated_at",
             id: `eq.${order.draft_order_id}`,
             limit: 1,
           },

@@ -195,6 +195,51 @@ img {
     box-shadow 220ms ease;
 }
 
+.delivery-coverage-map {
+  height: clamp(300px, 48vw, 440px);
+  background: #e7ece8;
+}
+
+.delivery-coverage-map .leaflet-container {
+  font-family: "Inter", sans-serif;
+  background: #e7ece8;
+}
+
+.delivery-coverage-map .leaflet-control-zoom a {
+  color: #241e1a;
+}
+
+.parahoy-map-pin {
+  background: transparent;
+  border: 0;
+}
+
+.parahoy-map-pin span {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  border: 8px solid #fffaf4;
+  border-radius: 50% 50% 50% 8px;
+  background: #4f7a61;
+  box-shadow: 0 10px 24px rgba(32, 26, 22, 0.28);
+  transform: rotate(-45deg);
+}
+
+.parahoy-map-pin span::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: #d9efdf;
+}
+
+@media (max-width: 480px) {
+  .delivery-coverage-map {
+    height: 320px;
+  }
+}
+
 .landing-reveal.is-visible {
   opacity: 1;
   transform: translate3d(var(--float-x), var(--float-y), 0) scale(1);

@@ -2,7 +2,10 @@ import type { DraftOrder, OrderLineItem, PaymentMethod, ProductOption, TodayMenu
 
 const DEFAULT_ESTIMATED_MINUTES = 30;
 
-export function buildFulfillmentPrompt(_menu: TodayMenuPayload): string {
+export function buildFulfillmentPrompt(menu: TodayMenuPayload): string {
+  if (menu.location?.deliveryEnabled === false) {
+    return "En este momento solo tenemos disponible la opcion de recoger en el local. Escribe recoger para continuar.";
+  }
   return "Con gusto 😊 ¿Prefieres que lo enviemos a domicilio o lo tendrás para recoger?";
 }
 

@@ -27,6 +27,10 @@ import { updateConversationState } from "../modules/conversation-service/convers
 import { processMenuFile } from "../modules/menu-upload/menuFileProcessor";
 import { logOutboundTextMessage } from "../modules/message-log/message-log";
 import { sendWhatsAppTextMessage } from "../modules/whatsapp-webhook/whatsapp-client";
+import {
+  getDeliveryCoverageSettings,
+  parseDeliveryCoverageSettingsUpdate,
+} from "../features/delivery-coverage/service";
 
 type TenantRow = {
   id: string;
@@ -74,6 +78,18 @@ type LocationRow = {
   pickup_enabled?: boolean;
   delivery_enabled?: boolean;
   automation_enabled?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  restaurant_city?: string | null;
+  restaurant_department?: string | null;
+  restaurant_country?: string | null;
+  delivery_radius_km?: number | null;
+  allow_written_address_reference?: boolean | null;
+  try_geocode_written_addresses?: boolean | null;
+  allow_out_of_coverage_orders?: boolean | null;
+  request_location_message?: string | null;
+  written_address_fallback_message?: string | null;
+  out_of_coverage_message?: string | null;
   is_active: boolean;
 };
 
@@ -150,6 +166,14 @@ type OrderRow = {
   scheduled_for?: string | null;
   delivery_address?: string | null;
   delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: "whatsapp_location" | "written_address_reference" | "geocoded_address" | "not_validated" | null;
+  coverage_confidence?: "high" | "medium" | "low" | "failed" | null;
+  coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
   subtotal: number;
@@ -979,7 +1003,7 @@ dashboardRoutes.get("/:tenantSlug/orders", async (c) => {
         table: "orders",
         query: {
           select:
-            "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+            "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
           ...(status ? { status: `eq.${status}` } : {}),
           order: "created_at.desc",
           limit,
@@ -1062,7 +1086,7 @@ dashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
       table: "orders",
       query: {
         select:
-          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+          "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
         id: `eq.${c.req.param("orderId")}`,
         limit: 1,
       },
@@ -1624,6 +1648,52 @@ dashboardRoutes.patch("/:tenantSlug/settings/automation", async (c) => {
     tenantAutomationEnabled: body.enabled,
     locationAutomationEnabled: location ? body.enabled : undefined,
   } satisfies AutomationSettings);
+});
+
+dashboardRoutes.get("/:tenantSlug/settings/delivery-coverage", async (c) => {
+  const tenant = c.get("tenant");
+  const settings = await getDeliveryCoverageSettings({
+    env: c.env,
+    schemaName: tenant.schema_name,
+  });
+  return settings ? c.json(settings) : c.json({ error: "active_location_not_found" }, 404);
+});
+
+dashboardRoutes.patch("/:tenantSlug/settings/delivery-coverage", async (c) => {
+  const tenant = c.get("tenant");
+  const body = parseDeliveryCoverageSettingsUpdate(await c.req.json().catch(() => undefined));
+  if (!body) return c.json({ error: "invalid_delivery_coverage_settings" }, 400);
+
+  const current = await getDeliveryCoverageSettings({ env: c.env, schemaName: tenant.schema_name });
+  if (!current) return c.json({ error: "active_location_not_found" }, 404);
+
+  await createSupabaseRestClient(c.env).update({
+    schema: tenant.schema_name,
+    table: "locations",
+    values: {
+      delivery_enabled: body.deliveryEnabled,
+      latitude: body.latitude ?? null,
+      longitude: body.longitude ?? null,
+      restaurant_city: body.restaurantCity ?? null,
+      restaurant_department: body.restaurantDepartment ?? null,
+      restaurant_country: body.restaurantCountry,
+      delivery_radius_km: body.deliveryRadiusKm,
+      allow_written_address_reference: body.allowWrittenAddressReference,
+      try_geocode_written_addresses: body.tryGeocodeWrittenAddresses,
+      allow_out_of_coverage_orders: body.allowOutOfCoverageOrders,
+      request_location_message: body.requestLocationMessage,
+      written_address_fallback_message: body.writtenAddressFallbackMessage,
+      out_of_coverage_message: body.outOfCoverageMessage,
+      updated_at: new Date().toISOString(),
+    },
+    query: { id: `eq.${current.locationId}` },
+  });
+
+  return c.json(await getDeliveryCoverageSettings({
+    env: c.env,
+    schemaName: tenant.schema_name,
+    locationId: current.locationId,
+  }));
 });
 
 dashboardRoutes.post("/:tenantSlug/products", async (c) => {
@@ -2350,6 +2420,14 @@ function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
     fulfillmentType: row.fulfillment_type,
     serviceTiming: row.service_timing ?? "asap",
     scheduledFor: row.scheduled_for ?? undefined,
+    customerAddressText: row.customer_address_text ?? undefined,
+    customerLatitude: row.customer_latitude ?? undefined,
+    customerLongitude: row.customer_longitude ?? undefined,
+    deliveryDistanceKm: row.delivery_distance_km ?? undefined,
+    isInsideDeliveryCoverage: row.is_inside_delivery_coverage ?? undefined,
+    coverageValidationMethod: row.coverage_validation_method ?? undefined,
+    coverageConfidence: row.coverage_confidence ?? undefined,
+    coverageCheckedAt: row.coverage_checked_at ?? undefined,
     paymentMethod: row.payment_method,
     subtotal: row.subtotal,
     deliveryFee: row.delivery_fee,
@@ -2497,7 +2575,7 @@ async function loadOrderNotificationContext(
     table: "orders",
     query: {
       select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
       id: `eq.${orderId}`,
       limit: 1,
     },
