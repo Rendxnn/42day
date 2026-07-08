@@ -16,6 +16,12 @@ El dashboard ya cubre una parte importante del flujo `demo-ready`:
 - mover estados operativos basicos,
 - revisar comprobante de transferencia,
 - confirmar pago cuando la orden esta en `payment_pending_review`,
+- modulo `Configuración` para encargados,
+- subida de menu movida al modulo `Configuración`,
+- CRUD de cuentas bancarias por sede,
+- CRUD de QR de pago por sede,
+- activacion/desactivacion con reglas de maximo 5 cuentas activas y 1 QR activo,
+- warning global cuando la sede no tiene ningun metodo de transferencia activo,
 - CRUD de productos,
 - productos compuestos/configurables,
 - menu del dia,
@@ -38,6 +44,8 @@ Flujo de auth:
 4. el backend valida el usuario y resuelve tenants/roles,
 5. toda operacion sensible pasa por `apps/api`.
 
+Para configuracion de pagos, el frontend ya consume endpoints reales del backend. Ya no usa instrucciones de transferencia en texto libre ni un adapter mock para la operacion normal.
+
 ## Features implementadas que hoy importan para demo
 
 ### Restaurante
@@ -46,6 +54,10 @@ Flujo de auth:
 - estados pendientes, confirmados y cerrados,
 - comprobantes de transferencia desde el detalle,
 - confirmacion minima de pago,
+- configuracion de pagos por sede,
+- CRUD de cuentas con banco, numero y titular,
+- CRUD de QR con imagen persistida y preview,
+- validaciones visuales para activacion, desactivacion y eliminacion,
 - agotados con reemplazos,
 - polling y notificaciones de pedidos nuevos,
 - soporte de realtime para refresco de ordenes,
@@ -66,15 +78,16 @@ Flujo de auth:
 - no existe timeline de conversacion para casos `manual`,
 - no existe flujo visual completo para retomar una conversacion manual especifica,
 - no existe rechazo formal de comprobante con pedido de reenvio,
+- no existe testing automatizado del modulo `Configuración`,
 - el frontend no tiene pruebas automatizadas.
 
 ## Deuda tecnica importante
 
-### 1. Archivo principal demasiado grande
+### 1. Archivo principal todavia grande
 
-`src/App.tsx` concentra demasiada logica de producto, estado, admin, navegacion y comportamiento UI.
+`src/App.tsx` ya esta mejor que al inicio de la sesion porque `Configuración` y su logica de pagos viven en `src/features/configuration/*`, pero sigue concentrando bastante shell, navegacion, estado global y flujos admin.
 
-### 2. Modulo de pedidos tambien grande
+### 2. Modulo de pedidos sigue siendo grande
 
 `src/orders.tsx` concentra demasiada logica operativa en una sola pieza.
 
@@ -82,7 +95,11 @@ Flujo de auth:
 
 Hoy `apps/dashboard` no tiene suite de tests configurada.
 
-### 4. Bundle grande
+### 4. Dependencia en backend y migraciones
+
+El modulo de configuracion de pagos ya depende de tablas, storage bucket y endpoints reales. La parte funcional del frontend esta lista, pero el proceso de aplicar migraciones Supabase y estandarizar ese workflow en el repo sigue siendo una tarea pendiente de infraestructura.
+
+### 5. Bundle grande
 
 El build actual compila, pero Vite ya advierte chunks grandes. No bloquea demos, pero si marca una deuda clara de mantenibilidad/performance.
 
@@ -91,6 +108,7 @@ El build actual compila, pero Vite ya advierte chunks grandes. No bloquea demos,
 - el dashboard no debe fingir persistencia cuando el backend falla,
 - el producto restaurante consume solo nuestro API,
 - la revision humana sigue siendo parte del flujo para transferencia y casos `manual`,
+- la configuracion de pagos ya no usa `transferPaymentInstructions`,
 - el objetivo inmediato es una operacion creible para demo, no una consola total de atencion humana.
 
 ## Variables necesarias

@@ -219,6 +219,41 @@ export type DashboardDiagnostics = {
   productImagesBucket: boolean;
 };
 
+export type PaymentAccount = {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  holderName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentQr = {
+  id: string;
+  label: string;
+  imageUrl: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentConfigurationSnapshot = {
+  accounts: PaymentAccount[];
+  qrs: PaymentQr[];
+  constraints: {
+    maxActiveAccounts: 5;
+    maxActiveQrs: 1;
+  };
+};
+
+export type PaymentConfigurationHealth = {
+  hasActiveTransferMethod: boolean;
+  activeAccountsCount: number;
+  activeQrCount: number;
+  hasActiveQr: boolean;
+};
+
 export type DetectedMenuProduct = {
   name: string;
   description?: string;
@@ -461,6 +496,128 @@ export function updateAutomationSettings(tenantSlug: string, enabled: boolean) {
   return request<AutomationSettings>(`/${tenantSlug}/settings/automation`, {
     method: "PATCH",
     body: JSON.stringify({ enabled }),
+  });
+}
+
+export function getPaymentConfiguration(tenantSlug: string) {
+  return request<PaymentConfigurationSnapshot>(`/${tenantSlug}/settings/payment-configuration`);
+}
+
+export function getPaymentConfigurationHealth(tenantSlug: string) {
+  return request<PaymentConfigurationHealth>(`/${tenantSlug}/settings/payment-configuration/health`);
+}
+
+export function createPaymentAccount(
+  tenantSlug: string,
+  payload: {
+    bankName: string;
+    accountNumber: string;
+    holderName: string;
+    isActive?: boolean;
+  },
+) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-accounts`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePaymentAccountRequest(
+  tenantSlug: string,
+  accountId: string,
+  payload: Partial<{
+    bankName: string;
+    accountNumber: string;
+    holderName: string;
+    isActive: boolean;
+  }>,
+) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-accounts/${accountId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deletePaymentAccountRequest(tenantSlug: string, accountId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-accounts/${accountId}`, {
+    method: "DELETE",
+  });
+}
+
+export function activatePaymentAccountRequest(tenantSlug: string, accountId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-accounts/${accountId}/activate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function deactivatePaymentAccountRequest(tenantSlug: string, accountId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-accounts/${accountId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function createPaymentQrRequest(
+  tenantSlug: string,
+  payload: {
+    label: string;
+    file: File;
+    isActive?: boolean;
+  },
+) {
+  const formData = new FormData();
+  formData.set("label", payload.label);
+  formData.set("file", payload.file);
+  if (payload.isActive !== undefined) {
+    formData.set("isActive", payload.isActive ? "true" : "false");
+  }
+
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-qrs`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export function updatePaymentQrRequest(
+  tenantSlug: string,
+  qrId: string,
+  payload: {
+    label?: string;
+    file?: File;
+  },
+) {
+  const formData = new FormData();
+  if (payload.label !== undefined) {
+    formData.set("label", payload.label);
+  }
+  if (payload.file) {
+    formData.set("file", payload.file);
+  }
+
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-qrs/${qrId}`, {
+    method: "PATCH",
+    body: formData,
+  });
+}
+
+export function deletePaymentQrRequest(tenantSlug: string, qrId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-qrs/${qrId}`, {
+    method: "DELETE",
+  });
+}
+
+export function activatePaymentQrRequest(tenantSlug: string, qrId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-qrs/${qrId}/activate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function deactivatePaymentQrRequest(tenantSlug: string, qrId: string) {
+  return request<{ ok: true }>(`/${tenantSlug}/settings/payment-qrs/${qrId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 

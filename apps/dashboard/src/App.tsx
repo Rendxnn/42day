@@ -17,6 +17,7 @@ import {
   getDiagnostics,
   getLunchReminderPreview,
   getMe,
+  getPaymentConfigurationHealth,
   getPublicCarta,
   getTodayMenu,
   listOrders,
@@ -29,7 +30,7 @@ import {
   updateProduct,
   uploadProductImage,
 } from "./api";
-import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, LunchReminderPreview, LunchReminderSendResult, TenantRole } from "./api";
+import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, LunchReminderPreview, LunchReminderSendResult, PaymentConfigurationHealth, TenantRole } from "./api";
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
   ArrowDown,
@@ -66,7 +67,7 @@ import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
 import { ConfigurationView } from "./features/configuration/ConfigurationView";
-import { mockPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.mock";
+import { httpPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.http";
 
 type View = "menu" | "orders" | "summary" | "catalog" | "configuration";
 type SaveStatus = "loading" | "saving" | "saved" | "offline";
@@ -571,6 +572,7 @@ function DashboardApp() {
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [paymentConfigurationHealth, setPaymentConfigurationHealth] = useState<PaymentConfigurationHealth | null>(null);
   const seenNotificationOrderIdsRef = useRef<Set<string>>(new Set());
   const notificationsBootstrappedRef = useRef(false);
 
@@ -682,6 +684,32 @@ function DashboardApp() {
       .then((diagnostics) => setImageColumnReady(diagnostics.productImageColumn && diagnostics.productImagesBucket))
       .catch(() => setImageColumnReady(false));
   }, [tenantSlug]);
+
+  useEffect(() => {
+    if (!tenantSlug || isSystemAdmin) {
+      setPaymentConfigurationHealth(null);
+      return;
+    }
+
+    let active = true;
+
+    getPaymentConfigurationHealth(tenantSlug)
+      .then((nextHealth) => {
+        if (!active) return;
+        setPaymentConfigurationHealth(nextHealth);
+        if (!nextHealth.hasActiveTransferMethod) {
+          notify("No hay un medio de transferencia activo configurado para este restaurante.", 5000);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setPaymentConfigurationHealth(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tenantSlug, activeView, isSystemAdmin]);
 
   useEffect(() => {
     const tenantSchema = tenants.find((tenant) => tenant.slug === tenantSlug)?.schemaName;
@@ -813,10 +841,10 @@ function DashboardApp() {
     }
   }
 
-  function notify(message: string) {
+  function notify(message: string, durationMs = 2200) {
     setToast(message);
     window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => setToast(""), 2200);
+    toastTimer = window.setTimeout(() => setToast(""), durationMs);
   }
 
   async function persistItem(itemId: string, patch: Partial<MenuItem>) {
@@ -991,7 +1019,7 @@ function DashboardApp() {
               {activeView === "configuration" && (
                 <ConfigurationView
                   access={{ canManage: canAccessConfiguration, role: activeTenantRole }}
-                  adapter={mockPaymentConfigurationAdapter}
+                  adapter={httpPaymentConfigurationAdapter}
                   tenantSlug={tenantSlug}
                   onAnalyze={(file) => analyzeMenuFile(tenantSlug, file)}
                   onCreateProducts={async (detectedProducts) => {
@@ -1009,6 +1037,10 @@ function DashboardApp() {
                     }
                   }}
                   onNotify={notify}
+                  onPaymentConfigurationChanged={async () => {
+                    const nextHealth = await getPaymentConfigurationHealth(tenantSlug);
+                    setPaymentConfigurationHealth(nextHealth);
+                  }}
                 />
               )}
             </div>

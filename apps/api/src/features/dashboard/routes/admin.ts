@@ -42,6 +42,7 @@ adminDashboardRoutes.get("/tenants", async (c) => {
       name: tenant.name,
       slug: tenant.slug,
       schemaName: tenant.schema_name,
+      role: tenant.role,
     })),
   );
 });
@@ -58,6 +59,7 @@ adminDashboardRoutes.get("/me", async (c) => {
       name: tenant.name,
       slug: tenant.slug,
       schemaName: tenant.schema_name,
+      role: tenant.role,
     })),
   });
 });
@@ -198,7 +200,6 @@ adminDashboardRoutes.patch("/admin/restaurants/:tenantId", async (c) => {
     pickupEnabled?: boolean;
     deliveryEnabled?: boolean;
     locationAutomationEnabled?: boolean;
-    transferPaymentInstructions?: string;
   };
   const tenantPatch: Record<string, unknown> = {};
 
@@ -231,7 +232,6 @@ adminDashboardRoutes.patch("/admin/restaurants/:tenantId", async (c) => {
     pickupEnabled: body.pickupEnabled,
     deliveryEnabled: body.deliveryEnabled,
     automationEnabled: body.locationAutomationEnabled,
-    transferPaymentInstructions: body.transferPaymentInstructions,
   });
 
   const restaurants = await listAdminRestaurants(c.env);

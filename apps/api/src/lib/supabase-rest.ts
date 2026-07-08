@@ -54,6 +54,10 @@ export type SupabaseRestClient = {
     contentType: string;
     upsert?: boolean;
   }) => Promise<{ path: string; publicUrl: string }>;
+  deleteObject: (input: {
+    bucket: string;
+    path: string;
+  }) => Promise<void>;
 };
 
 export class SupabaseRestError extends Error {
@@ -241,6 +245,25 @@ export function createSupabaseRestClient(env: ApiBindings): SupabaseRestClient {
         path: input.path,
         publicUrl: `${baseUrl}/storage/v1/object/public/${input.bucket}/${encodedPath}`,
       };
+    },
+
+    async deleteObject(input) {
+      const encodedPath = input.path
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+      const response = await fetch(`${baseUrl}/storage/v1/object/${input.bucket}/${encodedPath}`, {
+        method: "DELETE",
+        headers: {
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new SupabaseRestError(`supabase_storage_delete_failed:${input.bucket}/${input.path}`, response.status, errorText);
+      }
     },
   };
 }

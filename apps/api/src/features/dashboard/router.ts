@@ -3,6 +3,7 @@ import { adminDashboardRoutes } from "./routes/admin";
 import { publicCartaRoutes } from "./routes/public-carta";
 import { alertsDashboardRoutes } from "./routes/alerts";
 import { ordersDashboardRoutes } from "./routes/orders";
+import { lunchRemindersDashboardRoutes } from "./routes/lunch-reminders";
 import { uploadsDashboardRoutes } from "./routes/uploads";
 import { settingsDashboardRoutes } from "./routes/settings";
 import { menuDashboardRoutes } from "./routes/menu";
@@ -31,8 +32,8 @@ import type {
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../../lib/supabase-rest";
 import { updateConversationState } from "../../modules/conversation-service/conversation-service";
-import { logOutboundTextMessage } from "../../modules/message-log/message-log";
-import { sendWhatsAppTextMessage } from "../../modules/whatsapp-webhook/whatsapp-client";
+import { logOutboundImageMessage, logOutboundTextMessage } from "../../modules/message-log/message-log";
+import { sendWhatsAppImageMessage, sendWhatsAppTextMessage } from "../../modules/whatsapp-webhook/whatsapp-client";
 import { isMissingTableError } from "../../shared/errors/supabase";
 import {
   confirmLatestPaymentProofForOrder,
@@ -40,6 +41,7 @@ import {
   getLatestPaymentProofForOrder,
 } from "../payment-proofs/service";
 import { getAuthorizedTenants, getTenantUserRole, isSystemAdmin, requireAuthUser, tenantAccessMiddleware } from "./auth";
+import type { OrderCustomerNotificationPayload } from "./order-customer-notifications";
 import type {
   AdminAuthUser,
   AlertRow,
@@ -75,6 +77,8 @@ dashboardRoutes.route("/", publicCartaRoutes);
 dashboardRoutes.use("/:tenantSlug/*", tenantAccessMiddleware);
 
 dashboardRoutes.route("/", ordersDashboardRoutes);
+
+dashboardRoutes.route("/", lunchRemindersDashboardRoutes);
 
 dashboardRoutes.route("/", alertsDashboardRoutes);
 
@@ -629,7 +633,7 @@ export async function loadOrderNotificationContext(
           schema,
           table: "locations",
           query: {
-            select: "id,name,address,phone,delivery_fee_fixed,transfer_payment_instructions,automation_enabled,is_active",
+            select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
             id: `eq.${order.location_id}`,
             limit: 1,
           },
@@ -667,12 +671,9 @@ export async function resolvePendingConfirmationAlerts(env: ApiBindings, schema:
 
 export function buildAcceptedOrderMessage(order: OrderRow, location?: LocationRow): string {
   if (order.payment_method === "transfer") {
-    const instructions = location?.transfer_payment_instructions?.trim();
     return [
       `¡Gracias! Tu pedido ${order.id.slice(0, 8)} ya fue confirmado por el restaurante. 🙌`,
-      instructions
-        ? `Puedes hacer la transferencia con estos datos:\n${instructions}\n\nCuando la realices, envíame el comprobante por aquí y con gusto continuamos.`
-        : "Puedes hacer la transferencia y, cuando la realices, envíame el comprobante por aquí para continuar con tu pedido.",
+      "Puedes hacer la transferencia y, cuando la realices, envíame el comprobante por aquí para continuar con tu pedido.",
     ].join("\n\n");
   }
 
@@ -741,13 +742,19 @@ export async function sendOrderCustomerNotification(input: {
   env: ApiBindings;
   schemaName: string;
   context: OrderNotificationContext;
-  messageText: string;
+  notification: OrderCustomerNotificationPayload;
   notificationType: OrderCustomerNotificationType;
 }): Promise<OrderRow> {
-  const result = await sendWhatsAppTextMessage(input.env, {
-    to: input.context.customer.phone,
-    text: input.messageText,
-  });
+  const result = input.notification.kind === "image"
+    ? await sendWhatsAppImageMessage(input.env, {
+        to: input.context.customer.phone,
+        imageUrl: input.notification.imageUrl,
+        caption: input.notification.caption,
+      })
+    : await sendWhatsAppTextMessage(input.env, {
+        to: input.context.customer.phone,
+        text: input.notification.text,
+      });
   const now = new Date().toISOString();
   const notificationStatus = result.providerMessageId ? "sent" : "failed";
   const [updatedOrder] = await createSupabaseRestClient(input.env).updateReturning<OrderRow>({
@@ -765,20 +772,33 @@ export async function sendOrderCustomerNotification(input: {
   });
 
   if (input.context.draftOrder?.conversation_id) {
-    await logOutboundTextMessage({
-      env: input.env,
-      schemaName: input.schemaName,
-      conversationId: input.context.draftOrder.conversation_id,
-      text: input.messageText,
-      result,
-      metadata: {
-        order: {
-          orderId: input.context.order.id,
-          notificationType: input.notificationType,
-          source: "dashboard_api",
-        },
+    const metadata = {
+      order: {
+        orderId: input.context.order.id,
+        notificationType: input.notificationType,
+        source: "dashboard_api",
       },
-    }).catch(() => undefined);
+    };
+    await (input.notification.kind === "image"
+      ? logOutboundImageMessage({
+          env: input.env,
+          schemaName: input.schemaName,
+          conversationId: input.context.draftOrder.conversation_id,
+          caption: input.notification.caption,
+          result,
+          metadata: {
+            ...metadata,
+            imageUrl: input.notification.imageUrl,
+          },
+        })
+      : logOutboundTextMessage({
+          env: input.env,
+          schemaName: input.schemaName,
+          conversationId: input.context.draftOrder.conversation_id,
+          text: input.notification.text,
+          result,
+          metadata,
+        })).catch(() => undefined);
   }
 
   await createSupabaseRestClient(input.env).insert({
@@ -928,7 +948,7 @@ export async function resolveActiveMenuId(
     schema,
     table: "locations",
     query: {
-      select: "id,name,address,phone,delivery_fee_fixed,transfer_payment_instructions,automation_enabled,is_active",
+      select: "id,name,address,phone,delivery_fee_fixed,automation_enabled,is_active",
       is_active: "eq.true",
       limit: 1,
     },
@@ -1020,7 +1040,6 @@ export function mapAdminRestaurant(
       pickupEnabled: location.pickup_enabled ?? true,
       deliveryEnabled: location.delivery_enabled ?? true,
       automationEnabled: location.automation_enabled ?? true,
-      transferPaymentInstructions: location.transfer_payment_instructions ?? undefined,
       isActive: location.is_active,
     } : undefined,
     members,
@@ -1132,7 +1151,6 @@ export async function updatePrimaryLocation(
     pickupEnabled?: boolean;
     deliveryEnabled?: boolean;
     automationEnabled?: boolean;
-    transferPaymentInstructions?: string;
   },
 ) {
   if (Object.values(patch).every((value) => value === undefined)) return;
@@ -1149,7 +1167,6 @@ export async function updatePrimaryLocation(
       p_pickup_enabled: patch.pickupEnabled,
       p_delivery_enabled: patch.deliveryEnabled,
       p_automation_enabled: patch.automationEnabled,
-      p_transfer_payment_instructions: patch.transferPaymentInstructions,
     },
   });
 }

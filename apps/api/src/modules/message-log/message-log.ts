@@ -44,6 +44,45 @@ export async function logOutboundTextMessage(input: {
   result: OutboundMessageResult;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
+  await logOutboundMessage({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversationId,
+    messageType: "text",
+    text: input.text,
+    result: input.result,
+    metadata: input.metadata,
+  });
+}
+
+export async function logOutboundImageMessage(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  caption?: string;
+  result: OutboundMessageResult;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await logOutboundMessage({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversationId,
+    messageType: "image",
+    text: input.caption,
+    result: input.result,
+    metadata: input.metadata,
+  });
+}
+
+async function logOutboundMessage(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  messageType: "text" | "image";
+  text?: string;
+  result: OutboundMessageResult;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
   const client = createSupabaseRestClient(input.env);
 
   await client.insert({
@@ -54,7 +93,7 @@ export async function logOutboundTextMessage(input: {
       direction: "outbound",
       provider: "whatsapp_cloud",
       provider_message_id: input.result.providerMessageId,
-      message_type: "text",
+      message_type: input.messageType,
       text: input.text,
       payload: appendInternalPayload(input.result.raw, input.metadata),
       status: input.result.providerMessageId ? "sent" : "send_attempted",

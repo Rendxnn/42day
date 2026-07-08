@@ -12,6 +12,7 @@ import {
 } from "../../modules/message-router/response-composer";
 import { isActiveOrderState, loadCurrentMenu, shouldTrySemanticAtState } from "./helpers";
 import { sendAndLogText } from "./outbound";
+import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch } from "./transfer-fallback";
 import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer-proof";
 import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./product-configuration";
 import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements";
@@ -64,6 +65,13 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.conversation.state === "awaiting_transfer_proof") {
     const handledTransferProof = await tryHandleTransferProofBranch(input);
     if (handledTransferProof) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
+    const handledTransferFallback = await tryHandleTransferFallbackPaymentMethodBranch(input, signals);
+    if (handledTransferFallback) {
       return;
     }
   }

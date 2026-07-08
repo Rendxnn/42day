@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { dashboardRoutes } from "./routes/dashboard.ts";
+import { dashboardRoutes } from "./features/dashboard/router.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { whatsappRoutes } from "./routes/whatsapp.ts";
 import type { ApiBindings } from "./lib/bindings.ts";

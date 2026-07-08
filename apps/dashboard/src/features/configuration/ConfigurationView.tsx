@@ -13,6 +13,7 @@ export function ConfigurationView({
   onAnalyze,
   onCreateProducts,
   onNotify,
+  onPaymentConfigurationChanged,
 }: {
   access: ConfigurationAccess;
   adapter: PaymentConfigurationAdapter;
@@ -20,6 +21,7 @@ export function ConfigurationView({
   onAnalyze: (file: File) => Promise<MenuFileAnalysisPayload>;
   onCreateProducts: (products: DetectedMenuProduct[]) => Promise<void>;
   onNotify: (message: string) => void;
+  onPaymentConfigurationChanged?: () => Promise<void> | void;
 }) {
   const [snapshot, setSnapshot] = useState<PaymentConfigurationSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,7 @@ export function ConfigurationView({
     try {
       await operation();
       await reloadSnapshot();
+      await Promise.resolve(onPaymentConfigurationChanged?.()).catch(() => undefined);
       setFeedback({ kind: "success", message: successMessage });
     } catch (error) {
       setFeedback({

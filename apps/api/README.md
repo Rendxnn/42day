@@ -21,6 +21,16 @@ El API ya soporta el flujo principal `demo-ready`:
 
 La meta actual sigue siendo demos creibles y pruebas controladas, no un backend de produccion completa.
 
+Cambios recientes ya integrados:
+
+- dashboard modular montado como router real,
+- configuracion de pagos por sede con cuentas bancarias y QR,
+- health de configuracion de pagos para dashboard,
+- `/dashboard/me` y `/dashboard/tenants` ya incluyen `role`,
+- aceptacion de ordenes por transferencia con mensaje automatico segun QR/cuentas activas,
+- fallback conversacional a efectivo cuando no hay metodo de transferencia activo,
+- eliminacion del camino legacy basado en `transfer_payment_instructions` desde el flujo vivo.
+
 ## Runtime y entrypoints
 
 - runtime: Cloudflare Workers
@@ -45,7 +55,7 @@ Hoy el repo esta en una fase intermedia de refactor:
 - `src/modules/*`: fachadas de compatibilidad interna
 - `src/shared/*`: helpers y errores transversales
 
-Piezas ya bastante aterrizadas en `features/*`:
+Piezas ya aterrizadas en `features/*`:
 
 - `chat-routing/*`
 - `conversations/*`
@@ -55,18 +65,21 @@ Piezas ya bastante aterrizadas en `features/*`:
 - `orders/*`
 - `dashboard/auth.ts`
 - `dashboard/types.ts`
+- `dashboard/payment-configuration.ts`
+- `dashboard/order-customer-notifications.ts`
+- `dashboard/routes/*`
 
 ## Deuda tecnica importante
 
-### 1. Router dashboard legacy todavia activo
+### 1. El dashboard modular ya esta montado, pero queda compatibilidad legacy
 
-Existe una composicion nueva en `src/features/dashboard/router.ts` y subrouters por dominio, pero el Worker hoy sigue montando `src/routes/dashboard.ts` como router live.
+El Worker ya monta `src/features/dashboard/router.ts` como router live.
 
 Eso significa que:
 
-- `src/routes/dashboard.ts` sigue siendo una pieza muy grande y activa,
-- la separacion por subrouters existe, pero no es la ruta canonica en runtime todavia,
-- la documentacion debe tratar esta zona como transicional, no como refactor cerrado.
+- `src/routes/dashboard.ts` ya no es la fuente canonica,
+- hoy funciona como capa de compatibilidad fina para no romper imports y tests,
+- el refactor principal ya avanzo, pero todavia queda limpiar restos legacy y seguir partiendo responsabilidades.
 
 ### 2. Orquestacion conversacional todavia concentrada
 
@@ -76,7 +89,20 @@ Eso significa que:
 
 `validation-engine` y `pricing-engine` siguen existiendo sobre todo por compatibilidad y no representan una capa de dominio fuerte por si solas.
 
-### 4. Deuda fuerte en frontend que impacta el producto completo
+### 4. Flujo de migraciones Supabase aun no estandarizado
+
+El repo ya tiene migraciones SQL versionadas en `packages/db/migrations`, incluida la de configuracion de pagos, pero todavia no existe un workflow oficial de Supabase CLI para aplicar solo migraciones pendientes.
+
+Pendiente explicito:
+
+- inicializar y linkear un proyecto Supabase CLI en el repo,
+- decidir la carpeta canonica de migraciones,
+- bootstrapear `supabase_migrations.schema_migrations`,
+- agregar scripts operativos para `status`, `dry-run` y `push`.
+
+Mientras eso no exista, aplicar cambios de schema sigue siendo un paso manual y debe tratarse con cuidado.
+
+### 5. Deuda fuerte en frontend que impacta el producto completo
 
 Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 
@@ -91,6 +117,9 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 - se validan requeridos, ambiguedades, valores inactivos, limites `maxSelect` y `priceDelta`,
 - el draft no puede confirmarse si faltan items, fulfillment, direccion de delivery, pago o configuracion pendiente,
 - el comprobante de transferencia queda ligado a orden y mensaje antes de pasar a revision humana minima.
+- la configuracion de pagos valida maximo 5 cuentas activas por sede y maximo 1 QR activo por sede,
+- al aceptar una orden `transfer`, el backend decide entre QR con caption, cuentas por texto o fallback a efectivo segun configuracion real de la sede,
+- si el cliente acepta efectivo en ese fallback, la orden aceptada cambia de `transfer` a `cash` y la conversacion se cierra.
 
 ## Gaps reales que siguen abiertos
 
@@ -98,7 +127,8 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 - si la automatizacion esta apagada, el sistema todavia no deja siempre una alerta operativa consistente,
 - falta rechazo formal de comprobante con pedido de reenvio,
 - falta explotar mejor `addressText`, `confirmationText` y `questions` del parser,
-- falta suite conversacional automatizada mas amplia.
+- falta suite conversacional automatizada mas amplia,
+- falta formalizar el sistema de migraciones Supabase para dejar de depender de ejecucion manual SQL.
 
 ## Testing actual
 

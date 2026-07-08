@@ -93,6 +93,8 @@ export function buildClarificationPrompt(state: DraftOrderStateLike): string {
       return 'Si todo está bien, respóndeme "sí". Si quieres cambiar algo, dime qué ajustamos y con gusto te ayudo.';
     case "awaiting_transfer_proof":
       return "Quedo atento al comprobante de transferencia para compartirlo con el restaurante.";
+    case "awaiting_transfer_fallback_payment_method":
+      return "Si te parece bien, podemos continuar con pago en efectivo. ¿Te funciona así?";
     default:
       return 'Si quieres ver el menú, escríbeme "menú". Y si prefieres hablar con alguien del restaurante, escribe "asesor".';
   }
@@ -120,6 +122,20 @@ export function buildTransferProofUnsupportedFormatPrompt(): string {
 
 export function buildTransferProofProcessingFailedMessage(): string {
   return "Recibí tu mensaje, pero no pude procesar el comprobante automáticamente. Voy a compartirlo con alguien del restaurante para que continúe contigo.";
+}
+
+export function buildTransferFallbackPaymentPrompt(): string {
+  return [
+    "En este momento no tengo un medio de transferencia activo para compartirte.",
+    "Si te parece bien, podemos continuar con pago en efectivo. ¿Te funciona así?",
+  ].join("\n\n");
+}
+
+export function buildTransferFallbackCashConfirmedMessage(): string {
+  return [
+    "Perfecto 🙌 Entonces dejamos el pago en efectivo.",
+    "El restaurante ya puede seguir con tu pedido y, si surge alguna novedad, te escribiré por aquí.",
+  ].join("\n\n");
 }
 
 export function buildRestaurantReviewPendingMessage(): string {
@@ -279,6 +295,7 @@ type DraftOrderStateLike =
   | "awaiting_address"
   | "awaiting_payment_method"
   | "awaiting_transfer_proof"
+  | "awaiting_transfer_fallback_payment_method"
   | "awaiting_confirmation"
   | string;
 

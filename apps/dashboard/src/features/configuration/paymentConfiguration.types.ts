@@ -1,6 +1,8 @@
 import type { TenantRole } from "../../api";
+import type { PaymentConfigurationHealth } from "../../api";
 
 export type { TenantRole };
+export type { PaymentConfigurationHealth };
 
 export type PaymentAccount = {
   id: string;

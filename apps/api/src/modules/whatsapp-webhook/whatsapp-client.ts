@@ -1,4 +1,4 @@
-import type { OutboundMessageResult, OutboundTextMessage } from "@42day/types";
+import type { OutboundImageMessage, OutboundMessageResult, OutboundTextMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 
 type WhatsAppSendTextResponse = {
@@ -9,6 +9,33 @@ type WhatsAppSendTextResponse = {
 };
 
 export async function sendWhatsAppTextMessage(env: ApiBindings, message: OutboundTextMessage): Promise<OutboundMessageResult> {
+  return sendWhatsAppMessage(env, {
+    messaging_product: "whatsapp",
+    to: message.to,
+    type: "text",
+    text: {
+      preview_url: false,
+      body: message.text,
+    },
+  });
+}
+
+export async function sendWhatsAppImageMessage(env: ApiBindings, message: OutboundImageMessage): Promise<OutboundMessageResult> {
+  return sendWhatsAppMessage(env, {
+    messaging_product: "whatsapp",
+    to: message.to,
+    type: "image",
+    image: {
+      link: message.imageUrl,
+      ...(message.caption ? { caption: message.caption } : {}),
+    },
+  });
+}
+
+async function sendWhatsAppMessage(
+  env: ApiBindings,
+  payload: { to: string } & Record<string, unknown>,
+): Promise<OutboundMessageResult> {
   const version = env.META_GRAPH_API_VERSION ?? "v22.0";
   const url = `https://graph.facebook.com/${version}/${env.META_PHONE_NUMBER_ID}/messages`;
 
@@ -18,15 +45,7 @@ export async function sendWhatsAppTextMessage(env: ApiBindings, message: Outboun
       Authorization: `Bearer ${env.META_ACCESS_TOKEN}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to: message.to,
-      type: "text",
-      text: {
-        preview_url: false,
-        body: message.text,
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   const body = (await response.json().catch(() => ({}))) as WhatsAppSendTextResponse;
@@ -43,7 +62,7 @@ export async function sendWhatsAppTextMessage(env: ApiBindings, message: Outboun
   }
 
   console.info("whatsapp.message.outbound_sent", {
-    to: message.to,
+    to: payload.to,
     providerMessageId: body.messages?.[0]?.id,
   });
 

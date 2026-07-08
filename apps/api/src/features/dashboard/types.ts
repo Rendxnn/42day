@@ -14,6 +14,7 @@ export type TenantRow = {
   name?: string;
   slug: string;
   schema_name: string;
+  role?: "encargado" | "trabajador";
   status?: TenantStatus;
   timezone?: string;
   currency?: string;
@@ -49,11 +50,33 @@ export type LocationRow = {
   address?: string;
   phone?: string;
   delivery_fee_fixed: number;
-  transfer_payment_instructions?: string | null;
   pickup_enabled?: boolean;
   delivery_enabled?: boolean;
   automation_enabled?: boolean;
   is_active: boolean;
+};
+
+export type PaymentAccountRow = {
+  id: string;
+  location_id: string;
+  bank_name: string;
+  account_number: string;
+  holder_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentQrRow = {
+  id: string;
+  location_id: string;
+  label: string;
+  storage_bucket: string;
+  storage_path: string;
+  mime_type?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProductRow = {

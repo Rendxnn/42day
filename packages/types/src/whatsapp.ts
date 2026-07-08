@@ -37,6 +37,12 @@ export type OutboundTextMessage = {
   text: string;
 };
 
+export type OutboundImageMessage = {
+  to: string;
+  imageUrl: string;
+  caption?: string;
+};
+
 export type OutboundMessageResult = {
   providerMessageId?: string;
   raw: unknown;

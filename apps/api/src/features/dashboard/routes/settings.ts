@@ -1,13 +1,41 @@
 import { Hono } from "hono";
 import type { AutomationSettings } from "@42day/types";
 import type { ApiBindings } from "../../../lib/bindings";
-import { createSupabaseRestClient } from "../../../lib/supabase-rest";
+import { SupabaseRestError, createSupabaseRestClient } from "../../../lib/supabase-rest";
 import type { DashboardVariables, LocationRow, TenantRow } from "../types";
+import { getTenantUserRole } from "../auth";
+import {
+  activatePaymentAccount,
+  activatePaymentQr,
+  createPaymentAccount,
+  createPaymentQr,
+  deactivatePaymentAccount,
+  deactivatePaymentQr,
+  deletePaymentAccount,
+  deletePaymentQr,
+  getPrimaryLocation,
+  loadPaymentConfiguration,
+  loadPaymentConfigurationHealth,
+  updatePaymentAccount,
+  updatePaymentQr,
+} from "../payment-configuration";
 
 export const settingsDashboardRoutes = new Hono<{
   Bindings: ApiBindings;
   Variables: DashboardVariables;
 }>();
+
+async function requireManagerRole(c: any) {
+  const tenant = c.get("tenant");
+  const authUser = c.get("authUser");
+  const role = await getTenantUserRole(c.env, authUser.id, tenant.id);
+
+  if (role !== "encargado") {
+    return null;
+  }
+
+  return role;
+}
 
 settingsDashboardRoutes.get("/:tenantSlug/settings/automation", async (c) => {
   const tenant = c.get("tenant");
@@ -91,3 +119,345 @@ settingsDashboardRoutes.patch("/:tenantSlug/settings/automation", async (c) => {
     locationAutomationEnabled: location ? body.enabled : undefined,
   } satisfies AutomationSettings);
 });
+
+settingsDashboardRoutes.get("/:tenantSlug/settings/payment-configuration", async (c) => {
+  const tenant = c.get("tenant");
+  const snapshot = await loadPaymentConfiguration(c.env, tenant);
+  return c.json(snapshot);
+});
+
+settingsDashboardRoutes.get("/:tenantSlug/settings/payment-configuration/health", async (c) => {
+  const tenant = c.get("tenant");
+  const health = await loadPaymentConfigurationHealth(c.env, tenant);
+  return c.json(health);
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-accounts", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    bankName?: string;
+    accountNumber?: string;
+    holderName?: string;
+    isActive?: boolean;
+  };
+
+  if (!String(body.bankName ?? "").trim()) {
+    return c.json({ error: "payment_account_bank_name_required" }, 400);
+  }
+  if (!String(body.accountNumber ?? "").trim()) {
+    return c.json({ error: "payment_account_number_required" }, 400);
+  }
+  if (!String(body.holderName ?? "").trim()) {
+    return c.json({ error: "payment_account_holder_name_required" }, 400);
+  }
+
+  try {
+    await createPaymentAccount({
+      env: c.env,
+      tenant,
+      locationId: location.id,
+      bankName: String(body.bankName),
+      accountNumber: String(body.accountNumber),
+      holderName: String(body.holderName),
+      isActive: body.isActive === true,
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true }, 201);
+});
+
+settingsDashboardRoutes.patch("/:tenantSlug/settings/payment-accounts/:accountId", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    bankName?: string;
+    accountNumber?: string;
+    holderName?: string;
+    isActive?: boolean;
+  };
+
+  if (body.bankName !== undefined && !String(body.bankName).trim()) {
+    return c.json({ error: "payment_account_bank_name_required" }, 400);
+  }
+  if (body.accountNumber !== undefined && !String(body.accountNumber).trim()) {
+    return c.json({ error: "payment_account_number_required" }, 400);
+  }
+  if (body.holderName !== undefined && !String(body.holderName).trim()) {
+    return c.json({ error: "payment_account_holder_name_required" }, 400);
+  }
+
+  try {
+    await updatePaymentAccount({
+      env: c.env,
+      tenant,
+      accountId: c.req.param("accountId"),
+      bankName: body.bankName,
+      accountNumber: body.accountNumber,
+      holderName: body.holderName,
+      isActive: body.isActive,
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.delete("/:tenantSlug/settings/payment-accounts/:accountId", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await deletePaymentAccount({
+      env: c.env,
+      tenant,
+      accountId: c.req.param("accountId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-accounts/:accountId/activate", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  try {
+    await activatePaymentAccount({
+      env: c.env,
+      tenant,
+      locationId: location.id,
+      accountId: c.req.param("accountId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-accounts/:accountId/deactivate", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await deactivatePaymentAccount({
+      env: c.env,
+      tenant,
+      accountId: c.req.param("accountId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-qrs", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  const form = await c.req.parseBody();
+  const label = String(form.label ?? "");
+  const isActive = String(form.isActive ?? "false") === "true";
+  const file = form.file;
+
+  if (!label.trim()) {
+    return c.json({ error: "payment_qr_label_required" }, 400);
+  }
+  if (!(file instanceof File)) {
+    return c.json({ error: "payment_qr_image_required" }, 400);
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return c.json({ error: "unsupported_qr_image_type" }, 400);
+  }
+
+  try {
+    await createPaymentQr({
+      env: c.env,
+      tenant,
+      locationId: location.id,
+      label,
+      file,
+      isActive,
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true }, 201);
+});
+
+settingsDashboardRoutes.patch("/:tenantSlug/settings/payment-qrs/:qrId", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  const form = await c.req.parseBody();
+  const label = form.label;
+  const file = form.file;
+
+  if (label !== undefined && !String(label).trim()) {
+    return c.json({ error: "payment_qr_label_required" }, 400);
+  }
+  if (file !== undefined && !(file instanceof File)) {
+    return c.json({ error: "payment_qr_image_required" }, 400);
+  }
+  if (file instanceof File && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return c.json({ error: "unsupported_qr_image_type" }, 400);
+  }
+
+  try {
+    await updatePaymentQr({
+      env: c.env,
+      tenant,
+      qrId: c.req.param("qrId"),
+      label: label !== undefined ? String(label) : undefined,
+      file: file instanceof File ? file : undefined,
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.delete("/:tenantSlug/settings/payment-qrs/:qrId", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await deletePaymentQr({
+      env: c.env,
+      tenant,
+      qrId: c.req.param("qrId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-qrs/:qrId/activate", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const location = await getPrimaryLocation(c.env, tenant);
+  if (!location) {
+    return c.json({ error: "payment_configuration_location_not_found" }, 409);
+  }
+
+  try {
+    await activatePaymentQr({
+      env: c.env,
+      tenant,
+      qrId: c.req.param("qrId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+settingsDashboardRoutes.post("/:tenantSlug/settings/payment-qrs/:qrId/deactivate", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  try {
+    await deactivatePaymentQr({
+      env: c.env,
+      tenant,
+      qrId: c.req.param("qrId"),
+    });
+  } catch (error) {
+    return handlePaymentConfigurationError(c, error);
+  }
+
+  return c.json({ ok: true });
+});
+
+function handlePaymentConfigurationError(c: any, error: unknown) {
+  const message = error instanceof Error ? error.message : "payment_configuration_failed";
+  const supabaseBody = error instanceof SupabaseRestError ? error.body : "";
+
+  if (message === "accounts_active_limit_reached" || supabaseBody.includes("accounts_active_limit_reached")) {
+    return c.json({ error: "accounts_active_limit_reached" }, 409);
+  }
+  if (message === "active_account_delete_forbidden") {
+    return c.json({ error: message }, 409);
+  }
+  if (message === "payment_qr_active_conflict" || supabaseBody.includes("payment_qrs_single_active_idx")) {
+    return c.json({ error: "payment_qr_active_conflict" }, 409);
+  }
+  if (message === "active_qr_delete_forbidden") {
+    return c.json({ error: message }, 409);
+  }
+  if (message === "payment_account_not_found" || message === "payment_qr_not_found") {
+    return c.json({ error: message }, 404);
+  }
+  if (message === "unsupported_qr_image_type") {
+    return c.json({ error: message }, 400);
+  }
+  if (message.startsWith("supabase_storage_upload_failed:")) {
+    return c.json({ error: "payment_qr_upload_failed" }, 502);
+  }
+  if (message.startsWith("supabase_storage_delete_failed:")) {
+    return c.json({ error: "payment_qr_storage_cleanup_failed" }, 502);
+  }
+
+  console.error("payment_configuration_failed", { message });
+  return c.json({ error: "payment_configuration_failed" }, 502);
+}

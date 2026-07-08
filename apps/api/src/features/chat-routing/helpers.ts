@@ -123,6 +123,7 @@ export function isActiveOrderState(state: Conversation["state"]): boolean {
     "awaiting_payment_method",
     "awaiting_confirmation",
     "awaiting_transfer_proof",
+    "awaiting_transfer_fallback_payment_method",
   ].includes(state);
 }
 

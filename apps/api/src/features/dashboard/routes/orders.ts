@@ -19,6 +19,7 @@ import {
   getLatestPaymentProofForOrder,
 } from "../../payment-proofs/service";
 import { getTenantUserRole } from "../auth";
+import { buildAcceptedOrderNotification } from "../order-customer-notifications";
 import type {
   AlertRow,
   CustomerRow,
@@ -30,7 +31,6 @@ import type {
   MenuItemRow,
 } from "../types";
 import {
-  buildAcceptedOrderMessage,
   buildOutOfStockMessage,
   buildRetryNotificationMessage,
   loadOrderNotificationContext,
@@ -369,9 +369,13 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
     return c.json({ error: "order_not_pending_restaurant_confirmation" }, 409);
   }
 
+  const acceptedNotification = await buildAcceptedOrderNotification({
+    env: c.env,
+    tenant,
+    order: context.order,
+  });
   const now = new Date().toISOString();
   const status = "accepted" as const;
-  const conversationState = context.order.payment_method === "transfer" ? "awaiting_transfer_proof" : "completed";
   const [updated] = await createSupabaseRestClient(c.env).updateReturning<OrderRow>({
     schema: tenant.schema_name,
     table: "orders",
@@ -394,7 +398,7 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
       env: c.env,
       schemaName: tenant.schema_name,
       conversationId: context.draftOrder.conversation_id,
-      state: conversationState,
+      state: acceptedNotification.conversationState,
       resetClarificationAttempts: true,
     }).catch(() => undefined);
   }
@@ -418,7 +422,6 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
 
   await resolvePendingConfirmationAlerts(c.env, tenant.schema_name, context.order.id).catch(() => undefined);
 
-  const notificationText = buildAcceptedOrderMessage(updated ?? context.order, context.location);
   const finalOrder = await sendOrderCustomerNotification({
     env: c.env,
     schemaName: tenant.schema_name,
@@ -426,7 +429,7 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/accept", async (c) => {
       ...context,
       order: updated ?? context.order,
     },
-    messageText: notificationText,
+    notification: acceptedNotification.notification,
     notificationType: "accepted",
   });
 
@@ -592,7 +595,10 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/reject-out-of-stock", a
       ...context,
       order: updated ?? context.order,
     },
-    messageText: notificationText,
+    notification: {
+      kind: "text",
+      text: notificationText,
+    },
     notificationType: "out_of_stock",
   });
 
@@ -620,9 +626,18 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/customer-notification/r
     return c.json({ error: "order_not_found" }, 404);
   }
 
-  const messageText = buildRetryNotificationMessage(body.type, context.order, context.location);
+  const notification = body.type === "accepted"
+    ? await buildAcceptedOrderNotification({
+        env: c.env,
+        tenant,
+        order: context.order,
+      }).then((result) => result.notification)
+    : (() => {
+        const text = buildRetryNotificationMessage(body.type, context.order, context.location);
+        return text ? { kind: "text" as const, text } : null;
+      })();
 
-  if (!messageText) {
+  if (!notification) {
     return c.json({ error: "customer_notification_retry_not_available" }, 409);
   }
 
@@ -630,7 +645,7 @@ ordersDashboardRoutes.post("/:tenantSlug/orders/:orderId/customer-notification/r
     env: c.env,
     schemaName: tenant.schema_name,
     context,
-    messageText,
+    notification,
     notificationType: body.type,
   });
 

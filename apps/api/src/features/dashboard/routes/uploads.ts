@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
+import { processMenuFile } from "../../../modules/menu-upload/menuFileProcessor";
 import type { DashboardVariables, TenantRow } from "../types";
 import { arrayBufferToBase64, parseGeminiMenuProducts } from "../router";
 
@@ -123,4 +124,30 @@ uploadsDashboardRoutes.post("/:tenantSlug/uploads/product-image", async (c) => {
     path: upload.path,
     publicUrl: upload.publicUrl,
   });
+});
+
+uploadsDashboardRoutes.post("/:tenantSlug/uploads/menu-file/analyze", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form.file;
+
+  if (!(file instanceof File)) {
+    return c.json({ error: "menu_file_required" }, 400);
+  }
+
+  try {
+    const result = await processMenuFile({
+      env: c.env,
+      file,
+    });
+
+    return c.json(result);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "menu_file_analysis_failed";
+    if (reason === "unsupported_menu_file_type") return c.json({ error: reason }, 415);
+    if (reason === "gemini_not_configured") return c.json({ error: reason }, 500);
+    if (reason === "gemini_quota_exhausted") return c.json({ error: reason }, 429);
+
+    console.error("menu_file_analysis_failed", { reason });
+    return c.json({ error: "menu_file_analysis_failed" }, 502);
+  }
 });

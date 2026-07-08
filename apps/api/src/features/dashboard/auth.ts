@@ -59,7 +59,7 @@ export async function getAuthorizedTenants(env: ApiBindings, userId: string): Pr
   }
 
   const tenantIds = tenantUsers.map((row) => row.tenant_id).join(",");
-  return supabase.select<TenantRow>({
+  const tenants = await supabase.select<TenantRow>({
     schema: "control",
     table: "tenants",
     query: {
@@ -69,6 +69,12 @@ export async function getAuthorizedTenants(env: ApiBindings, userId: string): Pr
       order: "name.asc",
     },
   });
+
+  const roleByTenantId = new Map(tenantUsers.map((row) => [row.tenant_id, row.role]));
+  return tenants.map((tenant) => ({
+    ...tenant,
+    role: roleByTenantId.get(tenant.id),
+  }));
 }
 
 export async function getTenantUserRole(
