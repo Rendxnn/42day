@@ -262,6 +262,14 @@ export async function updateDraftOrderFulfillment(input: {
   if (input.fulfillmentType === "pickup") {
     patch.delivery_address = null;
     patch.delivery_address_id = null;
+    patch.customer_address_text = null;
+    patch.customer_latitude = null;
+    patch.customer_longitude = null;
+    patch.delivery_distance_km = null;
+    patch.is_inside_delivery_coverage = null;
+    patch.coverage_validation_method = "not_validated";
+    patch.coverage_confidence = null;
+    patch.coverage_checked_at = null;
   }
 
   await updateDraftOrderRow({
@@ -294,6 +302,50 @@ export async function updateDraftOrderDeliveryAddress(input: {
     values: {
       delivery_address: input.addressText,
       delivery_address_id: input.deliveryAddressId ?? null,
+      customer_address_text: input.addressText,
+    },
+  });
+
+  return recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+}
+
+export async function updateDraftOrderCoverage(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  customerLatitude?: number | null;
+  customerLongitude?: number | null;
+  deliveryDistanceKm?: number | null;
+  isInsideDeliveryCoverage?: boolean | null;
+  validationMethod: DraftOrder["coverageValidationMethod"];
+  confidence?: DraftOrder["coverageConfidence"] | null;
+  checkedAt?: string | null;
+  customerAddressText?: string | null;
+  deliveryAddressId?: string | null;
+  deliveryFeeFixed?: number;
+}): Promise<DraftOrder> {
+  await updateDraftOrderRow({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    values: {
+      customer_latitude: input.customerLatitude ?? null,
+      customer_longitude: input.customerLongitude ?? null,
+      delivery_distance_km: input.deliveryDistanceKm ?? null,
+      is_inside_delivery_coverage: input.isInsideDeliveryCoverage ?? null,
+      coverage_validation_method: input.validationMethod ?? "not_validated",
+      coverage_confidence: input.confidence ?? null,
+      coverage_checked_at: input.checkedAt ?? null,
+      ...(input.customerAddressText !== undefined ? {
+        customer_address_text: input.customerAddressText,
+        delivery_address: input.customerAddressText,
+      } : {}),
+      ...(input.deliveryAddressId !== undefined ? { delivery_address_id: input.deliveryAddressId } : {}),
     },
   });
 

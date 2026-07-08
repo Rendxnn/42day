@@ -24,6 +24,14 @@ type OrderRow = {
   scheduled_for?: string | null;
   delivery_address?: string | null;
   delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: Order["coverageValidationMethod"] | null;
+  coverage_confidence?: Order["coverageConfidence"] | null;
+  coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
   subtotal: number;
@@ -122,6 +130,14 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
       scheduled_for: input.draft.scheduledFor ?? null,
       delivery_address: input.draft.deliveryAddress ?? null,
       delivery_address_id: input.draft.deliveryAddressId ?? null,
+      customer_address_text: input.draft.customerAddressText ?? input.draft.deliveryAddress ?? null,
+      customer_latitude: input.draft.customerLatitude ?? null,
+      customer_longitude: input.draft.customerLongitude ?? null,
+      delivery_distance_km: input.draft.deliveryDistanceKm ?? null,
+      is_inside_delivery_coverage: input.draft.isInsideDeliveryCoverage ?? null,
+      coverage_validation_method: input.draft.coverageValidationMethod ?? "not_validated",
+      coverage_confidence: input.draft.coverageConfidence ?? null,
+      coverage_checked_at: input.draft.coverageCheckedAt ?? null,
       payment_method: input.draft.paymentMethod,
       subtotal: input.draft.subtotal,
       delivery_fee: input.draft.deliveryFee,

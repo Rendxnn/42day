@@ -51,6 +51,12 @@ export type Location = {
   pickupEnabled?: boolean;
   deliveryEnabled?: boolean;
   automationEnabled?: boolean;
+  latitude?: number;
+  longitude?: number;
+  restaurantCity?: string;
+  restaurantDepartment?: string;
+  restaurantCountry?: string;
+  deliveryRadiusKm?: number;
   isActive: boolean;
 };
 

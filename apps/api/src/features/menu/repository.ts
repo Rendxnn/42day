@@ -11,6 +11,12 @@ export type LocationRow = {
   pickup_enabled?: boolean;
   delivery_enabled?: boolean;
   automation_enabled?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  restaurant_city?: string | null;
+  restaurant_department?: string | null;
+  restaurant_country?: string | null;
+  delivery_radius_km?: number | null;
   is_active: boolean;
 };
 
@@ -84,7 +90,7 @@ export async function selectActiveLocation(input: {
     schema: input.schemaName,
     table: "locations",
     query: {
-      select: "id,name,address,phone,delivery_fee_fixed,pickup_enabled,delivery_enabled,automation_enabled,is_active",
+      select: "id,name,address,phone,delivery_fee_fixed,pickup_enabled,delivery_enabled,automation_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,is_active",
       is_active: "eq.true",
       limit: 1,
     },

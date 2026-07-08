@@ -1046,6 +1046,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                 <ConfigurationView
                   access={{ canManage: canAccessConfiguration, role: activeTenantRole }}
                   adapter={httpPaymentConfigurationAdapter}
+                  locale={locale}
                   tenantSlug={tenantSlug}
                   onAnalyze={(file) => analyzeMenuFile(tenantSlug, file)}
                   onCreateProducts={async (detectedProducts) => {
@@ -1064,8 +1065,12 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                   }}
                   onNotify={notify}
                   onPaymentConfigurationChanged={async () => {
-                    const nextHealth = await getPaymentConfigurationHealth(tenantSlug);
-                    setPaymentConfigurationHealth(nextHealth);
+                    try {
+                      const nextHealth = await getPaymentConfigurationHealth(tenantSlug);
+                      setPaymentConfigurationHealth(nextHealth);
+                    } catch {
+                      setPaymentConfigurationHealth(null);
+                    }
                   }}
                 />
               )}
@@ -1560,7 +1565,7 @@ function BottomNav({
                 type="button"
               >
                 <Icon size={17} />
-                <span className="mt-1.5">{item.label}</span>
+                <span className="mt-1.5 max-w-full overflow-hidden text-ellipsis text-[9px] sm:text-[11px]">{item.label}</span>
               </button>
             );
           })}

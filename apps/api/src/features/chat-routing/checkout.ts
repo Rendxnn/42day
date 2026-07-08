@@ -5,7 +5,7 @@ import type {
 } from "@42day/types";
 import {
   getOrCreateActiveDraftOrder,
-  updateDraftOrderDeliveryAddress,
+  updateDraftOrderCoverage,
   updateDraftOrderFulfillment,
   updateDraftOrderPaymentMethod,
 } from "../draft-orders/service";
@@ -29,6 +29,11 @@ import { buildGuidedContext, loadCurrentMenu } from "./helpers";
 import { sendAndLogText } from "./outbound";
 import type { RouteInboundMessageInput } from "./types";
 import { persistConfirmedOrder } from "../orders/service";
+import {
+  DeliveryCoverageConfigurationError,
+  getDeliveryCoverageSettings,
+  validateDeliveryCoverageFromWhatsappLocation,
+} from "../delivery-coverage/service";
 
 type CheckoutSignals = {
   fulfillmentType?: "delivery" | "pickup" | null;
@@ -142,18 +147,28 @@ export async function proceedToNextOrderStep(input: RouteInboundMessageInput, pa
     return;
   }
 
-  if (draft.fulfillmentType === "delivery" && !draft.deliveryAddress && !draft.deliveryAddressId) {
-    await updateConversationState({
+  if (
+    draft.fulfillmentType === "delivery"
+    && (draft.coverageValidationMethod !== "whatsapp_location" || draft.isInsideDeliveryCoverage !== true)
+  ) {
+    const settings = await getDeliveryCoverageSettings({
       env: input.env,
       schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_address",
-      context: payload?.context,
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
+      locationId: draft.locationId,
+    });
+    if (!settings?.allowOutOfCoverageOrders) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_address",
+        context: payload?.context,
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
 
-    await sendAndLogText(input, buildDeliveryAddressPrompt());
-    return;
+      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      return;
+    }
   }
 
   if (!draft.paymentMethod) {
@@ -200,6 +215,25 @@ export async function tryHandleFulfillmentSelection(input: RouteInboundMessageIn
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
 
+  if (signals.fulfillmentType === "delivery") {
+    const settings = await getDeliveryCoverageSettings({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: menu.location?.id,
+    });
+    if (!settings?.deliveryEnabled) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_fulfillment_type",
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
+      await sendAndLogText(input, "En este momento el restaurante no tiene domicilios activos. Puedes continuar para recoger en el local.");
+      return true;
+    }
+  }
+
   let updatedDraft = await updateDraftOrderFulfillment({
     env: input.env,
     schemaName: input.tenant.schemaName,
@@ -219,6 +253,11 @@ export async function tryHandleFulfillmentSelection(input: RouteInboundMessageIn
   }
 
   if (signals.fulfillmentType === "delivery") {
+    const settings = await getDeliveryCoverageSettings({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: menu.location?.id,
+    });
     await updateConversationState({
       env: input.env,
       schemaName: input.tenant.schemaName,
@@ -227,7 +266,7 @@ export async function tryHandleFulfillmentSelection(input: RouteInboundMessageIn
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
-    await sendAndLogText(input, buildDeliveryAddressPrompt());
+    await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
     return true;
   }
 
@@ -275,19 +314,55 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
 
-  const address =
-    input.message.type === "location"
-      ? await getLatestCustomerAddress({
-          env: input.env,
-          schemaName: input.tenant.schemaName,
-          customerId: input.conversation.customerId,
-        })
+  const settings = await getDeliveryCoverageSettings({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    locationId: draft.locationId ?? menu.location?.id,
+  });
+
+  if (input.message.type !== "location") {
+    const address = settings?.allowWrittenAddressReference === false
+      ? null
       : await saveCustomerAddressFromText({
           env: input.env,
           schemaName: input.tenant.schemaName,
           customerId: input.conversation.customerId,
           addressText: input.message.text ?? signals.normalizedText ?? "",
         });
+
+    if (address) {
+      await updateDraftOrderCoverage({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        draftOrderId: draft.id,
+        customerAddressText: address.addressText,
+        deliveryAddressId: address.id,
+        validationMethod: "written_address_reference",
+        confidence: "low",
+        deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+      });
+    }
+
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_address",
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+    await sendAndLogText(
+      input,
+      settings?.writtenAddressFallbackMessage ?? buildDeliveryAddressPrompt(),
+    );
+    return true;
+  }
+
+  const address =
+    await getLatestCustomerAddress({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      customerId: input.conversation.customerId,
+    });
 
   if (!address) {
     await updateConversationState({
@@ -301,14 +376,68 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
     return true;
   }
 
-  const updatedDraft = await updateDraftOrderDeliveryAddress({
-    env: input.env,
-    schemaName: input.tenant.schemaName,
-    draftOrderId: draft.id,
-    addressText: address.addressText,
-    deliveryAddressId: address.id,
-    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
-  });
+  let updatedDraft: DraftOrder;
+  try {
+    const validation = await validateDeliveryCoverageFromWhatsappLocation({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: draft.locationId ?? menu.location?.id,
+      customerLatitude: input.message.location!.latitude,
+      customerLongitude: input.message.location!.longitude,
+    });
+    updatedDraft = await updateDraftOrderCoverage({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      draftOrderId: draft.id,
+      customerLatitude: input.message.location!.latitude,
+      customerLongitude: input.message.location!.longitude,
+      deliveryDistanceKm: validation.distanceKm,
+      isInsideDeliveryCoverage: validation.isInsideCoverage,
+      validationMethod: validation.validationMethod,
+      confidence: validation.confidence,
+      checkedAt: new Date().toISOString(),
+      customerAddressText: address.addressText,
+      deliveryAddressId: address.id,
+      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+    });
+
+    if (!validation.isInsideCoverage && !settings?.allowOutOfCoverageOrders) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_fulfillment_type",
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
+      await sendAndLogText(input, settings?.outOfCoverageMessage ?? "Lo sentimos, no tenemos cobertura para tu ubicacion. Puedes recoger en el local.");
+      return true;
+    }
+  } catch (error) {
+    if (!(error instanceof DeliveryCoverageConfigurationError)) throw error;
+    await updateDraftOrderCoverage({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      draftOrderId: draft.id,
+      customerLatitude: input.message.location!.latitude,
+      customerLongitude: input.message.location!.longitude,
+      isInsideDeliveryCoverage: null,
+      validationMethod: "not_validated",
+      confidence: "failed",
+      checkedAt: new Date().toISOString(),
+      customerAddressText: address.addressText,
+      deliveryAddressId: address.id,
+      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+    });
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_fulfillment_type",
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+    await sendAndLogText(input, settings?.outOfCoverageMessage ?? "No pudimos validar el domicilio. Puedes recoger en el local.");
+    return true;
+  }
 
   const paymentMethod = updatedDraft.paymentMethod ?? signals.paymentMethod;
 
@@ -333,7 +462,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
 
     await sendAndLogText(
       input,
-      buildAddressSavedPrompt(address.addressText, buildOrderSummaryText(draftWithPayment, paymentMethod)),
+      buildAddressSavedPrompt(address.addressText, `Perfecto, tenemos cobertura para tu ubicacion.\n\n${buildOrderSummaryText(draftWithPayment, paymentMethod)}`),
     );
     return true;
   }
@@ -348,7 +477,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
 
   await sendAndLogText(
     input,
-    buildAddressSavedPrompt(address.addressText, buildPaymentPrompt(updatedDraft, menu)),
+    buildAddressSavedPrompt(address.addressText, `Perfecto, tenemos cobertura para tu ubicacion.\n\n${buildPaymentPrompt(updatedDraft, menu)}`),
   );
   return true;
 }
@@ -377,6 +506,25 @@ export async function tryHandlePaymentMethod(input: RouteInboundMessageInput, si
     paymentMethod: signals.paymentMethod,
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
+
+  if (updatedDraft.fulfillmentType === "delivery" && updatedDraft.isInsideDeliveryCoverage !== true) {
+    const settings = await getDeliveryCoverageSettings({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: updatedDraft.locationId ?? menu.location?.id,
+    });
+    if (!settings?.allowOutOfCoverageOrders) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_address",
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
+      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      return true;
+    }
+  }
 
   await updateConversationState({
     env: input.env,
@@ -422,6 +570,25 @@ export async function tryHandleConfirmation(input: RouteInboundMessageInput, sig
     locationId: menu.location?.id,
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
+
+  if (draft.fulfillmentType === "delivery" && draft.isInsideDeliveryCoverage !== true) {
+    const settings = await getDeliveryCoverageSettings({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: draft.locationId ?? menu.location?.id,
+    });
+    if (!settings?.allowOutOfCoverageOrders) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_address",
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
+      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      return true;
+    }
+  }
 
   const order = await persistConfirmedOrder({
     env: input.env,

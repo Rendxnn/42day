@@ -1,6 +1,7 @@
 import type {
   AcceptOrderRequest,
   AutomationSettings,
+  DeliveryCoverageSettings,
   HumanInterventionAlert,
   MenuItem,
   OrderCustomerNotificationType,
@@ -13,6 +14,7 @@ import type {
   RejectOutOfStockOrderRequest,
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
+  UpdateDeliveryCoverageSettingsRequest,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
 
@@ -499,6 +501,17 @@ export function updateAutomationSettings(tenantSlug: string, enabled: boolean) {
   });
 }
 
+export function getDeliveryCoverageSettings(tenantSlug: string) {
+  return request<DeliveryCoverageSettings>(`/${tenantSlug}/settings/delivery-coverage`);
+}
+
+export function updateDeliveryCoverageSettings(tenantSlug: string, payload: UpdateDeliveryCoverageSettingsRequest) {
+  return request<DeliveryCoverageSettings>(`/${tenantSlug}/settings/delivery-coverage`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getPaymentConfiguration(tenantSlug: string) {
   return request<PaymentConfigurationSnapshot>(`/${tenantSlug}/settings/payment-configuration`);
 }
@@ -620,7 +633,6 @@ export function deactivatePaymentQrRequest(tenantSlug: string, qrId: string) {
     body: JSON.stringify({}),
   });
 }
-
 export function createProduct(tenantSlug: string, product: Partial<Product>) {
   return request<Product>(`/${tenantSlug}/products`, {
     method: "POST",

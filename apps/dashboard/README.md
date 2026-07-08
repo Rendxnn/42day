@@ -18,6 +18,7 @@ El dashboard ya cubre una parte importante del flujo `demo-ready`:
 - confirmar pago cuando la orden esta en `payment_pending_review`,
 - modulo `Configuración` para encargados,
 - subida de menu movida al modulo `Configuración`,
+- configuracion de cobertura de domicilios movida al modulo `Configuración`,
 - CRUD de cuentas bancarias por sede,
 - CRUD de QR de pago por sede,
 - activacion/desactivacion con reglas de maximo 5 cuentas activas y 1 QR activo,
@@ -55,6 +56,7 @@ Para configuracion de pagos, el frontend ya consume endpoints reales del backend
 - comprobantes de transferencia desde el detalle,
 - confirmacion minima de pago,
 - configuracion de pagos por sede,
+- configuracion de cobertura de domicilios por sede,
 - CRUD de cuentas con banco, numero y titular,
 - CRUD de QR con imagen persistida y preview,
 - validaciones visuales para activacion, desactivacion y eliminacion,
@@ -85,7 +87,7 @@ Para configuracion de pagos, el frontend ya consume endpoints reales del backend
 
 ### 1. Archivo principal todavia grande
 
-`src/App.tsx` ya esta mejor que al inicio de la sesion porque `Configuración` y su logica de pagos viven en `src/features/configuration/*`, pero sigue concentrando bastante shell, navegacion, estado global y flujos admin.
+`src/App.tsx` ya esta mejor que al inicio de la sesion porque `Configuración`, cobertura de domicilios y su logica de pagos viven en `src/features/configuration/*`, pero sigue concentrando bastante shell, navegacion, estado global y flujos admin.
 
 ### 2. Modulo de pedidos sigue siendo grande
 

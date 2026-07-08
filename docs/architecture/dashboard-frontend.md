@@ -19,6 +19,7 @@ The dashboard now follows this split:
   - restaurant `Configuración` feature
   - menu upload lives inside this feature now
   - payment accounts and QR settings live inside this feature
+  - delivery coverage settings live inside this feature
   - feature-specific CRUD state stays here, not in `App.tsx`
 - `apps/dashboard/src/api.ts`
   - frontend-to-backend request helpers
@@ -70,11 +71,13 @@ For the restaurant settings area, the canonical structure is:
 - nav label: `Configuración`
 - access: restaurant `encargado` only
 - `Subida` is a section inside `Configuración`, not a top-level shell view
+- delivery coverage is also a section inside `Configuración`, not a separate shell view
 - payment settings live in `apps/dashboard/src/features/configuration/*`
 
 Do not reintroduce:
 
 - a top-level `upload` dashboard view
+- a top-level `coverage` dashboard view
 - text-based `transferPaymentInstructions`
 - dashboard UX that depends on the removed legacy transfer-instructions flow
 
@@ -120,7 +123,8 @@ Before committing dashboard changes:
 2. if you touched `App.tsx`, confirm the change is shell-level and not feature-body logic
 3. if you touched dashboard backend routes, confirm the change went into the modular dashboard router
 4. verify you did not reintroduce legacy payment-instructions fields or the old `upload` view
-5. run:
+5. verify migrations keep unique sequential filenames; do not reuse an existing migration number
+6. run:
 
 ```bash
 corepack pnpm --filter @42day/dashboard build
