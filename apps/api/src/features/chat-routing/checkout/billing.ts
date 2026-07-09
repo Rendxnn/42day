@@ -1,0 +1,291 @@
+import type { DraftOrder, TodayMenuPayload } from "@42day/types";
+import { getOrCreateActiveDraftOrder, updateDraftOrderBilling } from "../../draft-orders/service";
+import { loadCustomerBillingProfiles, saveCustomerBillingProfile, toOrderBillingDetails } from "../../../modules/customer-billing-service/customer-billing-service";
+import { updateConversationState } from "../../conversations/service";
+import {
+  buildBillingReusePrompt,
+  buildElectronicBillingPrompt,
+  buildNormalBillingPrompt,
+} from "../../../modules/message-router/response-composer";
+import { loadCurrentMenu } from "../shared/helpers";
+import { sendAndLogText } from "../outbound/send";
+import type { RouteInboundMessageInput } from "../shared/types";
+import { applyBillingDefaults, parseElectronicBillingText, readPendingBillingContext, renderBillingProfile } from "./billing-helpers";
+import { proceedToNextOrderStep } from "./progression";
+
+export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessageInput, signals: {
+  confirmation?: "yes" | "no" | "change" | null;
+  wantsElectronicBilling?: boolean;
+  billingDataChanged?: boolean;
+}): Promise<boolean> {
+  const pending = readPendingBillingContext(input.conversation.context);
+  if (!pending) {
+    return false;
+  }
+
+  if (signals.wantsElectronicBilling && pending.type !== "electronic") {
+    return switchToElectronicBilling(input);
+  }
+
+  const menu = await loadCurrentMenu(input);
+  const draft = await getOrCreateActiveDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversation: input.conversation,
+    customerId: input.conversation.customerId,
+    locationId: menu.location?.id,
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  if (signals.confirmation === "yes" && pending.reuseProfile) {
+    const billing = applyBillingDefaults(toOrderBillingDetails(pending.reuseProfile), draft);
+    await updateDraftOrderBilling({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      draftOrderId: draft.id,
+      billing,
+      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+    });
+    await proceedToNextOrderStep(input);
+    return true;
+  }
+
+  if (signals.confirmation === "no" || signals.confirmation === "change" || signals.billingDataChanged) {
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: pending.type === "electronic" ? "awaiting_electronic_billing_info" : "awaiting_normal_billing_info",
+      context: {
+        ...input.conversation.context,
+        pendingBilling: {
+          ...pending,
+          reuseProfile: undefined,
+        },
+      },
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(input, pending.type === "electronic" ? buildElectronicBillingPrompt() : buildNormalBillingPrompt({
+      fulfillmentType: draft.fulfillmentType,
+      billingAddress: draft.deliveryAddress,
+    }));
+    return true;
+  }
+
+  return false;
+}
+
+export async function tryHandleNormalBillingInfo(input: RouteInboundMessageInput, signals: {
+  wantsElectronicBilling?: boolean;
+}): Promise<boolean> {
+  if (signals.wantsElectronicBilling) {
+    return switchToElectronicBilling(input);
+  }
+
+  const fullName = (input.message.text ?? "").trim();
+  if (!fullName) {
+    return false;
+  }
+
+  const menu = await loadCurrentMenu(input);
+  const draft = await getOrCreateActiveDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversation: input.conversation,
+    customerId: input.conversation.customerId,
+    locationId: menu.location?.id,
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  const billing = applyBillingDefaults({
+    type: "normal",
+    fullName,
+    billingAddress: draft.fulfillmentType === "delivery" ? draft.deliveryAddress : undefined,
+  }, draft);
+
+  const profile = await saveCustomerBillingProfile({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    customerId: input.conversation.customerId,
+    billing,
+  });
+
+  await updateDraftOrderBilling({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    draftOrderId: draft.id,
+    billing: {
+      ...billing,
+      profileId: profile.id,
+    },
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  await proceedToNextOrderStep(input);
+  return true;
+}
+
+export async function tryHandleElectronicBillingInfo(input: RouteInboundMessageInput): Promise<boolean> {
+  const text = (input.message.text ?? "").trim();
+  const parsed = parseElectronicBillingText(text);
+  if (!parsed) {
+    return false;
+  }
+
+  const menu = await loadCurrentMenu(input);
+  const draft = await getOrCreateActiveDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversation: input.conversation,
+    customerId: input.conversation.customerId,
+    locationId: menu.location?.id,
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  const profile = await saveCustomerBillingProfile({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    customerId: input.conversation.customerId,
+    billing: parsed,
+  });
+
+  await updateDraftOrderBilling({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    draftOrderId: draft.id,
+    billing: {
+      ...parsed,
+      profileId: profile.id,
+    },
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  await proceedToNextOrderStep(input);
+  return true;
+}
+
+export async function startBillingStep(
+  input: RouteInboundMessageInput,
+  payload: { menu: TodayMenuPayload; draft: DraftOrder; prefix?: string; context?: Record<string, unknown> },
+): Promise<void> {
+  const profiles = await loadCustomerBillingProfiles({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    customerId: input.conversation.customerId,
+  });
+  const normalProfile = profiles.find((profile) => profile.type === "normal");
+  const pendingContext = {
+    type: "normal",
+    shouldReuseDeliveryAddress: payload.draft.fulfillmentType === "delivery",
+  };
+
+  if (normalProfile) {
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_billing_reuse_confirmation",
+      context: {
+        ...(payload.context ?? input.conversation.context),
+        pendingBilling: {
+          ...pendingContext,
+          reuseProfileId: normalProfile.id,
+          fullName: normalProfile.fullName,
+          billingAddress: normalProfile.billingAddress,
+          legalName: normalProfile.legalName,
+          taxId: normalProfile.taxId,
+          email: normalProfile.email,
+        },
+      },
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(input, [
+      payload.prefix,
+      buildBillingReusePrompt({
+        billingLabel: "normal",
+        detail: renderBillingProfile(normalProfile, payload.draft),
+      }),
+    ].filter(Boolean).join("\n\n"));
+    return;
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_normal_billing_info",
+    context: {
+      ...(payload.context ?? input.conversation.context),
+      pendingBilling: pendingContext,
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(input, [payload.prefix, buildNormalBillingPrompt({
+    fulfillmentType: payload.draft.fulfillmentType,
+    billingAddress: payload.draft.deliveryAddress,
+  })].filter(Boolean).join("\n\n"));
+}
+
+async function switchToElectronicBilling(input: RouteInboundMessageInput): Promise<boolean> {
+  const profiles = await loadCustomerBillingProfiles({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    customerId: input.conversation.customerId,
+  });
+  const electronicProfile = profiles.find((profile) => profile.type === "electronic");
+
+  if (electronicProfile) {
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_billing_reuse_confirmation",
+      context: {
+        ...input.conversation.context,
+        pendingBilling: {
+          type: "electronic",
+          reuseProfileId: electronicProfile.id,
+          legalName: electronicProfile.legalName,
+          taxId: electronicProfile.taxId,
+          email: electronicProfile.email,
+        },
+      },
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(input, buildBillingReusePrompt({
+      billingLabel: "electrónica",
+      detail: renderBillingProfile(electronicProfile, {
+        id: "",
+        status: "draft",
+        items: [],
+        subtotal: 0,
+        deliveryFee: 0,
+        discountTotal: 0,
+        total: 0,
+      }),
+    }));
+    return true;
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_electronic_billing_info",
+    context: {
+      ...input.conversation.context,
+      pendingBilling: {
+        ...(typeof input.conversation.context.pendingBilling === "object" && input.conversation.context.pendingBilling ? input.conversation.context.pendingBilling as Record<string, unknown> : {}),
+        type: "electronic",
+      },
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(input, buildElectronicBillingPrompt());
+  return true;
+}

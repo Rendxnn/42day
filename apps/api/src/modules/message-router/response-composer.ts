@@ -10,7 +10,7 @@ export function buildFulfillmentPrompt(menu: TodayMenuPayload): string {
 }
 
 export function buildDeliveryAddressPrompt(): string {
-  return "Perfecto 📍 Por favor, envíame tu ubicación de WhatsApp o escríbeme la dirección completa para continuar.";
+  return "Perfecto 📍 Por favor, envíame tu ubicación de WhatsApp o escríbeme la dirección completa para continuar. Después te pediré los datos de facturación.";
 }
 
 export function buildPaymentPrompt(_draft: DraftOrder, menu: TodayMenuPayload): string {
@@ -70,6 +70,12 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
     lines.push("Entrega: para recoger");
   }
 
+  if (draft.billing?.type === "electronic") {
+    lines.push(`Factura: electrónica a nombre de ${draft.billing.legalName ?? "cliente"}`);
+  } else if (draft.billing?.fullName) {
+    lines.push(`Factura: normal a nombre de ${draft.billing.fullName}`);
+  }
+
   lines.push(`Pago: ${paymentMethod === "cash" ? "efectivo" : "transferencia"}`);
   lines.push(`Tiempo estimado: ${DEFAULT_ESTIMATED_MINUTES} min`);
   lines.push(`Total: ${formatCop(draft.total)}`);
@@ -90,6 +96,12 @@ export function buildClarificationPrompt(state: DraftOrderStateLike): string {
       return "¿Deseas que sea a domicilio o para recoger?";
     case "awaiting_address":
       return "Por favor, envíame tu ubicación de WhatsApp o escríbeme la dirección para continuar.";
+    case "awaiting_billing_reuse_confirmation":
+      return "¿La información de facturación sigue igual o quieres cambiarla?";
+    case "awaiting_normal_billing_info":
+      return "Compárteme tu nombre completo para la factura normal. Si necesitas factura electrónica, también puedes pedírmela aquí.";
+    case "awaiting_electronic_billing_info":
+      return "Envíame por favor: nombre o razón social, cédula o NIT y correo electrónico, separados por comas.";
     case "awaiting_payment_method":
       return "¿Prefieres pagar en efectivo o por transferencia?";
     case "awaiting_confirmation":
@@ -187,6 +199,36 @@ export function buildAddressSavedPrompt(addressText: string, nextPrompt: string)
     "",
     nextPrompt,
   ].join("\n");
+}
+
+export function buildNormalBillingPrompt(input: {
+  fulfillmentType?: DraftOrder["fulfillmentType"];
+  billingAddress?: string;
+}): string {
+  if (input.fulfillmentType === "delivery" && input.billingAddress) {
+    return [
+      `Perfecto. Para la factura normal tomaré esta dirección: ${input.billingAddress}.`,
+      "Ahora compárteme tu nombre completo. Si necesitas factura electrónica, también puedes pedírmela aquí.",
+    ].join("\n\n");
+  }
+
+  return "Perfecto. Para continuar, compárteme tu nombre completo para la factura normal. Si necesitas factura electrónica, también puedes pedírmela aquí.";
+}
+
+export function buildBillingReusePrompt(input: {
+  billingLabel: string;
+  detail: string;
+}): string {
+  return [
+    `Tengo guardada tu información de facturación ${input.billingLabel}:`,
+    input.detail,
+    "",
+    "¿La dejamos igual o quieres cambiarla?",
+  ].join("\n");
+}
+
+export function buildElectronicBillingPrompt(): string {
+  return "Claro. Para factura electrónica envíame por favor: nombre o razón social, cédula o NIT y correo electrónico, separados por comas.";
 }
 
 export function buildEditableSummaryAdjustmentPrompt(): string {
@@ -296,6 +338,9 @@ type DraftOrderStateLike =
   | "awaiting_more_items"
   | "awaiting_fulfillment_type"
   | "awaiting_address"
+  | "awaiting_billing_reuse_confirmation"
+  | "awaiting_normal_billing_info"
+  | "awaiting_electronic_billing_info"
   | "awaiting_payment_method"
   | "awaiting_transfer_proof"
   | "awaiting_transfer_fallback_payment_method"

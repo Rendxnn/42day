@@ -1,0 +1,69 @@
+import { getOrCreateActiveDraftOrder, updateDraftOrderPaymentMethod } from "../../draft-orders/service";
+import { updateConversationState } from "../../conversations/service";
+import { buildDeliveryAddressPrompt, buildOrderSummaryText } from "../../../modules/message-router/response-composer";
+import { loadCurrentMenu } from "../shared/helpers";
+import { sendAndLogText } from "../outbound/send";
+import type { RouteInboundMessageInput } from "../shared/types";
+import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
+import { startBillingStep } from "./billing";
+
+export async function tryHandlePaymentMethod(input: RouteInboundMessageInput, signals: {
+  paymentMethod?: "cash" | "transfer" | null;
+}): Promise<boolean> {
+  if (!signals.paymentMethod) {
+    return false;
+  }
+
+  const menu = await loadCurrentMenu(input);
+  const draft = await getOrCreateActiveDraftOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversation: input.conversation,
+    customerId: input.conversation.customerId,
+    locationId: menu.location?.id,
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  const updatedDraft = await updateDraftOrderPaymentMethod({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    draftOrderId: draft.id,
+    paymentMethod: signals.paymentMethod,
+    deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+  });
+
+  if (updatedDraft.fulfillmentType === "delivery" && updatedDraft.isInsideDeliveryCoverage !== true) {
+    const settings = await getDeliveryCoverageSettings({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      locationId: updatedDraft.locationId ?? menu.location?.id,
+    });
+    if (!settings?.allowOutOfCoverageOrders) {
+      await updateConversationState({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        state: "awaiting_address",
+        resetClarificationAttempts: true,
+      }).catch(() => undefined);
+      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      return true;
+    }
+  }
+
+  if (!updatedDraft.billing?.type) {
+    await startBillingStep(input, { menu, draft: updatedDraft });
+    return true;
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_confirmation",
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(input, buildOrderSummaryText(updatedDraft, signals.paymentMethod));
+  return true;
+}

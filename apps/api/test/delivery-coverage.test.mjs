@@ -3,9 +3,10 @@ import test from "node:test";
 import {
   DeliveryCoverageConfigurationError,
   evaluateDeliveryCoverage,
+  getDeliveryCoverageSettings,
   haversineDistanceKm,
   parseDeliveryCoverageSettingsUpdate,
-} from "../src/features/delivery-coverage/logic.ts";
+} from "../src/features/delivery-coverage/service.ts";
 
 const baseSettings = {
   locationId: "location-1",
@@ -73,4 +74,51 @@ test("permite guardar la configuracion sin ubicacion mientras se completa", () =
   assert.ok(parsed);
   assert.equal(parsed.latitude, undefined);
   assert.equal(parsed.longitude, undefined);
+});
+
+test("usa query legacy cuando faltan columnas nuevas en locations", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+
+    if (calls.length === 1) {
+      return new Response('{"code":"PGRST204","message":"Could not find the column \\"restaurant_city\\" of \\"locations\\" in the schema cache"}', {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify([{
+      id: "location-legacy",
+      delivery_enabled: true,
+      latitude: 6.2442,
+      longitude: -75.5812,
+    }]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const settings = await getDeliveryCoverageSettings({
+      env: {
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "test-key",
+      },
+      schemaName: "tenant_demo",
+    });
+
+    assert.equal(calls.length, 2);
+    assert.match(calls[0], /restaurant_city/);
+    assert.match(calls[1], /select=id%2Cdelivery_enabled%2Clatitude%2Clongitude/);
+    assert.equal(settings?.locationId, "location-legacy");
+    assert.equal(settings?.deliveryRadiusKm, 3);
+    assert.equal(settings?.restaurantCountry, "Colombia");
+    assert.equal(settings?.allowWrittenAddressReference, true);
+    assert.equal(settings?.tryGeocodeWrittenAddresses, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

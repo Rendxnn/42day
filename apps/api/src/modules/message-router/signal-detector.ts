@@ -1,5 +1,5 @@
 import type { Conversation, DraftOrder, NormalizedInboundMessage, PaymentMethod } from "@42day/types";
-import { hasNearToken, includesAny, normalizeText } from "./message-normalizer";
+import { hasNearToken, includesAny, normalizeText } from "./message-normalizer.ts";
 
 export type DetectedSignals = {
   normalizedText: string;
@@ -10,6 +10,8 @@ export type DetectedSignals = {
   fulfillmentType: DraftOrder["fulfillmentType"] | null;
   paymentMethod: PaymentMethod | null;
   confirmation: "yes" | "no" | "change" | null;
+  wantsElectronicBilling: boolean;
+  billingDataChanged: boolean;
   looksLikeAddress: boolean;
   hasTransferProofCandidate: boolean;
   shouldTrySemanticOrder: boolean;
@@ -35,6 +37,8 @@ export function detectSignals(input: {
     fulfillmentType,
     paymentMethod,
     confirmation,
+    wantsElectronicBilling: wantsElectronicBilling(text),
+    billingDataChanged: wantsBillingDataChange(text),
     looksLikeAddress: looksLikeAddressText(text, {
       fulfillmentType,
       paymentMethod,
@@ -133,6 +137,32 @@ export function parseConfirmation(text: string): "yes" | "no" | "change" | null 
 
 function wantsHuman(text: string): boolean {
   return includesAny(text, ["asesor", "humano", "persona", "alguien del restaurante", "hablar con alguien"]);
+}
+
+function wantsElectronicBilling(text: string): boolean {
+  return includesAny(text, [
+    "factura electronica",
+    "factura electrónica",
+    "facturacion electronica",
+    "facturación electrónica",
+    "razon social",
+    "razón social",
+    "nit",
+    "cedula",
+    "cédula",
+    "correo",
+  ]);
+}
+
+function wantsBillingDataChange(text: string): boolean {
+  return includesAny(text, [
+    "cambio la factura",
+    "cambiaron los datos",
+    "datos cambiaron",
+    "hay cambios",
+    "cambiar datos",
+    "cambiar factura",
+  ]);
 }
 
 function wantsMenu(text: string): boolean {

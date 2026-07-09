@@ -24,6 +24,30 @@ export function validateDraftForConfirmation(draft: DraftOrder): DraftValidation
     errors.push("draft_order.delivery_address_required");
   }
 
+  if (!draft.billing?.type) {
+    errors.push("draft_order.billing_required");
+  } else if (draft.billing.type === "normal") {
+    if (!draft.billing.fullName?.trim()) {
+      errors.push("draft_order.billing_full_name_required");
+    }
+
+    if (draft.fulfillmentType === "delivery" && !draft.billing.billingAddress?.trim()) {
+      errors.push("draft_order.billing_address_required");
+    }
+  } else if (draft.billing.type === "electronic") {
+    if (!draft.billing.legalName?.trim()) {
+      errors.push("draft_order.billing_legal_name_required");
+    }
+
+    if (!draft.billing.taxId?.trim()) {
+      errors.push("draft_order.billing_tax_id_required");
+    }
+
+    if (!draft.billing.email?.trim()) {
+      errors.push("draft_order.billing_email_required");
+    }
+  }
+
   if (!draft.paymentMethod) {
     errors.push("draft_order.payment_method_required");
   }

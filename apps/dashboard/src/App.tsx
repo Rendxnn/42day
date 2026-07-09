@@ -62,7 +62,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { OrdersView } from "./orders";
+import { OrdersView } from "./features/orders/OrdersView";
 import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";

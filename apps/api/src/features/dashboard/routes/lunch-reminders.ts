@@ -5,7 +5,7 @@ import { logOutboundTextMessage } from "../../../modules/message-log/message-log
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import { getTenantUserRole } from "../auth";
 import type { CustomerRow, DashboardVariables, DraftOrderRow, MenuItemRow, MenuRow, OrderRow, ProductRow } from "../types";
-import { formatCop, resolveBusinessDate } from "../router";
+import { formatCop, resolveBusinessDate } from "../support/date";
 
 type LunchReminderRecipient = {
   customer: CustomerRow;

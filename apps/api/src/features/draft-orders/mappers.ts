@@ -62,6 +62,17 @@ export function mapDraftOrder(row: DraftOrderRow, items: OrderLineItem[]): Draft
     coverageConfidence: row.coverage_confidence ?? undefined,
     coverageCheckedAt: row.coverage_checked_at ?? undefined,
     paymentMethod: row.payment_method ?? undefined,
+    billing: row.billing_type
+      ? {
+          type: row.billing_type,
+          profileId: row.billing_profile_id ?? undefined,
+          fullName: row.billing_full_name ?? undefined,
+          billingAddress: row.billing_address ?? undefined,
+          legalName: row.billing_legal_name ?? undefined,
+          taxId: row.billing_tax_id ?? undefined,
+          email: row.billing_email ?? undefined,
+        }
+      : undefined,
     items,
     subtotal: row.subtotal,
     deliveryFee: row.delivery_fee,
@@ -85,4 +96,3 @@ export function mapLineItem(row: DraftOrderItemRow): OrderLineItem {
     lineTotal: row.line_total,
   };
 }
-

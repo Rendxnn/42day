@@ -3,7 +3,8 @@ import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import { isMissingTableError } from "../../../shared/errors/supabase";
 import type { DashboardVariables, AlertRow } from "../types";
-import { mapAlert, selectAlerts } from "../router";
+import { selectAlerts } from "../support/alerts";
+import { mapAlert } from "../support/mappers";
 
 export const alertsDashboardRoutes = new Hono<{
   Bindings: ApiBindings;

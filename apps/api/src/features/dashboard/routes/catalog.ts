@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import type { Product } from "@42day/types";
 import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../../../lib/supabase-rest";
-import type { DashboardVariables, ProductOptionRow, ProductOptionValueRow, ProductRow } from "../types";
-import { mapProduct, replaceProductOptions, selectProductOptions } from "../router";
+import type { DashboardVariables, ProductRow } from "../types";
+import { replaceProductOptions, selectProductOptions } from "../support/catalog";
+import { mapProduct } from "../support/mappers";
 
 export const catalogDashboardRoutes = new Hono<{
   Bindings: ApiBindings;

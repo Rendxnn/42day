@@ -26,6 +26,7 @@ export type OrderStatus = (typeof orderStatuses)[number];
 export type FulfillmentType = "delivery" | "pickup";
 export type PaymentMethod = "cash" | "transfer";
 export type ServiceTiming = "asap" | "scheduled";
+export type BillingType = "normal" | "electronic";
 export type CoverageValidationMethod = "whatsapp_location" | "written_address_reference" | "geocoded_address" | "not_validated";
 export type CoverageConfidence = "high" | "medium" | "low" | "failed";
 export type OrdersBucket = "pending_confirmation" | "active" | "history" | "all";
@@ -82,6 +83,29 @@ export type PaymentProofSummary = {
   mimeType?: string;
   fileSize?: number;
   createdAt: string;
+};
+
+export type CustomerBillingProfile = {
+  id: string;
+  customerId: string;
+  type: BillingType;
+  fullName?: string;
+  billingAddress?: string;
+  legalName?: string;
+  taxId?: string;
+  email?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OrderBillingDetails = {
+  type: BillingType;
+  profileId?: string;
+  fullName?: string;
+  billingAddress?: string;
+  legalName?: string;
+  taxId?: string;
+  email?: string;
 };
 
 export type OrderLineItemOptionTextInput = {
@@ -161,6 +185,7 @@ export type DraftOrder = {
   coverageConfidence?: CoverageConfidence;
   coverageCheckedAt?: string;
   paymentMethod?: PaymentMethod;
+  billing?: OrderBillingDetails;
   items: OrderLineItem[];
   subtotal: number;
   deliveryFee: number;
@@ -191,6 +216,7 @@ export type Order = {
   coverageCheckedAt?: string;
   paymentMethod: PaymentMethod;
   paymentProofFileId?: string;
+  billing?: OrderBillingDetails;
   subtotal: number;
   deliveryFee: number;
   discountTotal: number;
@@ -228,6 +254,7 @@ export type OrderSummary = {
   coverageConfidence?: CoverageConfidence;
   coverageCheckedAt?: string;
   paymentMethod: PaymentMethod;
+  billing?: OrderBillingDetails;
   subtotal: number;
   deliveryFee: number;
   discountTotal: number;

@@ -1,6 +1,6 @@
 import type { MenuItem, Product, ProductOption, ProductOptionValue } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
-import { createSupabaseRestClient } from "../../lib/supabase-rest";
+import { createSupabaseRestClient, SupabaseRestError } from "../../lib/supabase-rest.ts";
 
 export type LocationRow = {
   id: string;
@@ -82,21 +82,47 @@ export type MenuItemRow = {
   sort_order: number;
 };
 
+const ACTIVE_LOCATION_SELECT =
+  "id,name,address,phone,delivery_fee_fixed,pickup_enabled,delivery_enabled,automation_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,is_active";
+const LEGACY_ACTIVE_LOCATION_SELECT =
+  "id,name,address,phone,delivery_fee_fixed,delivery_enabled,latitude,longitude,is_active";
+
 export async function selectActiveLocation(input: {
   env: ApiBindings;
   schemaName: string;
 }): Promise<LocationRow | undefined> {
-  const [location] = await createSupabaseRestClient(input.env).select<LocationRow>({
+  let location: LocationRow | undefined;
+
+  try {
+    [location] = await selectActiveLocationRow(input, ACTIVE_LOCATION_SELECT);
+  } catch (error) {
+    if (!(error instanceof SupabaseRestError) || error.status !== 400) {
+      throw error;
+    }
+
+    // Backward-compatible fallback while some tenants still run the legacy locations schema.
+    [location] = await selectActiveLocationRow(input, LEGACY_ACTIVE_LOCATION_SELECT);
+  }
+
+  return location;
+}
+
+function selectActiveLocationRow(
+  input: {
+    env: ApiBindings;
+    schemaName: string;
+  },
+  select: string,
+) {
+  return createSupabaseRestClient(input.env).select<LocationRow>({
     schema: input.schemaName,
     table: "locations",
     query: {
-      select: "id,name,address,phone,delivery_fee_fixed,pickup_enabled,delivery_enabled,automation_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,is_active",
+      select,
       is_active: "eq.true",
       limit: 1,
     },
   });
-
-  return location;
 }
 
 export async function selectPublishedMenuForDate(input: {

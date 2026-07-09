@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type {
+  BillingType,
   HumanInterventionStatus,
   Menu,
   OrderLineItemOptionsSnapshot,
@@ -174,6 +175,13 @@ export type OrderRow = {
   coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
+  billing_type?: BillingType | null;
+  billing_profile_id?: string | null;
+  billing_full_name?: string | null;
+  billing_address?: string | null;
+  billing_legal_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_email?: string | null;
   subtotal: number;
   delivery_fee: number;
   discount_total: number;

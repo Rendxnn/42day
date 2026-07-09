@@ -11,9 +11,9 @@ import {
   listAdminRestaurants,
   mapAdminRestaurant,
   normalizeTenantSlug,
-  updateAuthAdminUser,
   updatePrimaryLocation,
-} from "../router";
+} from "../support/admin";
+import { updateAuthAdminUser } from "../support/auth-admin";
 
 async function requireSystemAdmin(c: DashboardContext) {
   const authUser = await requireAuthUser(c);

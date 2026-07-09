@@ -16,6 +16,7 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 - tomar pedidos guiados y pedidos naturales simples,
 - persistir conversaciones y drafts,
 - cerrar checkout basico,
+- pedir y recordar datos de facturacion del cliente durante checkout,
 - crear ordenes pendientes de confirmacion,
 - operar aceptacion, agotados y reintentos desde dashboard,
 - demostrar handoff humano.
@@ -64,16 +65,22 @@ Ya implementado:
 - persistencia de customers, conversations, messages y addresses,
 - menu real desde Supabase,
 - flujo de draft -> checkout -> orden,
+- validacion fuerte de configurables contra `product_options`,
+- flujo de comprobantes de transferencia con persistencia real y revision minima,
+- perfiles de facturacion reutilizables por cliente,
+- snapshot de facturacion persistido en draft y order,
 - estados de revision del restaurante y reemplazos,
 - dashboard para pedidos, agotados y progreso operativo,
-- consola admin de restaurantes y miembros.
+- consola admin de restaurantes y miembros,
+- refactor estructural en progreso de `chat-routing` y del dashboard API hacia submodulos por responsabilidad,
+- suite API inicial para billing y compatibilidad temporal con tenants legacy en lecturas de `locations`.
 
 Todavia incompleto:
 
-- validacion fuerte de configurables contra `product_options`,
-- flujo completo de comprobantes de transferencia,
 - consola humana de alertas y timeline de conversacion,
-- pruebas automatizadas conversacionales amplias.
+- alertas consistentes cuando la automatizacion esta apagada,
+- pruebas automatizadas conversacionales amplias,
+- workflow canonico de migraciones Supabase desde el repo.
 
 ## Modulos backend
 
@@ -91,16 +98,27 @@ Todavia incompleto:
 
 Nota: `guided_flow_engine`, `validation_engine` y `pricing_engine` existen como modulos nominales, pero hoy la mayor parte de la orquestacion real vive en `message_router` y `draft_order_service`.
 
+Nota de estructura actual:
+
+- `apps/api/src/features/chat-routing/` ya esta migrando hacia carpetas por responsabilidad como `checkout/`, `guided/`, `semantic/`, `transfer/`, `manual/`, `outbound/` y `shared/`.
+- `apps/api/src/features/dashboard/` ya usa router modular y se sigue partiendo hacia `routes/*` y `support/*`.
+- por compatibilidad, varios archivos flat viejos siguen existiendo como fachadas de reexport mientras termina la migracion interna.
+
 ## Estados de conversacion
 
 - `new`
 - `awaiting_mode_selection`
 - `awaiting_guided_item_selection`
+- `awaiting_product_configuration`
 - `awaiting_more_items`
 - `awaiting_fulfillment_type`
 - `awaiting_address`
+- `awaiting_billing_reuse_confirmation`
+- `awaiting_normal_billing_info`
+- `awaiting_electronic_billing_info`
 - `awaiting_payment_method`
 - `awaiting_transfer_proof`
+- `awaiting_transfer_fallback_payment_method`
 - `awaiting_confirmation`
 - `awaiting_restaurant_confirmation`
 - `awaiting_replacement_selection`

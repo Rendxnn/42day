@@ -3,7 +3,7 @@ import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import { processMenuFile } from "../../../modules/menu-upload/menuFileProcessor";
 import type { DashboardVariables, TenantRow } from "../types";
-import { arrayBufferToBase64, parseGeminiMenuProducts } from "../router";
+import { arrayBufferToBase64, parseGeminiMenuProducts } from "../support/uploads";
 
 export const uploadsDashboardRoutes = new Hono<{
   Bindings: ApiBindings;

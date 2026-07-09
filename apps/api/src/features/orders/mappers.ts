@@ -39,6 +39,17 @@ export function mapOrder(row: OrderRow): Order {
     coverageCheckedAt: row.coverage_checked_at ?? undefined,
     paymentMethod: row.payment_method,
     paymentProofFileId: row.payment_proof_file_id ?? undefined,
+    billing: row.billing_type
+      ? {
+          type: row.billing_type,
+          profileId: row.billing_profile_id ?? undefined,
+          fullName: row.billing_full_name ?? undefined,
+          billingAddress: row.billing_address ?? undefined,
+          legalName: row.billing_legal_name ?? undefined,
+          taxId: row.billing_tax_id ?? undefined,
+          email: row.billing_email ?? undefined,
+        }
+      : undefined,
     subtotal: row.subtotal,
     deliveryFee: row.delivery_fee,
     discountTotal: row.discount_total,

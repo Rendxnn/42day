@@ -1,8 +1,8 @@
 import type { DeliveryCoverageSettings } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
-import { createSupabaseRestClient } from "../../lib/supabase-rest";
-import { evaluateDeliveryCoverage } from "./logic";
-import type { DeliveryCoverageValidation } from "./logic";
+import { SupabaseRestError, createSupabaseRestClient } from "../../lib/supabase-rest.ts";
+import { evaluateDeliveryCoverage } from "./logic.ts";
+import type { DeliveryCoverageValidation } from "./logic.ts";
 
 export {
   DeliveryCoverageConfigurationError,
@@ -12,7 +12,7 @@ export {
   isValidLatitude,
   isValidLongitude,
   parseDeliveryCoverageSettingsUpdate,
-} from "./logic";
+} from "./logic.ts";
 
 export const DEFAULT_REQUEST_LOCATION_MESSAGE = "Perfecto. Para validar si tenemos cobertura, por favor envianos tu ubicacion actual usando el boton de ubicacion de WhatsApp.";
 export const DEFAULT_WRITTEN_ADDRESS_FALLBACK_MESSAGE = "Para evitar errores con el domicilio, necesitamos validar tu ubicacion exacta. Por favor envianos tu ubicacion usando el boton de ubicacion de WhatsApp. Tambien guardaremos tu direccion escrita como referencia para el domiciliario.";
@@ -35,20 +35,28 @@ type DeliveryCoverageLocationRow = {
   out_of_coverage_message?: string | null;
 };
 
+const DELIVERY_COVERAGE_SELECT =
+  "id,delivery_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,allow_written_address_reference,try_geocode_written_addresses,allow_out_of_coverage_orders,request_location_message,written_address_fallback_message,out_of_coverage_message";
+const LEGACY_DELIVERY_COVERAGE_SELECT = "id,delivery_enabled,latitude,longitude";
+
 export async function getDeliveryCoverageSettings(input: {
   env: ApiBindings;
   schemaName: string;
   locationId?: string;
 }): Promise<DeliveryCoverageSettings | undefined> {
-  const [row] = await createSupabaseRestClient(input.env).select<DeliveryCoverageLocationRow>({
-    schema: input.schemaName,
-    table: "locations",
-    query: {
-      select: "id,delivery_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,allow_written_address_reference,try_geocode_written_addresses,allow_out_of_coverage_orders,request_location_message,written_address_fallback_message,out_of_coverage_message",
-      ...(input.locationId ? { id: `eq.${input.locationId}` } : { is_active: "eq.true" }),
-      limit: 1,
-    },
-  });
+  let row: DeliveryCoverageLocationRow | undefined;
+
+  try {
+    [row] = await selectDeliveryCoverageLocation(input, DELIVERY_COVERAGE_SELECT);
+  } catch (error) {
+    if (!(error instanceof SupabaseRestError) || error.status !== 400) {
+      throw error;
+    }
+
+    // Backward-compatible fallback for tenants that still lack the delivery-coverage columns.
+    [row] = await selectDeliveryCoverageLocation(input, LEGACY_DELIVERY_COVERAGE_SELECT);
+  }
+
   return row ? mapDeliveryCoverageSettings(row) : undefined;
 }
 
@@ -80,4 +88,23 @@ function mapDeliveryCoverageSettings(row: DeliveryCoverageLocationRow): Delivery
     writtenAddressFallbackMessage: row.written_address_fallback_message?.trim() || DEFAULT_WRITTEN_ADDRESS_FALLBACK_MESSAGE,
     outOfCoverageMessage: row.out_of_coverage_message?.trim() || DEFAULT_OUT_OF_COVERAGE_MESSAGE,
   };
+}
+
+function selectDeliveryCoverageLocation(
+  input: {
+    env: ApiBindings;
+    schemaName: string;
+    locationId?: string;
+  },
+  select: string,
+) {
+  return createSupabaseRestClient(input.env).select<DeliveryCoverageLocationRow>({
+    schema: input.schemaName,
+    table: "locations",
+    query: {
+      select,
+      ...(input.locationId ? { id: `eq.${input.locationId}` } : { is_active: "eq.true" }),
+      limit: 1,
+    },
+  });
 }

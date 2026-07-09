@@ -1,5 +1,5 @@
 import { calculateDraftTotals } from "@42day/core";
-import type { Conversation, DraftOrder, FulfillmentType, MenuItem, OrderLineItemOptionsSnapshot, PaymentMethod } from "@42day/types";
+import type { Conversation, DraftOrder, FulfillmentType, MenuItem, OrderBillingDetails, OrderLineItemOptionsSnapshot, PaymentMethod } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import {
   createDraftOrderRow,
@@ -370,6 +370,36 @@ export async function updateDraftOrderPaymentMethod(input: {
     draftOrderId: input.draftOrderId,
     values: {
       payment_method: input.paymentMethod,
+    },
+  });
+
+  return recalculateDraftOrder({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    deliveryFeeFixed: input.deliveryFeeFixed ?? 0,
+  });
+}
+
+export async function updateDraftOrderBilling(input: {
+  env: ApiBindings;
+  schemaName: string;
+  draftOrderId: string;
+  billing: OrderBillingDetails;
+  deliveryFeeFixed?: number;
+}): Promise<DraftOrder> {
+  await updateDraftOrderRow({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: input.draftOrderId,
+    values: {
+      billing_type: input.billing.type,
+      billing_profile_id: input.billing.profileId ?? null,
+      billing_full_name: input.billing.fullName ?? null,
+      billing_address: input.billing.billingAddress ?? null,
+      billing_legal_name: input.billing.legalName ?? null,
+      billing_tax_id: input.billing.taxId ?? null,
+      billing_email: input.billing.email ?? null,
     },
   });
 

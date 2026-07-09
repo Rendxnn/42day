@@ -1,4 +1,5 @@
 import type {
+  BillingType,
   DraftOrder,
   Order,
   OrderLineItem,
@@ -34,6 +35,13 @@ type OrderRow = {
   coverage_checked_at?: string | null;
   payment_method: "cash" | "transfer";
   payment_proof_file_id?: string | null;
+  billing_type?: BillingType | null;
+  billing_profile_id?: string | null;
+  billing_full_name?: string | null;
+  billing_address?: string | null;
+  billing_legal_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_email?: string | null;
   subtotal: number;
   delivery_fee: number;
   discount_total: number;
@@ -113,6 +121,10 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
     throw new Error("order.confirmation_missing_required_fields");
   }
 
+  if (!input.draft.billing?.type) {
+    throw new Error("order.confirmation_missing_billing");
+  }
+
   const client = createSupabaseRestClient(input.env);
   const now = new Date().toISOString();
   const status: OrderStatus = "pending_restaurant_confirmation";
@@ -139,6 +151,13 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
       coverage_confidence: input.draft.coverageConfidence ?? null,
       coverage_checked_at: input.draft.coverageCheckedAt ?? null,
       payment_method: input.draft.paymentMethod,
+      billing_type: input.draft.billing.type,
+      billing_profile_id: input.draft.billing.profileId ?? null,
+      billing_full_name: input.draft.billing.fullName ?? null,
+      billing_address: input.draft.billing.billingAddress ?? null,
+      billing_legal_name: input.draft.billing.legalName ?? null,
+      billing_tax_id: input.draft.billing.taxId ?? null,
+      billing_email: input.draft.billing.email ?? null,
       subtotal: input.draft.subtotal,
       delivery_fee: input.draft.deliveryFee,
       discount_total: input.draft.discountTotal,

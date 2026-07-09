@@ -25,6 +25,8 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { BillingSummaryCard } from "./features/orders/BillingSummaryCard";
+import { OrderMetaCard } from "./features/orders/OrderMetaCard";
 import { formatDashboardDateTime, formatDashboardPrice } from "./i18n";
 
 type OrdersViewProps = {
@@ -996,6 +998,14 @@ function OrderDetailPanel({
               </div>
             </section>
           )}
+
+          <OrderMetaCard
+            formatDateTime={formatDateTime}
+            getNotificationLabel={getNotificationLabel}
+            getOrderStatusLabel={getOrderStatusLabel}
+            locale={locale}
+            order={order}
+          />
         </div>
 
         <aside className="border-t border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-4 py-5 xl:border-l xl:border-t-0 sm:px-6">
@@ -1010,20 +1020,7 @@ function OrderDetailPanel({
           </div>
           <div className="my-4 border-t border-[rgba(118,93,71,0.12)]" />
           <SummaryRow emphasis label="Total" value={formatPrice(order.total, locale)} />
-          <div className="my-4 border-t border-[rgba(118,93,71,0.12)]" />
-          <div className="space-y-3">
-            <SummaryRow label={locale === "en" ? "Status" : "Estado"} value={getOrderStatusLabel(order.status, locale)} />
-            <SummaryRow label={locale === "en" ? "Updated" : "Actualizado"} value={formatDateTime(order.updatedAt, locale)} />
-            <SummaryRow label={locale === "en" ? "Customer notification" : "Notificacion cliente"} value={getNotificationLabel(order.customerNotificationStatus, locale)} />
-          </div>
-          <div className="my-4 border-t border-[rgba(118,93,71,0.12)]" />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Order history" : "Historial del pedido"}</p>
-          <div className="mt-3 space-y-3">
-            <SummaryRow label={locale === "en" ? "Created" : "Creado"} value={formatDateTime(order.createdAt, locale)} />
-            {order.restaurantConfirmedAt ? <SummaryRow label={locale === "en" ? "Confirmed" : "Confirmado"} value={formatDateTime(order.restaurantConfirmedAt, locale)} /> : null}
-            {order.customerNotifiedAt ? <SummaryRow label={locale === "en" ? "Customer notified" : "Cliente notificado"} value={formatDateTime(order.customerNotifiedAt, locale)} /> : null}
-            {order.paymentConfirmedAt ? <SummaryRow label={locale === "en" ? "Payment confirmed" : "Pago confirmado"} value={formatDateTime(order.paymentConfirmedAt, locale)} /> : null}
-          </div>
+          <BillingSummaryCard locale={locale} order={order} />
         </aside>
       </div>
 

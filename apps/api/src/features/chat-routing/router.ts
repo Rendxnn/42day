@@ -10,18 +10,27 @@ import {
   buildRestaurantReviewPendingMessage,
   buildResumeExistingOrderPrompt,
 } from "../../modules/message-router/response-composer";
-import { isActiveOrderState, loadCurrentMenu, shouldTrySemanticAtState } from "./helpers";
-import { sendAndLogText } from "./outbound";
-import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch } from "./transfer-fallback";
-import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer-proof";
-import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./product-configuration";
-import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements";
-import { tryHandleGuidedSelection } from "./guided-selection";
-import { tryHandleSemanticOrder } from "./semantic-order";
-import { handleClarification, moveToManual } from "./manual-handoff";
-import { proceedToNextOrderStep, tryHandleFulfillmentSelection, tryHandleDeliveryAddress, tryHandlePaymentMethod, tryHandleConfirmation } from "./checkout";
-import type { RouteInboundMessageInput } from "./types";
-export type { RouteInboundMessageInput } from "./types";
+import { isActiveOrderState, loadCurrentMenu, shouldTrySemanticAtState } from "./shared/helpers";
+import { sendAndLogText } from "./outbound/send";
+import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch } from "./transfer/fallback";
+import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
+import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./guided/product-configuration";
+import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements/selection";
+import { tryHandleGuidedSelection } from "./guided/selection";
+import { tryHandleSemanticOrder } from "./semantic/order";
+import { handleClarification, moveToManual } from "./manual/handoff";
+import {
+  proceedToNextOrderStep,
+  tryHandleBillingReuseConfirmation,
+  tryHandleConfirmation,
+  tryHandleDeliveryAddress,
+  tryHandleElectronicBillingInfo,
+  tryHandleFulfillmentSelection,
+  tryHandleNormalBillingInfo,
+  tryHandlePaymentMethod,
+} from "./checkout";
+import type { RouteInboundMessageInput } from "./shared/types";
+export type { RouteInboundMessageInput } from "./shared/types";
 
 export async function routeInboundMessage(input: RouteInboundMessageInput): Promise<void> {
   input.routingTrace = {
@@ -141,6 +150,27 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   ) {
     const handledAddress = await tryHandleDeliveryAddress(input, signals);
     if (handledAddress) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_billing_reuse_confirmation") {
+    const handledBillingReuse = await tryHandleBillingReuseConfirmation(input, signals);
+    if (handledBillingReuse) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_normal_billing_info") {
+    const handledNormalBilling = await tryHandleNormalBillingInfo(input, signals);
+    if (handledNormalBilling) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_electronic_billing_info") {
+    const handledElectronicBilling = await tryHandleElectronicBillingInfo(input);
+    if (handledElectronicBilling) {
       return;
     }
   }
