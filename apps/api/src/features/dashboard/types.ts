@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type {
   BillingType,
+  DraftOrderStatus,
   HumanInterventionStatus,
   Menu,
   OrderLineItemOptionsSnapshot,
@@ -203,6 +204,63 @@ export type OrderRow = {
 export type DraftOrderRow = {
   id: string;
   conversation_id?: string | null;
+  customer_id: string;
+  location_id?: string | null;
+  status: DraftOrderStatus;
+  fulfillment_type?: "delivery" | "pickup" | null;
+  service_timing?: "asap" | "scheduled" | null;
+  scheduled_for?: string | null;
+  delivery_address?: string | null;
+  delivery_address_id?: string | null;
+  customer_address_text?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
+  delivery_distance_km?: number | null;
+  is_inside_delivery_coverage?: boolean | null;
+  coverage_validation_method?: "whatsapp_location" | "written_address_reference" | "geocoded_address" | "not_validated" | null;
+  coverage_confidence?: "high" | "medium" | "low" | "failed" | null;
+  coverage_checked_at?: string | null;
+  payment_method?: "cash" | "transfer" | null;
+  billing_type?: BillingType | null;
+  billing_profile_id?: string | null;
+  billing_full_name?: string | null;
+  billing_address?: string | null;
+  billing_legal_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_email?: string | null;
+  subtotal: number;
+  delivery_fee: number;
+  discount_total: number;
+  total: number;
+  validation_errors?: string[] | null;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationRow = {
+  id: string;
+  customer_id: string;
+  state: string;
+  current_draft_order_id?: string | null;
+  last_inbound_at?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DraftOrderItemRow = {
+  id: string;
+  draft_order_id: string;
+  menu_item_id?: string | null;
+  product_id?: string | null;
+  combo_id?: string | null;
+  name_snapshot: string;
+  quantity: number;
+  unit_price: number;
+  options_snapshot?: OrderLineItemOptionsSnapshot | null;
+  notes?: string | null;
+  line_total: number;
 };
 
 export type OrderItemRow = {
@@ -249,6 +307,18 @@ export type AlertRow = {
   metadata?: Record<string, unknown> | null;
   created_at: string;
   resolved_at?: string | null;
+};
+
+export type AppEventRow = {
+  id: string;
+  conversation_id?: string | null;
+  draft_order_id?: string | null;
+  order_id?: string | null;
+  event_name: string;
+  severity: "info" | "warn" | "error" | string;
+  source: string;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
 };
 
 export type OrderNotificationContext = {

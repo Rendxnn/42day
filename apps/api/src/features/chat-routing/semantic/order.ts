@@ -4,7 +4,7 @@ import type { SemanticOrderEditAction, SemanticParserResult } from "../../../mod
 import { parseFreeFormOrder } from "../../../modules/semantic-parser/semantic-parser";
 import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderItemQuantity } from "../../draft-orders/service";
 import { buildOrderAdjustedPrompt, buildManualHandoffMessage } from "../../../modules/message-router/response-composer";
-import { resolveMenuSelectionFromText } from "../../menu/service";
+import { buildMenuText, resolveMenuSelectionFromText } from "../../menu/service";
 import { markLlmAttempt, markLlmOutcome } from "../shared/tracing";
 import { loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext } from "../shared/helpers";
 import { moveToManual } from "../manual/handoff";
@@ -82,6 +82,33 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
   }
 
   const semanticSignals = mergeSemanticSignals(signals, parsed);
+
+  if (parsed.intent === "menu") {
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: providerId,
+      parsed,
+      reason: "semantic_menu_question",
+    });
+
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_guided_item_selection",
+      context: {
+        flow: "semantic_menu",
+        activeMenuId: menu.menu?.id,
+        activeLocationId: menu.location?.id,
+        questions: parsed.questions ?? [],
+      },
+      resetClarificationAttempts: true,
+    }).catch(() => undefined);
+
+    await sendAndLogText(input, buildMenuText(menu));
+    return true;
+  }
 
   if (parsed.intent === "order_edit") {
     const handledEdit = await tryApplySemanticEdit(input, {

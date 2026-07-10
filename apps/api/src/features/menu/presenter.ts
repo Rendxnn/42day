@@ -17,7 +17,7 @@ export function buildMenuText(payload: TodayMenuPayload): string {
     "",
     buildGroupedMenuLines(payload.items),
     "",
-    'Puedes pedirme por nombre, cantidad o número. Por ejemplo: "dos almuerzos y una limonada".',
+    'Puedes pedirme por nombre, cantidad o número. Por ejemplo: "2 hamburguesas y una limonada" o "1 y 4".',
   ].join("\n");
 }
 
@@ -56,12 +56,16 @@ export function resolveBusinessDate(requestedDate?: string, timezone = "America/
 }
 
 function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
-  const groups = new Map<string, Array<TodayMenuPayload["items"][number]>>();
+  const groups = new Map<string, {
+    label: string;
+    items: Array<TodayMenuPayload["items"][number]>;
+  }>();
 
   for (const item of items) {
-    const categoryKey = normalizeCategoryKey(item.product?.category);
-    const current = groups.get(categoryKey) ?? [];
-    current.push(item);
+    const label = normalizeCategoryLabel(item.product?.category);
+    const categoryKey = normalizeCategoryKey(label);
+    const current = groups.get(categoryKey) ?? { label, items: [] };
+    current.items.push(item);
     groups.set(categoryKey, current);
   }
 
@@ -72,8 +76,8 @@ function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
   let index = 1;
 
   for (const category of orderedCategories) {
-    const categoryItems = groups.get(category);
-    if (!categoryItems || categoryItems.length === 0) {
+    const group = groups.get(category);
+    if (!group || group.items.length === 0) {
       continue;
     }
 
@@ -81,9 +85,9 @@ function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
       lines.push("");
     }
 
-    lines.push(formatCategoryHeading(category));
+    lines.push(formatCategoryHeading(group.label));
 
-    for (const item of categoryItems) {
+    for (const item of group.items) {
       const name = item.displayName ?? item.product?.name ?? `Producto ${index}`;
       const price = item.priceOverride ?? item.product?.basePrice ?? 0;
       lines.push(`${index}. ${name} — ${formatCop(price)}`);
@@ -102,38 +106,19 @@ function formatCop(value: number): string {
   }).format(value);
 }
 
+function normalizeCategoryLabel(value?: string | null): string {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "Otros";
+}
+
 function normalizeCategoryKey(value?: string | null): string {
-  const normalized = value
-    ?.toLowerCase()
+  return normalizeCategoryLabel(value)
+    .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\s+/g, " ")
     .trim();
-
-  if (!normalized) {
-    return "otros";
-  }
-
-  if (normalized.startsWith("desayun")) {
-    return "desayunos";
-  }
-
-  if (normalized.startsWith("almuerz") || normalized.includes("menu del dia")) {
-    return "almuerzos";
-  }
-
-  if (normalized.startsWith("bebid")) {
-    return "bebidas";
-  }
-
-  if (normalized.startsWith("adicion")) {
-    return "adiciones";
-  }
-
-  if (normalized.startsWith("combo")) {
-    return "combos";
-  }
-
-  return "otros";
 }
 
 function categoryPriority(category: string): number {
@@ -146,15 +131,13 @@ function categoryPriority(category: string): number {
       return 3;
     case "adiciones":
       return 4;
-    case "combos":
-      return 5;
     default:
       return 99;
   }
 }
 
-function formatCategoryHeading(category: string): string {
-  switch (category) {
+function formatCategoryHeading(categoryLabel: string): string {
+  switch (normalizeCategoryKey(categoryLabel)) {
     case "desayunos":
       return "🍳 Desayunos";
     case "almuerzos":
@@ -163,9 +146,7 @@ function formatCategoryHeading(category: string): string {
       return "🥤 Bebidas";
     case "adiciones":
       return "➕ Adiciones";
-    case "combos":
-      return "🎁 Combos";
     default:
-      return "🍴 Otros";
+      return `🍴 ${categoryLabel}`;
   }
 }

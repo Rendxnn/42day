@@ -32,6 +32,10 @@ export type CoverageConfidence = "high" | "medium" | "low" | "failed";
 export type OrdersBucket = "pending_confirmation" | "active" | "history" | "all";
 export type CustomerNotificationStatus = "pending" | "sent" | "failed";
 export type OrderCustomerNotificationType = "accepted" | "out_of_stock";
+export type OpenOrderStatus =
+  | Exclude<DraftOrderStatus, "confirmed" | "cancelled" | "expired">
+  | OrderStatus
+  | "conversation_started";
 
 export type OutOfStockReplacementOption = {
   menuItemId: string;
@@ -269,6 +273,35 @@ export type OrderSummary = {
   customerNotificationStatus?: CustomerNotificationStatus;
   customerNotificationError?: string;
   paymentConfirmedAt?: string;
+  conversationId?: string;
+  whatsappUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  items?: OrderLineItem[];
+};
+
+export type OpenOrderSummary = {
+  id: string;
+  draftOrderId?: string;
+  linkedOrderId?: string;
+  conversationId?: string;
+  conversationState?: string;
+  customerId: string;
+  customerPhone?: string;
+  customerName?: string;
+  whatsappUrl?: string;
+  status: OpenOrderStatus;
+  fulfillmentType?: FulfillmentType;
+  serviceTiming?: ServiceTiming;
+  scheduledFor?: string;
+  customerAddressText?: string;
+  paymentMethod?: PaymentMethod;
+  subtotal: number;
+  deliveryFee: number;
+  discountTotal: number;
+  total: number;
+  validationErrors?: string[];
+  expiresAt?: string;
   createdAt: string;
   updatedAt: string;
   items?: OrderLineItem[];
@@ -285,11 +318,26 @@ export type OrderDetail = OrderSummary & {
 export type OrdersDashboardPayload = {
   bucket: OrdersBucket;
   counts: {
+    open: number;
     pendingConfirmation: number;
     active: number;
     history: number;
     transferPendingReview: number;
     openAlerts: number;
   };
+  openOrders: OpenOrderSummary[];
   orders: OrderSummary[];
+};
+
+export type DashboardNotificationRecord = {
+  id: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+  orderId?: string;
+  draftOrderId?: string;
+  conversationId?: string;
+  whatsappUrl?: string;
+  severity: "info" | "warn" | "error" | string;
+  eventName: string;
 };

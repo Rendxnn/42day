@@ -25,7 +25,7 @@ export function buildPaymentPrompt(_draft: DraftOrder, menu: TodayMenuPayload): 
 
 export function buildAddMorePrompt(draft: DraftOrder): string {
   return [
-    `Perfecto ✨ Ya agregué \n${formatDraftItemsInline(draft)}.`,
+    `Perfecto ✨ Ya agregué ${formatDraftItemsInline(draft)}.`,
     `Subtotal parcial: ${formatCop(draft.subtotal)}.`,
     "",
     "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?",
@@ -256,7 +256,7 @@ export function buildProductConfigurationPrompt(
     return lines.join("\n");
   }
 
-  lines.push(`Para continuar con ${itemName}, necesito que me confirmes ${option.name}.`);
+  lines.push(`Para continuar con ${itemName}, necesito que me confirmes tu elección de ${option.name}.`);
 
   if (option.type === "multiple") {
     const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);

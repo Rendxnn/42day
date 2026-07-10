@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { DragEvent } from "react";
 import type { DetectedMenuProduct, MenuFileAnalysisPayload } from "../../api";
 import { DashboardApiError } from "../../api";
@@ -342,25 +342,42 @@ function CategorySelect({
   onChange: (nextCategory: string) => void;
   value?: string;
 }) {
-  const options = [
-    { id: "desayunos", label: "Desayunos" },
-    { id: "almuerzos", label: "Almuerzos" },
-    { id: "adiciones", label: "Adiciones" },
-    { id: "bebidas", label: "Bebidas" },
-  ];
+  const listId = useId();
+  const [draftValue, setDraftValue] = useState(value ?? "");
+  const options = Array.from(new Set([value, "General", "Entradas", "Platos principales", "Adiciones", "Bebidas", "Postres"].filter((entry): entry is string => Boolean(entry?.trim()))));
+
+  useEffect(() => {
+    setDraftValue(value ?? "");
+  }, [value]);
+
+  function commit(nextValue = draftValue) {
+    const normalized = nextValue.trim() || "General";
+    setDraftValue(normalized);
+    onChange(normalized);
+  }
 
   return (
-    <select
+    <>
+    <input
       className="h-11 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.45)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)]"
-      onChange={(event) => onChange(event.target.value)}
-      value={value ?? "adiciones"}
-    >
+      list={listId}
+      onBlur={(event) => commit(event.target.value)}
+      onChange={(event) => setDraftValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        }
+      }}
+      placeholder="Escribe o elige categoria"
+      value={draftValue}
+    />
+    <datalist id={listId}>
       {options.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
+        <option key={option} value={option} />
       ))}
-    </select>
+    </datalist>
+    </>
   );
 }
 
