@@ -399,6 +399,19 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
     setDetailOpen(true);
   }
 
+  function openLinkedOrderFromOpenStage(openOrder: OpenOrderSummary) {
+    if (!openOrder.linkedOrderId) {
+      return;
+    }
+
+    const linked = allOrders.find((order) => order.id === openOrder.linkedOrderId);
+    if (linked) {
+      setFilter(resolveFilterForOrderStatus(linked.status));
+    }
+    setSelectedOrderId(openOrder.linkedOrderId);
+    setDetailOpen(true);
+  }
+
   async function openOutOfStock(orderId: string) {
     const detail = selectedOrder?.id === orderId ? selectedOrder : await loadOrderDetail(orderId);
     if (detail) {
@@ -500,7 +513,12 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
           ) : filter === "open" ? (
             <div className="app-scrollbar max-h-none space-y-3 overflow-y-auto p-3 sm:p-4 xl:max-h-[780px]">
               {openOrders.map((order) => (
-                <OpenConversationCard key={order.id} locale={locale} order={order} />
+                <OpenConversationCard
+                  key={order.id}
+                  locale={locale}
+                  onOpenLinkedOrder={order.linkedOrderId ? () => openLinkedOrderFromOpenStage(order) : undefined}
+                  order={order}
+                />
               ))}
             </div>
           ) : filteredOrders.length === 0 ? (
@@ -811,7 +829,15 @@ function ClosedOrdersFilter({
   );
 }
 
-function OpenConversationCard({ locale, order }: { locale: "en" | "es"; order: OpenOrderSummary }) {
+function OpenConversationCard({
+  locale,
+  onOpenLinkedOrder,
+  order,
+}: {
+  locale: "en" | "es";
+  onOpenLinkedOrder?: () => void;
+  order: OpenOrderSummary;
+}) {
   return (
     <article className="rounded-[20px] border border-[rgba(137,164,196,0.18)] bg-[rgba(255,251,246,0.92)] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -850,17 +876,38 @@ function OpenConversationCard({ locale, order }: { locale: "en" | "es"; order: O
             ? `${locale === "en" ? "Draft" : "Borrador"} #${getOrderReceiptCode(order.draftOrderId)}`
             : (locale === "en" ? "Conversation started" : "Conversacion iniciada")}
         </span>
-        {order.whatsappUrl ? (
-          <a
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
-            href={order.whatsappUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <ExternalLink size={15} />
-            {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
-          </a>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onOpenLinkedOrder ? (
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.14)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]"
+              onClick={onOpenLinkedOrder}
+              type="button"
+            >
+              <ChevronRight size={15} />
+              {locale === "en" ? "Open order" : "Abrir pedido"}
+            </button>
+          ) : null}
+          {order.whatsappUrl ? (
+            <a
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+              href={order.whatsappUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink size={15} />
+              {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+            </a>
+          ) : (
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-3 text-sm font-semibold text-[var(--text-faint)]"
+              disabled
+              type="button"
+            >
+              <ExternalLink size={15} />
+              {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
+            </button>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -2056,6 +2103,18 @@ function matchesFilter(order: OrderSummary, filter: OrdersFilter) {
   }
 
   return closedStatuses.includes(order.status);
+}
+
+function resolveFilterForOrderStatus(status: OrderStatus): OrdersFilter {
+  if (pendingStatuses.includes(status)) {
+    return "pending";
+  }
+
+  if (confirmedStatuses.includes(status)) {
+    return "confirmed";
+  }
+
+  return "closed";
 }
 
 function getFilterLabel(filter: OrdersFilter, locale: "en" | "es") {

@@ -575,6 +575,36 @@ export function mapOpenConversationSummary(
   };
 }
 
+export function mapOrderSummaryAsOpenSummary(
+  row: OrderSummary,
+  conversation?: ConversationRow,
+): OpenOrderSummary {
+  return {
+    id: conversation?.id ?? row.id,
+    draftOrderId: row.draftOrderId,
+    linkedOrderId: row.id,
+    conversationId: conversation?.id ?? row.conversationId,
+    conversationState: conversation?.state,
+    customerId: row.customerId,
+    customerPhone: row.customerPhone,
+    customerName: row.customerName,
+    whatsappUrl: row.whatsappUrl,
+    status: row.status as OpenOrderSummary["status"],
+    fulfillmentType: row.fulfillmentType,
+    serviceTiming: row.serviceTiming,
+    scheduledFor: row.scheduledFor,
+    customerAddressText: row.customerAddressText,
+    paymentMethod: row.paymentMethod,
+    subtotal: row.subtotal,
+    deliveryFee: row.deliveryFee,
+    discountTotal: row.discountTotal,
+    total: row.total,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    items: row.items,
+  };
+}
+
 export function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
   return {
     id: row.id,

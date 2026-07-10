@@ -42,6 +42,7 @@ import {
   loadOrderNotificationContext,
   mapDashboardNotification,
   mapOpenConversationSummary,
+  mapOrderSummaryAsOpenSummary,
   mapOpenOrderSummary,
   mapOrderLineItem,
   mapLocation,
@@ -248,6 +249,11 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
 
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
   const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+  const conversationByDraftOrderId = new Map(
+    draftOrders
+      .filter((draftOrder) => draftOrder.conversation_id)
+      .map((draftOrder) => [draftOrder.id, draftOrder.conversation_id ? conversationById.get(draftOrder.conversation_id) : undefined]),
+  );
   const draftOrderById = new Map(draftOrders.map((draftOrder) => [draftOrder.id, draftOrder]));
   const orderByDraftOrderId = new Map(orders.filter((order) => order.draft_order_id).map((order) => [order.draft_order_id as string, order]));
   const itemsByOrderId = new Map<string, OrderItemRow[]>();
@@ -266,25 +272,40 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
     ...mapOrderSummary(order, customerById.get(order.customer_id)),
     items: (itemsByOrderId.get(order.id) ?? []).map(mapOrderLineItem),
   }));
-  const openOrders = conversations
-    .filter(isOpenConversation)
-    .map((conversation) => {
+  const openOrdersByKey = new Map<string, ReturnType<typeof mapOpenConversationSummary>>();
+  for (const conversation of conversations.filter(isOpenConversation)) {
       const draftOrder = conversation.current_draft_order_id
         ? draftOrderById.get(conversation.current_draft_order_id)
         : draftOrders.find((candidate) => candidate.conversation_id === conversation.id);
 
       if (draftOrder && isOpenDraftOrder(draftOrder, conversation)) {
-        return mapOpenOrderSummary(
+        const summary = mapOpenOrderSummary(
           draftOrder,
           customerById.get(draftOrder.customer_id),
           conversation,
           itemsByDraftOrderId.get(draftOrder.id) ?? [],
           orderByDraftOrderId.get(draftOrder.id),
         );
+        openOrdersByKey.set(summary.linkedOrderId ?? summary.draftOrderId ?? summary.conversationId ?? summary.id, summary);
+        continue;
       }
 
-      return mapOpenConversationSummary(conversation, customerById.get(conversation.customer_id));
-    });
+      const summary = mapOpenConversationSummary(conversation, customerById.get(conversation.customer_id));
+      openOrdersByKey.set(summary.linkedOrderId ?? summary.draftOrderId ?? summary.conversationId ?? summary.id, summary);
+  }
+
+  for (const order of summaries.filter((summary) => summary.status === "pending_restaurant_confirmation" || summary.status === "new")) {
+    const key = order.id;
+    if (openOrdersByKey.has(key)) {
+      continue;
+    }
+
+    const linkedConversation = order.draftOrderId ? conversationByDraftOrderId.get(order.draftOrderId) : undefined;
+    openOrdersByKey.set(key, mapOrderSummaryAsOpenSummary(order, linkedConversation));
+  }
+
+  const openOrders = Array.from(openOrdersByKey.values())
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
   const openAlerts = alerts.filter((alert) => alert.status === "open");
   const payload: OrdersDashboardPayload = {
