@@ -12,13 +12,27 @@ Responsabilidades:
 
 Decision actual: tenant isolation con schemas separados.
 
+## Modelo canonico recomendado
+
+- `control`: schema global canonico
+- `tenant_template`: template canonico de tenant
+- `tenant_demo`: sandbox/demo tenant para pruebas funcionales
+- `tenant_<slug>`: instancia operativa de un cliente ya provisionado
+
+Consecuencia importante:
+
+- las migraciones canonicas para desarrollo futuro deben describir `control` y el template tenant,
+- los demas tenant schemas no deben ser la fuente de verdad del baseline,
+- pero si deben recibir rollout cuando una migracion cambia estructura tenant.
+
 ## Estado real hoy
 
-- las migraciones viven en `packages/db/migrations`,
+- la carpeta canonica para nuevas migraciones debe ser `supabase/migrations`,
+- `packages/db/migrations` queda como archivo historico legacy del periodo previo a la reconciliacion Supabase CLI,
 - el repo ya tiene migraciones SQL numeradas `0001` a `0025`,
 - las mas recientes agregan cobertura de delivery y billing reutilizable por cliente con snapshot por orden,
-- no existe todavia una configuracion operativa completa de Supabase CLI para aplicar migraciones pendientes desde el repo,
-- tampoco existe aun un script oficial en `scripts/` o `package.json` para `status`, `dry-run` o `apply`.
+- el repo ya tiene baseline Supabase y migraciones forward reales en `supabase/migrations`,
+- todavia no existen scripts oficiales en `package.json` para `status`, `dry-run` o `apply`.
 
 Situacion real del remoto hoy:
 
@@ -26,6 +40,37 @@ Situacion real del remoto hoy:
 - pero el historial remoto no esta alineado 1:1 con `packages/db/migrations`,
 - hubo cambios de schema aplicados manualmente y luego fixes de compatibilidad puntuales,
 - por eso `list_migrations` en Supabase no debe asumirse como reflejo fiel del repo hasta hacer una reconciliacion formal.
+
+## Baseline vs rollout
+
+Hay dos necesidades distintas y no deben confundirse:
+
+### 1. Baseline canonico
+
+Es la base que usa el equipo para evolucionar schema en el futuro.
+
+Debe reflejar:
+
+- `control`
+- `tenant_template`
+
+No debe congelar todos los `tenant_<slug>` historicos como si fueran schema canonico.
+
+### 2. Rollout operativo
+
+Es la aplicacion de cambios estructurales a tenants ya existentes en una base remota.
+
+Una migracion tenant-profesional debe:
+
+- actualizar el template tenant,
+- recorrer `control.tenants` para actualizar tenants existentes,
+- usar SQL idempotente siempre que sea posible (`if exists`, `if not exists`),
+- refrescar exposicion PostgREST si corresponde.
+
+Esto permite que:
+
+- futuros tenants nazcan con la estructura nueva por clonacion del template,
+- tenants actuales queden alineados sin reprovisionarlos.
 
 ## Pendiente explicito
 
@@ -41,17 +86,22 @@ Objetivo deseado:
 
 ## Flujo actual
 
-Hoy la realidad es mas manual que automatizada:
+Flujo recomendado desde ahora:
 
-- se escriben migraciones SQL versionadas,
-- se revisan y aplican conscientemente sobre Supabase,
-- a veces se corrigen drift o emergencias con SQL puntual sobre remoto,
-- luego se valida que API/dashboard sigan operando.
+1. crear nueva migracion en `supabase/migrations`
+2. si el cambio es tenant-scoped:
+   - actualizar `tenant_template`
+   - hacer rollout a tenants existentes
+3. probar localmente o en branch/sandbox cuando aplique
+4. aplicar con `supabase db push`
+5. validar schema remoto y comportamiento de API/dashboard
 
-Esto funciona para la etapa actual del proyecto, pero no debe considerarse el estado final del workflow de base de datos.
+`packages/db/migrations` no debe seguir recibiendo nuevas migraciones canonicas. Puede conservarse por ahora como referencia historica hasta que decidamos archivarlo formalmente.
 
 ## Regla operativa recomendada desde ahora
 
 - evitar cambios directos sobre remoto salvo emergencia real,
 - si se hace un cambio manual, capturarlo enseguida en una migracion versionada y reconciliar historial,
 - converger cuanto antes a un flujo Supabase CLI con proyecto linkeado, migraciones canonicas y `db push` como unico camino normal de despliegue de schema.
+- no usar `tenant_demo` como sandbox de datos operativos permanentes; reservarlo como template y preferir tenants sandbox descartables para pruebas funcionales.
+- mantener `tenant_template` como schema estructural vacio o lo mas limpio posible y dejar el testing funcional en `tenant_demo` u otros sandboxes descartables.

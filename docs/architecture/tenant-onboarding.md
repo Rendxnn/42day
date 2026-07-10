@@ -47,15 +47,22 @@ Hoy existe una consola admin y una RPC de provisionamiento que permiten:
 
 1. crear fila en `control.tenants`,
 2. crear schema dedicado `tenant_<slug>`,
-3. crear tablas base del tenant,
+3. clonar tablas base del tenant desde `tenant_template`,
 4. crear sede principal,
 5. crear menu inicial,
 6. crear o asociar usuarios,
 7. configurar estado y automatizacion inicial.
 
+Punto clave:
+
+- `tenant_template` debe ser el template de provisionamiento.
+- `tenant_demo` puede vivir como tenant de pruebas funcionales sin contaminar el template.
+- los tenants reales creados para clientes no deberian convertirse en la referencia de schema canonica.
+
 Documentacion relacionada:
 
 - [Admin: gestion de restaurantes y miembros](../planning/admin-restaurant-management.md)
+- [Arquitectura de migraciones de base de datos](./database-migrations.md)
 
 ## Limite actual importante
 
@@ -75,3 +82,9 @@ Sin embargo, varias pantallas operativas del dashboard del restaurante siguen de
 - canal WhatsApp asociado,
 - automatizacion activada cuando corresponda,
 - schema expuesto si la pantalla operativa lo requiere.
+
+## Recomendacion operativa
+
+- evitar usar `tenant_template` como tenant operativo o de pruebas del dia a dia.
+- `tenant_demo` puede seguir como sandbox activo mientras el template quede separado.
+- si en el futuro el sandbox crece demasiado, preferir provisionar otro tenant descartable para pruebas funcionales.

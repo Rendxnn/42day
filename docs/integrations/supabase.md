@@ -97,6 +97,17 @@ tenant_<slug>
 
 Cada tenant tiene sus tablas operativas.
 
+Regla de arquitectura recomendada:
+
+- `control` es schema global canonico,
+- `tenant_template` actua como template canonico de tenant,
+- `tenant_demo` queda como sandbox/demo tenant,
+- `tenant_<slug>` representa tenants operativos provisionados desde ese template.
+
+La referencia larga de estrategia de migraciones multi-tenant vive en:
+
+- [Arquitectura de migraciones de base de datos](../architecture/database-migrations.md)
+
 ## Configuracion inicial recomendada
 
 1. Crear proyecto Supabase.

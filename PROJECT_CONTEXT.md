@@ -57,6 +57,17 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 | Dashboard data access | Solo via `apps/api`, no directo a Supabase desde frontend |
 | Roles operativos | `encargado`, `trabajador` |
 
+## Decision de migraciones multi-tenant
+
+- `control` es schema global canonico.
+- `tenant_template` es el template canonico de tenant.
+- `tenant_demo` queda como tenant sandbox/demo para pruebas funcionales.
+- los demas `tenant_<slug>` son instancias operativas, no fuente canonica de schema.
+- una migracion tenant-profesional debe cubrir dos necesidades distintas:
+  - baseline canonico para desarrollo futuro: `control` + `tenant_template`
+  - rollout operativo para tenants existentes: aplicar el cambio a todos los `tenant_*` ya provisionados
+- nuevos tenants no deben nacer re-ejecutando todas las migraciones historicas; deben provisionarse clonando el template canonico vigente y luego sembrando defaults minimos.
+
 ## Estado real actual
 
 Ya implementado:
@@ -103,6 +114,11 @@ Nota de estructura actual:
 - `apps/api/src/features/chat-routing/` ya esta migrando hacia carpetas por responsabilidad como `checkout/`, `guided/`, `semantic/`, `transfer/`, `manual/`, `outbound/` y `shared/`.
 - `apps/api/src/features/dashboard/` ya usa router modular y se sigue partiendo hacia `routes/*` y `support/*`.
 - por compatibilidad, varios archivos flat viejos siguen existiendo como fachadas de reexport mientras termina la migracion interna.
+
+Nota operativa importante:
+
+- `tenant_template` debe mantenerse limpio y estructural, sin uso operativo diario.
+- `tenant_demo` puede seguir usandose para pruebas funcionales mientras no se convierta otra vez en template.
 
 ## Estados de conversacion
 
