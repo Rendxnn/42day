@@ -487,7 +487,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{getFilterLabel(filter, locale)}</p>
               <p className="mt-1 text-xs text-[var(--text-soft)]">
                 {filter === "open"
-                  ? (locale === "en" ? "Chats started by the assistant before order confirmation" : "Chats iniciados por el asistente antes de confirmar el pedido")
+                  ? (locale === "en" ? "Customer chats that are still building the order before restaurant confirmation" : "Chats iniciados por clientes que aun estan armando el pedido antes de confirmar con el restaurante")
                   : (locale === "en" ? "Tap an order to see all details" : "Toca un pedido para ver el detalle")}
               </p>
             </div>
@@ -1012,35 +1012,35 @@ function OperationalOrderCard({
             <X size={15} />
             {locale === "en" ? "Cancel order" : "Cancelar pedido"}
           </button>
-          {order.whatsappUrl ? (
-            <button
-              className="min-[360px]:col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenWhatsapp();
-              }}
-              type="button"
-            >
-              <ExternalLink size={15} />
-              {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
-            </button>
-          ) : null}
+          <button
+            className="min-[360px]:col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)] disabled:cursor-not-allowed disabled:border-[rgba(118,93,71,0.12)] disabled:text-[var(--text-faint)] disabled:hover:bg-transparent"
+            disabled={!order.whatsappUrl}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenWhatsapp();
+            }}
+            type="button"
+          >
+            <ExternalLink size={15} />
+            {order.whatsappUrl
+              ? (locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp")
+              : (locale === "en" ? "No WhatsApp" : "Sin WhatsApp")}
+          </button>
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-xs font-semibold text-[var(--text-soft)]">
-          {order.whatsappUrl ? (
-            <button
-              className="inline-flex items-center gap-1 rounded-full border border-[rgba(79,122,97,0.16)] px-3 py-1.5 text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenWhatsapp();
-              }}
-              type="button"
-            >
-              <ExternalLink size={13} />
-              {locale === "en" ? "WhatsApp" : "WhatsApp"}
-            </button>
-          ) : null}
+          <button
+            className="inline-flex items-center gap-1 rounded-full border border-[rgba(79,122,97,0.16)] px-3 py-1.5 text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)] disabled:cursor-not-allowed disabled:border-[rgba(118,93,71,0.12)] disabled:text-[var(--text-faint)] disabled:hover:bg-transparent"
+            disabled={!order.whatsappUrl}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenWhatsapp();
+            }}
+            type="button"
+          >
+            <ExternalLink size={13} />
+            {order.whatsappUrl ? "WhatsApp" : (locale === "en" ? "No WhatsApp" : "Sin WhatsApp")}
+          </button>
           <span className="inline-flex items-center gap-1">
             {locale === "en" ? "View details" : "Ver detalle"}
             <ChevronRight size={15} />
@@ -1143,7 +1143,16 @@ function OrderDetailPanel({
                 <ExternalLink size={16} />
                 {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
               </a>
-            ) : null}
+            ) : (
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
+                disabled
+                type="button"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
+              </button>
+            )}
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -2024,7 +2033,7 @@ function ErrorBlock({ message }: { message: string }) {
 
 function EmptyListState({ filter, locale }: { filter: OrdersFilter; locale: "en" | "es" }) {
   const copy = {
-    open: locale === "en" ? "There are no open WhatsApp chats right now." : "No hay chats abiertos en este momento.",
+    open: locale === "en" ? "There are no customer conversations in progress right now." : "No hay conversaciones activas de clientes en este momento.",
     pending: locale === "en" ? "There are no pending orders right now." : "No hay pedidos pendientes en este momento.",
     confirmed: locale === "en" ? "There are no confirmed orders in progress." : "No hay pedidos confirmados en curso.",
     closed: locale === "en" ? "There are no closed orders for this filter." : "No hay pedidos cerrados para este filtro.",

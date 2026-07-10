@@ -304,6 +304,27 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
     openOrdersByKey.set(key, mapOrderSummaryAsOpenSummary(order, linkedConversation));
   }
 
+  for (const draftOrder of draftOrders.filter((candidate) => ["draft", "needs_clarification", "ready_for_confirmation"].includes(candidate.status))) {
+    const linkedConversation = draftOrder.conversation_id ? conversationById.get(draftOrder.conversation_id) : undefined;
+    if (linkedConversation && !isOpenConversation(linkedConversation)) {
+      continue;
+    }
+
+    const linkedOrder = orderByDraftOrderId.get(draftOrder.id);
+    if (linkedOrder && ["pending_restaurant_confirmation", "new"].includes(linkedOrder.status)) {
+      continue;
+    }
+
+    const summary = mapOpenOrderSummary(
+      draftOrder,
+      customerById.get(draftOrder.customer_id),
+      linkedConversation,
+      itemsByDraftOrderId.get(draftOrder.id) ?? [],
+      linkedOrder,
+    );
+    openOrdersByKey.set(summary.linkedOrderId ?? summary.draftOrderId ?? summary.conversationId ?? summary.id, summary);
+  }
+
   const openOrders = Array.from(openOrdersByKey.values())
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
