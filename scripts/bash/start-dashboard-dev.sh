@@ -8,15 +8,14 @@ source "$script_dir/lib.sh"
 
 root="$(repo_root)"
 ensure_repo_root "$root"
-ensure_api_dev_vars "$root"
 
 if [[ ! -f "$root/node_modules/.modules.yaml" ]]; then
   printf 'No workspace install found. Reinstalling dependencies...\n'
-  "$script_dir/Install-WorkspaceDeps.sh" --force
+  "$script_dir/install-workspace-deps.sh" --force
 fi
 
-printf 'Starting API locally...\n'
+printf 'Starting dashboard locally...\n'
 (
   cd "$root"
-  pnpm_exec --filter @42day/api dev
+  pnpm_exec --filter @42day/dashboard dev
 )

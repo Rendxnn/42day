@@ -194,6 +194,19 @@ Usar `tenant_template` como tenant de pruebas del dia a dia no es ideal porque:
 - usar `tenant_demo` como sandbox funcional actual o crear otro sandbox separado,
 - borrar y reprovisionar tenants sandbox cuando haga falta.
 
+## Seeds
+
+Estado actual:
+
+- todavia no existe un seed canonico del proyecto integrado al flujo normal de Supabase CLI,
+- `supabase/seed.sql` existe solo como placeholder tecnico minimo,
+- los datos demo/legacy siguen fuera de ese flujo y viven en `packages/db/seeds/`.
+
+Decision por ahora:
+
+- no tratar ese placeholder como seed oficial del producto,
+- cuando definamos un seed real, debe hacerse como trabajo separado y documentado.
+
 ## Regla de emergencia
 
 Si una correccion debe hacerse manualmente en remoto:

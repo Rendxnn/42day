@@ -23,9 +23,9 @@ root="$(repo_root)"
 ensure_repo_root "$root"
 
 printf 'Deploying staging...\n'
-"$script_dir/Deploy-Api.sh" --environment staging
+"$script_dir/deploy-api.sh" --environment staging
 
 if [[ $skip_health_check -eq 0 ]]; then
   printf 'Testing staging health...\n'
-  "$script_dir/Test-ApiHealth.sh" --base-url "https://42day-api-staging.42day.workers.dev"
+  "$script_dir/test-api-health.sh" --base-url "https://42day-api-staging.42day.workers.dev"
 fi

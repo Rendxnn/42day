@@ -134,19 +134,19 @@ curl "https://<worker-staging-url>/webhooks/whatsapp?hub.mode=subscribe&hub.veri
 Desde la raiz del repo:
 
 ```bash
-bash scripts/bash/Tail-WorkerLogs.sh --environment staging
+bash scripts/bash/tail-worker-logs.sh --environment staging
 ```
 
 Opcionalmente filtra por eventos concretos:
 
 ```bash
-bash scripts/bash/Tail-WorkerLogs.sh --environment staging --search whatsapp.webhook.received
+bash scripts/bash/tail-worker-logs.sh --environment staging --search whatsapp.webhook.received
 ```
 
 Si quieres mirar errores solamente:
 
 ```bash
-bash scripts/bash/Tail-WorkerLogs.sh --environment staging --status error
+bash scripts/bash/tail-worker-logs.sh --environment staging --status error
 ```
 
 ## 6. Configurar Meta webhook

@@ -65,11 +65,11 @@ python scripts/dev_services.py --restart
 En Ubuntu tambien puedes usar los wrappers Bash:
 
 ```bash
-bash scripts/bash/Show-Helpers.sh
-bash scripts/bash/Install-WorkspaceDeps.sh --force
-bash scripts/bash/Start-LocalStack.sh
-bash scripts/bash/Tail-WorkerLogs.sh --environment staging
-bash scripts/bash/Set-MetaPhoneNumberId.sh --environment staging
+bash scripts/bash/show-helpers.sh
+bash scripts/bash/install-workspace-deps.sh --force
+bash scripts/bash/start-local-stack.sh
+bash scripts/bash/tail-worker-logs.sh --environment staging
+bash scripts/bash/set-meta-phone-number-id.sh --environment staging
 ```
 
 URLs locales:

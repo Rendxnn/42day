@@ -29,9 +29,9 @@ root="$(repo_root)"
 ensure_repo_root "$root"
 
 printf 'Deploying production...\n'
-"$script_dir/Deploy-Api.sh" --environment production
+"$script_dir/deploy-api.sh" --environment production
 
 if [[ $skip_health_check -eq 0 ]]; then
   printf 'Testing production health...\n'
-  "$script_dir/Test-ApiHealth.sh" --base-url "$base_url"
+  "$script_dir/test-api-health.sh" --base-url "$base_url"
 fi

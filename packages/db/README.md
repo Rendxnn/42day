@@ -100,7 +100,8 @@ Flujo recomendado desde ahora:
 
 Nota sobre seeds:
 
-- `supabase/seed.sql` existe hoy como placeholder minimo para que `supabase db reset` no falle,
+- hoy no existe un seed canonico del proyecto para Supabase CLI,
+- `supabase/seed.sql` existe solo como placeholder minimo para que `supabase db reset` no falle,
 - los seeds demo legacy siguen viviendo en `packages/db/seeds/`,
 - migrar esos seeds al flujo canonico de Supabase queda como trabajo posterior y debe hacerse de forma intencional, separado del baseline de schema.
 
@@ -109,5 +110,5 @@ Nota sobre seeds:
 - evitar cambios directos sobre remoto salvo emergencia real,
 - si se hace un cambio manual, capturarlo enseguida en una migracion versionada y reconciliar historial,
 - converger cuanto antes a un flujo Supabase CLI con proyecto linkeado, migraciones canonicas y `db push` como unico camino normal de despliegue de schema.
-- no usar `tenant_demo` como sandbox de datos operativos permanentes; reservarlo como template y preferir tenants sandbox descartables para pruebas funcionales.
-- mantener `tenant_template` como schema estructural vacio o lo mas limpio posible y dejar el testing funcional en `tenant_demo` u otros sandboxes descartables.
+- no usar `tenant_template` como sandbox de datos operativos permanentes; reservarlo como template estructural,
+- mantener `tenant_template` lo mas limpio posible y dejar el testing funcional en `tenant_demo` u otros sandboxes descartables.

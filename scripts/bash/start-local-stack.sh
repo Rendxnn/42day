@@ -12,7 +12,7 @@ ensure_api_dev_vars "$root"
 
 if [[ ! -f "$root/node_modules/.modules.yaml" ]]; then
   printf 'No workspace install found. Reinstalling dependencies...\n'
-  "$script_dir/Install-WorkspaceDeps.sh" --force
+  "$script_dir/install-workspace-deps.sh" --force
 fi
 
 launch_terminal() {
@@ -34,5 +34,5 @@ launch_terminal() {
 }
 
 printf 'Opening two terminals: API and dashboard...\n'
-launch_terminal "42day API" "cd '$root' && '$script_dir/Start-ApiDev.sh'"
-launch_terminal "42day dashboard" "cd '$root' && '$script_dir/Start-DashboardDev.sh'"
+launch_terminal "42day API" "cd '$root' && '$script_dir/start-api-dev.sh'"
+launch_terminal "42day dashboard" "cd '$root' && '$script_dir/start-dashboard-dev.sh'"

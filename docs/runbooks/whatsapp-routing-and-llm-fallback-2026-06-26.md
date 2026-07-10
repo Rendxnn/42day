@@ -68,14 +68,14 @@ Quedo implementado:
 Para que el fallback corra realmente en `staging`, todavia falta:
 
 ```bash
-bash scripts/bash/Set-CfWorkerSecret.sh OPENROUTER_API_KEY --environment staging
-bash scripts/bash/Deploy-Api.sh --environment staging
+bash scripts/bash/set-cf-worker-secret.sh OPENROUTER_API_KEY --environment staging
+bash scripts/bash/deploy-api.sh --environment staging
 ```
 
 Opcionalmente puede fijarse modelo:
 
 ```bash
-bash scripts/bash/Set-CfWorkerSecret.sh OPENROUTER_MODEL --environment staging
+bash scripts/bash/set-cf-worker-secret.sh OPENROUTER_MODEL --environment staging
 ```
 
 Aunque por defecto el runtime ya quedo con:

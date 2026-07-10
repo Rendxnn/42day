@@ -104,8 +104,8 @@ Paso a paso:
 Desde Bash en la raiz del repo:
 
 ```bash
-bash scripts/bash/Set-MetaAccessToken.sh --environment staging
-bash scripts/bash/Deploy-Api.sh --environment staging
+bash scripts/bash/set-meta-access-token.sh --environment staging
+bash scripts/bash/deploy-api.sh --environment staging
 ```
 
 ## Scripts listos
@@ -124,18 +124,18 @@ Para Windows quedan en:
 
 Para Ubuntu quedan en:
 
-- [Show-Helpers.sh](../../scripts/bash/Show-Helpers.sh)
-- [Install-WorkspaceDeps.sh](../../scripts/bash/Install-WorkspaceDeps.sh)
-- [Set-CfWorkerSecret.sh](../../scripts/bash/Set-CfWorkerSecret.sh)
-- [Set-MetaAccessToken.sh](../../scripts/bash/Set-MetaAccessToken.sh)
-- [Set-GeminiApiKey.sh](../../scripts/bash/Set-GeminiApiKey.sh)
-- [Deploy-Api.sh](../../scripts/bash/Deploy-Api.sh)
-- [Test-ApiHealth.sh](../../scripts/bash/Test-ApiHealth.sh)
-- [Start-ApiDev.sh](../../scripts/bash/Start-ApiDev.sh)
-- [Start-DashboardDev.sh](../../scripts/bash/Start-DashboardDev.sh)
-- [Start-LocalStack.sh](../../scripts/bash/Start-LocalStack.sh)
-- [Publish-Staging.sh](../../scripts/bash/Publish-Staging.sh)
-- [Publish-Production.sh](../../scripts/bash/Publish-Production.sh)
+- [show-helpers.sh](../../scripts/bash/show-helpers.sh)
+- [install-workspace-deps.sh](../../scripts/bash/install-workspace-deps.sh)
+- [set-cf-worker-secret.sh](../../scripts/bash/set-cf-worker-secret.sh)
+- [set-meta-access-token.sh](../../scripts/bash/set-meta-access-token.sh)
+- [set-gemini-api-key.sh](../../scripts/bash/set-gemini-api-key.sh)
+- [deploy-api.sh](../../scripts/bash/deploy-api.sh)
+- [test-api-health.sh](../../scripts/bash/test-api-health.sh)
+- [start-api-dev.sh](../../scripts/bash/start-api-dev.sh)
+- [start-dashboard-dev.sh](../../scripts/bash/start-dashboard-dev.sh)
+- [start-local-stack.sh](../../scripts/bash/start-local-stack.sh)
+- [publish-staging.sh](../../scripts/bash/publish-staging.sh)
+- [publish-production.sh](../../scripts/bash/publish-production.sh)
 
 ## Tengo que cambiar el token dentro del deploy?
 
@@ -211,20 +211,20 @@ Estado actual del repo:
 Si falta algun secret o lo vas a rotar:
 
 ```bash
-bash scripts/bash/Set-CfWorkerSecret.sh META_VERIFY_TOKEN --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh META_ACCESS_TOKEN --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh META_PHONE_NUMBER_ID --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh META_WABA_ID --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_URL --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_SERVICE_ROLE_KEY --environment production
+bash scripts/bash/set-cf-worker-secret.sh META_VERIFY_TOKEN --environment production
+bash scripts/bash/set-cf-worker-secret.sh META_ACCESS_TOKEN --environment production
+bash scripts/bash/set-cf-worker-secret.sh META_PHONE_NUMBER_ID --environment production
+bash scripts/bash/set-cf-worker-secret.sh META_WABA_ID --environment production
+bash scripts/bash/set-cf-worker-secret.sh SUPABASE_URL --environment production
+bash scripts/bash/set-cf-worker-secret.sh SUPABASE_SERVICE_ROLE_KEY --environment production
 ```
 
 Opcionales segun el ambiente:
 
 ```bash
-bash scripts/bash/Set-CfWorkerSecret.sh SUPABASE_ANON_KEY --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh DATABASE_URL --environment production
-bash scripts/bash/Set-CfWorkerSecret.sh GEMINI_API_KEY --environment production
+bash scripts/bash/set-cf-worker-secret.sh SUPABASE_ANON_KEY --environment production
+bash scripts/bash/set-cf-worker-secret.sh DATABASE_URL --environment production
+bash scripts/bash/set-cf-worker-secret.sh GEMINI_API_KEY --environment production
 ```
 
 ### 2. Deploy del Worker productivo
@@ -232,13 +232,13 @@ bash scripts/bash/Set-CfWorkerSecret.sh GEMINI_API_KEY --environment production
 Opcion directa:
 
 ```bash
-bash scripts/bash/Deploy-Api.sh --environment production
+bash scripts/bash/deploy-api.sh --environment production
 ```
 
 Opcion con health check:
 
 ```bash
-bash scripts/bash/Publish-Production.sh --base-url https://42day-api-production.42day.workers.dev
+bash scripts/bash/publish-production.sh --base-url https://42day-api-production.42day.workers.dev
 ```
 
 Si tu `workers.dev` real usa otro subdominio o un dominio custom, pasa esa URL en `--base-url`.
@@ -248,13 +248,13 @@ Si tu `workers.dev` real usa otro subdominio o un dominio custom, pasa esa URL e
 Health:
 
 ```bash
-bash scripts/bash/Test-ApiHealth.sh --base-url https://42day-api-production.42day.workers.dev
+bash scripts/bash/test-api-health.sh --base-url https://42day-api-production.42day.workers.dev
 ```
 
 Logs:
 
 ```bash
-bash scripts/bash/Tail-WorkerLogs.sh --environment production
+bash scripts/bash/tail-worker-logs.sh --environment production
 ```
 
 ### 4. Configurar Vercel
