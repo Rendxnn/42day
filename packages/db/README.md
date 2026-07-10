@@ -98,6 +98,12 @@ Flujo recomendado desde ahora:
 
 `packages/db/migrations` no debe seguir recibiendo nuevas migraciones canonicas. Puede conservarse por ahora como referencia historica hasta que decidamos archivarlo formalmente.
 
+Nota sobre seeds:
+
+- `supabase/seed.sql` existe hoy como placeholder minimo para que `supabase db reset` no falle,
+- los seeds demo legacy siguen viviendo en `packages/db/seeds/`,
+- migrar esos seeds al flujo canonico de Supabase queda como trabajo posterior y debe hacerse de forma intencional, separado del baseline de schema.
+
 ## Regla operativa recomendada desde ahora
 
 - evitar cambios directos sobre remoto salvo emergencia real,

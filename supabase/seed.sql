@@ -1,0 +1,11 @@
+-- Intentionally minimal seed file for the canonical Supabase CLI workflow.
+--
+-- Goal:
+-- - allow `supabase db reset` to run without failing on a missing seed file
+-- - keep schema evolution independent from demo/business sample data
+--
+-- Current note:
+-- - historical demo seeds still live in `packages/db/seeds/`
+-- - if we want reproducible local demo data under the new workflow, we should
+--   migrate that logic intentionally in a later step instead of mixing it into
+--   the schema-baseline checkpoint
