@@ -16,6 +16,8 @@ import type {
   HumanInterventionStatus,
   Menu,
   MenuItem,
+  DashboardNotificationRecord,
+  OpenOrderSummary,
   OrderCustomerNotificationType,
   OrderDetail,
   OrderLineItem,
@@ -45,9 +47,12 @@ import type { OrderCustomerNotificationPayload } from "./order-customer-notifica
 import type {
   AdminAuthUser,
   AlertRow,
+  AppEventRow,
   AuthUser,
+  ConversationRow,
   CustomerRow,
   DashboardVariables,
+  DraftOrderItemRow,
   DraftOrderRow,
   GeminiMenuProduct,
   LocationRow,
@@ -448,6 +453,30 @@ export function matchesOrdersBucket(order: OrderSummary, bucket: OrdersBucket): 
   return ["delivered", "cancelled"].includes(order.status);
 }
 
+export function isOpenDraftOrder(row: DraftOrderRow, conversation?: ConversationRow): boolean {
+  if (["cancelled", "expired"].includes(row.status)) {
+    return false;
+  }
+
+  if (conversation && ["completed", "expired"].includes(conversation.state)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function isOpenConversation(row: ConversationRow): boolean {
+  if (["completed", "expired"].includes(row.state)) {
+    return false;
+  }
+
+  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+    return false;
+  }
+
+  return true;
+}
+
 export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSummary {
   return {
     id: row.id,
@@ -482,8 +511,67 @@ export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSum
     customerNotificationStatus: row.customer_notification_status ?? undefined,
     customerNotificationError: row.customer_notification_error ?? undefined,
     paymentConfirmedAt: row.payment_confirmed_at ?? undefined,
+    whatsappUrl: customer?.phone ? buildWhatsAppUrl(customer.phone) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+export function mapOpenOrderSummary(
+  row: DraftOrderRow,
+  customer?: CustomerRow,
+  conversation?: ConversationRow,
+  items: DraftOrderItemRow[] = [],
+  linkedOrder?: OrderRow,
+): OpenOrderSummary {
+  return {
+    id: conversation?.id ?? row.id,
+    draftOrderId: row.id,
+    linkedOrderId: linkedOrder?.id,
+    conversationId: row.conversation_id ?? conversation?.id ?? undefined,
+    conversationState: conversation?.state,
+    customerId: row.customer_id,
+    customerPhone: customer?.phone,
+    customerName: customer?.name,
+    whatsappUrl: customer?.phone ? buildWhatsAppUrl(customer.phone) : undefined,
+    status: row.status as OpenOrderSummary["status"],
+    fulfillmentType: row.fulfillment_type ?? undefined,
+    serviceTiming: row.service_timing ?? undefined,
+    scheduledFor: row.scheduled_for ?? undefined,
+    customerAddressText: row.delivery_address ?? undefined,
+    paymentMethod: row.payment_method ?? undefined,
+    subtotal: row.subtotal,
+    deliveryFee: row.delivery_fee,
+    discountTotal: row.discount_total,
+    total: row.total,
+    validationErrors: row.validation_errors ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    items: items.map(mapDraftOrderLineItem),
+  };
+}
+
+export function mapOpenConversationSummary(
+  row: ConversationRow,
+  customer?: CustomerRow,
+): OpenOrderSummary {
+  return {
+    id: row.id,
+    conversationId: row.id,
+    conversationState: row.state,
+    customerId: row.customer_id,
+    customerPhone: customer?.phone,
+    customerName: customer?.name,
+    whatsappUrl: customer?.phone ? buildWhatsAppUrl(customer.phone) : undefined,
+    status: "conversation_started",
+    subtotal: 0,
+    deliveryFee: 0,
+    discountTotal: 0,
+    total: 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    items: [],
   };
 }
 
@@ -501,6 +589,61 @@ export function mapOrderLineItem(row: OrderItemRow): OrderLineItem {
     notes: row.notes ?? undefined,
     lineTotal: row.line_total,
   };
+}
+
+export function mapDraftOrderLineItem(row: DraftOrderItemRow): OrderLineItem {
+  return {
+    id: row.id,
+    menuItemId: row.menu_item_id ?? undefined,
+    productId: row.product_id ?? undefined,
+    comboId: row.combo_id ?? undefined,
+    name: row.name_snapshot,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    options: row.options_snapshot ?? undefined,
+    notes: row.notes ?? undefined,
+    lineTotal: row.line_total,
+  };
+}
+
+export function mapDashboardNotification(row: AppEventRow, context?: {
+  customer?: CustomerRow;
+  draftOrder?: DraftOrderRow;
+  order?: OrderRow;
+}): DashboardNotificationRecord {
+  const customerLabel = context?.customer?.name?.trim()
+    || context?.customer?.phone
+    || "Cliente sin nombre";
+  const total = context?.order?.total ?? context?.draftOrder?.total;
+
+  return {
+    id: row.id,
+    title: getNotificationTitle(row.event_name),
+    detail: `${customerLabel}${total !== undefined ? ` - ${formatCop(total)}` : ""}`,
+    createdAt: row.created_at,
+    orderId: row.order_id ?? undefined,
+    draftOrderId: row.draft_order_id ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    whatsappUrl: context?.customer?.phone ? buildWhatsAppUrl(context.customer.phone) : undefined,
+    severity: row.severity,
+    eventName: row.event_name,
+  };
+}
+
+function getNotificationTitle(eventName: string) {
+  if (eventName === "order.pending_restaurant_confirmation_created") return "Nuevo pedido por confirmar";
+  if (eventName === "whatsapp.customer_notification_failed") return "Fallo al notificar por WhatsApp";
+  if (eventName === "whatsapp.customer_notification_sent") return "WhatsApp enviado al cliente";
+  if (eventName === "order.payment_pending_review") return "Comprobante pendiente de revision";
+  if (eventName === "order.payment_confirmed") return "Pago confirmado";
+  if (eventName === "order.customer_replacement_selected") return "Cliente eligio reemplazo";
+  if (eventName === "order.cancelled_by_restaurant") return "Pedido cancelado por restaurante";
+  return "Movimiento del pedido";
+}
+
+export function buildWhatsAppUrl(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits ? `https://wa.me/${digits}` : "";
 }
 
 export function mapAlert(row: AlertRow): HumanInterventionAlert {

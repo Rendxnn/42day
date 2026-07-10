@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MenuItem, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
+import type { MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
@@ -17,6 +17,7 @@ import {
   Check,
   ChevronRight,
   ClipboardList,
+  ExternalLink,
   Loader2,
   MessageSquareWarning,
   RefreshCcw,
@@ -32,9 +33,11 @@ type OrdersViewProps = {
   tenantSlug: string;
   menuItems: MenuItem[];
   onNotify: (message: string) => void;
+  focusOrderId?: string;
 };
 
-type OrdersFilter = "pending" | "confirmed" | "closed" | "alerts";
+type OrdersFilter = "open" | "pending" | "confirmed" | "closed";
+type ClosedRange = "today" | "7d" | "30d" | "custom";
 type PendingLane = "restaurant" | "customer";
 type ReplacementScope = "same" | "other";
 
@@ -58,18 +61,20 @@ let activeOrdersLocale: "en" | "es" = "es";
 
 function getFilterTabs(locale: "en" | "es"): OrdersFilterConfig[] {
   return [
+    { id: "open", label: locale === "en" ? "Open" : "Abiertos", description: "" },
     { id: "pending", label: locale === "en" ? "Pending" : "Pendientes", description: "" },
     { id: "confirmed", label: locale === "en" ? "Confirmed" : "Confirmados", description: "" },
     { id: "closed", label: locale === "en" ? "Closed" : "Cerrados", description: "" },
-    { id: "alerts", label: locale === "en" ? "Alerts" : "Alertas", description: "" },
   ];
 }
 
-export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersViewProps) {
+export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, tenantSlug }: OrdersViewProps) {
   activeOrdersLocale = locale;
   const filterTabs = useMemo(() => getFilterTabs(locale), [locale]);
-  const [filter, setFilter] = useState<OrdersFilter>("pending");
+  const [filter, setFilter] = useState<OrdersFilter>("open");
   const [pendingLane, setPendingLane] = useState<PendingLane>("restaurant");
+  const [closedRange, setClosedRange] = useState<ClosedRange>("today");
+  const [customClosedDate, setCustomClosedDate] = useState(() => getLocalDateKey(new Date()));
   const [payload, setPayload] = useState<OrdersDashboardPayload | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [ordersRefreshing, setOrdersRefreshing] = useState(false);
@@ -80,6 +85,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
   const [detailError, setDetailError] = useState("");
   const [actionKey, setActionKey] = useState("");
   const [modalOrder, setModalOrder] = useState<OrderDetail | null>(null);
+  const [cancelOrderCandidate, setCancelOrderCandidate] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [deliveryRadiusKm, setDeliveryRadiusKm] = useState<number | undefined>();
 
@@ -178,21 +184,28 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
   }, [tenantSlug]);
 
   const allOrders = payload?.orders ?? [];
-  const alertOrders = useMemo(
-    () => allOrders.filter(isAlertOrder),
-    [allOrders],
+  const openOrders = payload?.openOrders ?? [];
+  const closedOrders = useMemo(
+    () => allOrders
+      .filter((order) => closedStatuses.includes(order.status))
+      .filter((order) => matchesClosedRange(order, closedRange, customClosedDate)),
+    [allOrders, closedRange, customClosedDate],
   );
   const counts = useMemo<Record<OrdersFilter, number>>(
     () => ({
+      open: payload?.counts.open ?? openOrders.length,
       pending: allOrders.filter((order) => pendingStatuses.includes(order.status)).length,
       confirmed: allOrders.filter((order) => confirmedStatuses.includes(order.status)).length,
-      closed: allOrders.filter((order) => closedStatuses.includes(order.status)).length,
-      alerts: Math.max(alertOrders.length, payload?.counts.openAlerts ?? 0),
+      closed: closedOrders.length,
     }),
-    [alertOrders.length, allOrders, payload?.counts.openAlerts],
+    [allOrders, closedOrders.length, openOrders.length, payload?.counts.open],
   );
 
-  const filteredOrders = useMemo(() => allOrders.filter((order) => matchesFilter(order, filter)), [allOrders, filter]);
+  const filteredOrders = useMemo(() => {
+    if (filter === "open") return [] as OrderSummary[];
+    if (filter === "closed") return closedOrders;
+    return allOrders.filter((order) => matchesFilter(order, filter));
+  }, [allOrders, closedOrders, filter]);
   const pendingRestaurantOrders = useMemo(
     () => allOrders.filter((order) => order.status === "pending_restaurant_confirmation" || order.status === "new"),
     [allOrders],
@@ -204,6 +217,14 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
   const pendingLaneOrders = pendingLane === "restaurant" ? pendingRestaurantOrders : pendingCustomerOrders;
 
   useEffect(() => {
+    if (filter === "open") {
+      setSelectedOrderId("");
+      setSelectedOrder(null);
+      setDetailError("");
+      setDetailOpen(false);
+      return;
+    }
+
     if (filteredOrders.length === 0) {
       setSelectedOrderId("");
       setSelectedOrder(null);
@@ -216,7 +237,23 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
       setSelectedOrder(null);
       setDetailOpen(false);
     }
-  }, [filteredOrders, selectedOrderId]);
+  }, [filter, filteredOrders, selectedOrderId]);
+
+  useEffect(() => {
+    if (!focusOrderId) return;
+    const target = allOrders.find((order) => order.id === focusOrderId);
+    if (!target) return;
+
+    if (pendingStatuses.includes(target.status)) {
+      setFilter("pending");
+    } else if (confirmedStatuses.includes(target.status)) {
+      setFilter("confirmed");
+    } else {
+      setFilter("closed");
+    }
+    setSelectedOrderId(target.id);
+    setDetailOpen(true);
+  }, [allOrders, focusOrderId]);
 
   useEffect(() => {
     if (!selectedOrderId) {
@@ -370,6 +407,14 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
     }
   }
 
+  async function openCancelConfirmation(orderId: string) {
+    const detail = selectedOrder?.id === orderId ? selectedOrder : await loadOrderDetail(orderId);
+    if (detail) {
+      setSelectedOrderId(orderId);
+      setCancelOrderCandidate(detail);
+    }
+  }
+
   return (
     <section className="space-y-4 sm:space-y-6">
       <div className="app-panel rounded-[20px] px-4 py-3 sm:rounded-[22px] sm:px-5 sm:py-4">
@@ -378,10 +423,11 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Live operation" : "Operacion en vivo"}</p>
             <h2 className="mt-1 text-lg font-semibold text-[var(--text-strong)]">{locale === "en" ? "Order queue" : "Bandeja de pedidos"}</h2>
           </div>
-          <div className="grid w-full grid-cols-3 gap-1.5 sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          <div className="grid w-full grid-cols-4 gap-1.5 sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+            <MetricChip label={locale === "en" ? "Open" : "Abiertos"} value={counts.open} />
             <MetricChip label={locale === "en" ? "Pending" : "Pendientes"} value={counts.pending} />
             <MetricChip label={locale === "en" ? "Confirmed" : "Confirmados"} value={counts.confirmed} />
-            <MetricChip label={locale === "en" ? "Alerts" : "Alertas"} value={counts.alerts} />
+            <MetricChip label={locale === "en" ? "Closed" : "Cerrados"} value={counts.closed} />
           </div>
         </div>
       </div>
@@ -426,14 +472,37 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
           <div className="flex items-center justify-between border-b border-[rgba(118,93,71,0.12)] px-4 py-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{getFilterLabel(filter, locale)}</p>
-              <p className="mt-1 text-xs text-[var(--text-soft)]">{locale === "en" ? "Tap an order to see all details" : "Toca un pedido para ver el detalle"}</p>
+              <p className="mt-1 text-xs text-[var(--text-soft)]">
+                {filter === "open"
+                  ? (locale === "en" ? "Chats started by the assistant before order confirmation" : "Chats iniciados por el asistente antes de confirmar el pedido")
+                  : (locale === "en" ? "Tap an order to see all details" : "Toca un pedido para ver el detalle")}
+              </p>
             </div>
-            <span className="rounded-full bg-[rgba(118,93,71,0.09)] px-2.5 py-1 text-xs font-semibold text-[var(--text-soft)]">{filteredOrders.length}</span>
+            <span className="rounded-full bg-[rgba(118,93,71,0.09)] px-2.5 py-1 text-xs font-semibold text-[var(--text-soft)]">
+              {filter === "open" ? openOrders.length : filteredOrders.length}
+            </span>
           </div>
+          {filter === "closed" && (
+            <ClosedOrdersFilter
+              customDate={customClosedDate}
+              locale={locale}
+              range={closedRange}
+              onChangeCustomDate={setCustomClosedDate}
+              onChangeRange={setClosedRange}
+            />
+          )}
           {ordersLoading ? (
             <LoadingBlock copy={locale === "en" ? "Loading orders..." : "Cargando pedidos..."} />
           ) : ordersError ? (
             <ErrorBlock message={ordersError} />
+          ) : filter === "open" && openOrders.length === 0 ? (
+            <EmptyListState filter={filter} locale={locale} />
+          ) : filter === "open" ? (
+            <div className="app-scrollbar max-h-none space-y-3 overflow-y-auto p-3 sm:p-4 xl:max-h-[780px]">
+              {openOrders.map((order) => (
+                <OpenConversationCard key={order.id} locale={locale} order={order} />
+              ))}
+            </div>
           ) : filteredOrders.length === 0 ? (
             <EmptyListState filter={filter} locale={locale} />
           ) : (
@@ -444,7 +513,9 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
                   key={order.id}
                   locale={locale}
                   onAccept={() => void handleAccept(order.id)}
+                  onCancel={() => void openCancelConfirmation(order.id)}
                   onOpen={() => openOrderDetail(order.id)}
+                  onOpenWhatsapp={() => openWhatsAppConversation(order.whatsappUrl)}
                   onReportOutOfStock={() => void openOutOfStock(order.id)}
                   order={order}
                 />
@@ -616,7 +687,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
               menuItems={menuItems}
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
-              onCancel={() => void handleCancelOrder(selectedOrder)}
+              onCancel={() => setCancelOrderCandidate(selectedOrder)}
               onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
               onFinalize={() => void handleFinalizeOrder(selectedOrder)}
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
@@ -645,7 +716,7 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
                 menuItems={menuItems}
                 onAccept={() => void handleAccept(selectedOrder.id)}
                 onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
-                onCancel={() => void handleCancelOrder(selectedOrder)}
+                onCancel={() => setCancelOrderCandidate(selectedOrder)}
                 onClose={() => setDetailOpen(false)}
                 onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
                 onFinalize={() => void handleFinalizeOrder(selectedOrder)}
@@ -669,7 +740,129 @@ export function OrdersView({ locale, menuItems, onNotify, tenantSlug }: OrdersVi
           submitting={actionKey === `reject:${modalOrder.id}`}
         />
       )}
+      {cancelOrderCandidate && (
+        <CancelOrderModal
+          locale={locale}
+          onClose={() => setCancelOrderCandidate(null)}
+          onConfirm={async () => {
+            await handleCancelOrder(cancelOrderCandidate);
+            setCancelOrderCandidate(null);
+          }}
+          order={cancelOrderCandidate}
+          submitting={actionKey === `status:${cancelOrderCandidate.id}:cancelled`}
+        />
+      )}
     </section>
+  );
+}
+
+function ClosedOrdersFilter({
+  customDate,
+  locale,
+  onChangeCustomDate,
+  onChangeRange,
+  range,
+}: {
+  customDate: string;
+  locale: "en" | "es";
+  onChangeCustomDate: (date: string) => void;
+  onChangeRange: (range: ClosedRange) => void;
+  range: ClosedRange;
+}) {
+  const options: Array<{ id: ClosedRange; label: string }> = [
+    { id: "today", label: locale === "en" ? "Today" : "Hoy" },
+    { id: "7d", label: locale === "en" ? "7 days" : "7 dias" },
+    { id: "30d", label: locale === "en" ? "30 days" : "30 dias" },
+    { id: "custom", label: locale === "en" ? "One day" : "Un dia" },
+  ];
+
+  return (
+    <div className="border-b border-[rgba(118,93,71,0.12)] px-4 py-3">
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {options.map((option) => {
+            const active = range === option.id;
+            return (
+              <button
+                className={`rounded-[14px] border px-3 py-2 text-xs font-bold transition ${
+                  active
+                    ? "border-[rgba(118,93,71,0.22)] bg-[var(--surface-closed)] text-[var(--text-strong)]"
+                    : "border-[rgba(118,93,71,0.1)] text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"
+                }`}
+                key={option.id}
+                onClick={() => onChangeRange(option.id)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        {range === "custom" ? (
+          <input
+            className="h-11 rounded-[14px] border border-[rgba(118,93,71,0.14)] bg-white/70 px-3 text-sm font-semibold text-[var(--text-strong)] outline-none focus:border-[rgba(118,93,71,0.28)]"
+            onChange={(event) => onChangeCustomDate(event.target.value)}
+            type="date"
+            value={customDate}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function OpenConversationCard({ locale, order }: { locale: "en" | "es"; order: OpenOrderSummary }) {
+  return (
+    <article className="rounded-[20px] border border-[rgba(137,164,196,0.18)] bg-[rgba(255,251,246,0.92)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-[rgba(137,164,196,0.16)] px-3 py-1 text-xs font-semibold text-[#4d6783]">
+            {locale === "en" ? "Open chat" : "Chat abierto"}
+          </span>
+          {order.conversationState ? (
+            <span className="inline-flex items-center rounded-full bg-[rgba(118,93,71,0.08)] px-3 py-1 text-xs font-semibold text-[var(--text-soft)]">
+              {getConversationStateLabel(order.conversationState, locale)}
+            </span>
+          ) : null}
+        </div>
+        <span className="shrink-0 text-xs font-medium text-[var(--text-faint)]">{formatRelativeTime(order.updatedAt, locale)}</span>
+      </div>
+
+      <div className="mt-3 flex items-baseline justify-between gap-3">
+        <h3 className="min-w-0 truncate text-base font-semibold text-[var(--text-strong)]">
+          {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Unnamed customer" : "Cliente sin nombre")}
+        </h3>
+        <p className="shrink-0 text-base font-extrabold text-[var(--text-strong)]">{formatPrice(order.total, locale)}</p>
+      </div>
+
+      <p className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-[var(--text-strong)]">
+        {getOrderItemsSummary(order.items ?? [], locale)}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">
+        {order.customerPhone || (locale === "en" ? "No phone yet" : "Sin telefono")} - {formatDateTime(order.createdAt, locale)}
+      </p>
+      {order.customerAddressText ? (
+        <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-soft)]">{order.customerAddressText}</p>
+      ) : null}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+          {order.draftOrderId
+            ? `${locale === "en" ? "Draft" : "Borrador"} #${getOrderReceiptCode(order.draftOrderId)}`
+            : (locale === "en" ? "Conversation started" : "Conversacion iniciada")}
+        </span>
+        {order.whatsappUrl ? (
+          <a
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+            href={order.whatsappUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink size={15} />
+            {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+          </a>
+        ) : null}
+      </div>
+    </article>
   );
 }
 
@@ -677,14 +870,18 @@ function OperationalOrderCard({
   actionKey,
   locale,
   onAccept,
+  onCancel,
   onOpen,
+  onOpenWhatsapp,
   onReportOutOfStock,
   order,
 }: {
   actionKey: string;
   locale: "en" | "es";
   onAccept: () => void;
+  onCancel: () => void;
   onOpen: () => void;
+  onOpenWhatsapp: () => void;
   onReportOutOfStock: () => void;
   order: OrderSummary;
 }) {
@@ -723,6 +920,11 @@ function OperationalOrderCard({
         {getOrderItemsSummary(order.items, locale)}
       </p>
       <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{getOperationalFulfillmentLabel(order, locale)}</p>
+      {closedStatuses.includes(order.status) ? (
+        <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
+          {locale === "en" ? "Closed" : "Cerrado"}: {formatDateTime(order.updatedAt, locale)}
+        </p>
+      ) : null}
 
       {canDecide ? (
         <div className="mt-4 grid gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
@@ -752,11 +954,50 @@ function OperationalOrderCard({
             <span className="min-[390px]:hidden">{locale === "en" ? "Out" : "Agotado"}</span>
             <span className="hidden min-[390px]:inline">{locale === "en" ? "Report out" : "Reportar agotado"}</span>
           </button>
+          <button
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(180,94,84,0.2)] px-3 text-sm font-semibold text-[#914d47] transition hover:bg-[rgba(180,94,84,0.08)] min-[360px]:col-span-2"
+            onClick={(event) => {
+              event.stopPropagation();
+              onCancel();
+            }}
+            type="button"
+          >
+            <X size={15} />
+            {locale === "en" ? "Cancel order" : "Cancelar pedido"}
+          </button>
+          {order.whatsappUrl ? (
+            <button
+              className="min-[360px]:col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-3 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenWhatsapp();
+              }}
+              type="button"
+            >
+              <ExternalLink size={15} />
+              {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+            </button>
+          ) : null}
         </div>
       ) : (
-        <div className="mt-3 flex items-center justify-end gap-1 text-xs font-semibold text-[var(--text-soft)]">
-          {locale === "en" ? "View details" : "Ver detalle"}
-          <ChevronRight size={15} />
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-xs font-semibold text-[var(--text-soft)]">
+          {order.whatsappUrl ? (
+            <button
+              className="inline-flex items-center gap-1 rounded-full border border-[rgba(79,122,97,0.16)] px-3 py-1.5 text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenWhatsapp();
+              }}
+              type="button"
+            >
+              <ExternalLink size={13} />
+              {locale === "en" ? "WhatsApp" : "WhatsApp"}
+            </button>
+          ) : null}
+          <span className="inline-flex items-center gap-1">
+            {locale === "en" ? "View details" : "Ver detalle"}
+            <ChevronRight size={15} />
+          </span>
         </div>
       )}
     </article>
@@ -803,6 +1044,7 @@ function OrderDetailPanel({
   const canFinalize = order.status === "on_the_way";
   const canCancel = !closedStatuses.includes(order.status);
   const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
+  const whatsappUrl = selectedSummary?.whatsappUrl ?? order.whatsappUrl;
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
   const advanceLabel = order.fulfillmentType === "delivery"
@@ -844,6 +1086,17 @@ function OrderDetailPanel({
           </div>
 
           <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+            {whatsappUrl ? (
+              <a
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+                href={whatsappUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+              </a>
+            ) : null}
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -906,7 +1159,7 @@ function OrderDetailPanel({
                 variant="primary"
               />
             )}
-            {canCancel && !canAccept && (
+            {canCancel && (
               <ActionButton
                 active={actionKey === `status:${order.id}:cancelled`}
                 icon={X}
@@ -1027,6 +1280,78 @@ function OrderDetailPanel({
         </aside>
       </div>
 
+    </div>
+  );
+}
+
+function CancelOrderModal({
+  locale,
+  onClose,
+  onConfirm,
+  order,
+  submitting,
+}: {
+  locale: "en" | "es";
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+  order: OrderDetail;
+  submitting: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.55)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
+      <div className="app-panel reveal-up w-full overflow-hidden rounded-t-[28px] sm:max-w-lg sm:rounded-[30px]">
+        <div className="flex items-start justify-between border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:px-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+              {locale === "en" ? "Cancel order" : "Cancelar pedido"}
+            </p>
+            <h3 className="app-display mt-2 text-[2.2rem] leading-none text-[var(--text-strong)]">
+              {locale === "en" ? "Confirm cancellation" : "Confirmar cancelacion"}
+            </h3>
+          </div>
+          <button
+            className="grid h-10 w-10 place-items-center rounded-2xl border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] transition hover:bg-white"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-5 py-5 sm:px-6">
+          <div className="rounded-[22px] border border-[rgba(180,94,84,0.18)] bg-[rgba(180,94,84,0.08)] p-4 text-sm leading-6 text-[#914d47]">
+            {locale === "en"
+              ? "This will cancel the order and reset the AI agent so the conversation can start a new order flow."
+              : "Esto cancelara el pedido y reiniciara el agente IA para que la conversacion pueda iniciar un nuevo flujo de pedido."}
+          </div>
+          <div className="mt-4 rounded-[20px] bg-[var(--surface-base)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-strong)]">
+              {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Unnamed customer" : "Cliente sin nombre")}
+            </p>
+            <p className="mt-1 text-xs text-[var(--text-soft)]">
+              {locale === "en" ? "Order" : "Pedido"} #{getOrderReceiptCode(order.id)} - {formatPrice(order.total, locale)}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-[rgba(118,93,71,0.12)] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(248,241,232,0.6)]"
+            disabled={submitting}
+            onClick={onClose}
+            type="button"
+          >
+            {locale === "en" ? "Keep order" : "Mantener pedido"}
+          </button>
+          <button
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#914d47] px-5 text-sm font-semibold text-white transition hover:bg-[#7f403b] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={submitting}
+            onClick={() => void onConfirm()}
+            type="button"
+          >
+            {submitting ? <Loader2 className="animate-spin" size={16} /> : <X size={16} />}
+            {submitting ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Yes, cancel" : "Si, cancelar")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1652,10 +1977,10 @@ function ErrorBlock({ message }: { message: string }) {
 
 function EmptyListState({ filter, locale }: { filter: OrdersFilter; locale: "en" | "es" }) {
   const copy = {
+    open: locale === "en" ? "There are no open WhatsApp chats right now." : "No hay chats abiertos en este momento.",
     pending: locale === "en" ? "There are no pending orders right now." : "No hay pedidos pendientes en este momento.",
     confirmed: locale === "en" ? "There are no confirmed orders in progress." : "No hay pedidos confirmados en curso.",
-    closed: locale === "en" ? "There are no closed orders in this tenant yet." : "Todavia no hay pedidos cerrados en este tenant.",
-    alerts: locale === "en" ? "There are no orders requiring attention." : "No hay pedidos que requieran atencion.",
+    closed: locale === "en" ? "There are no closed orders for this filter." : "No hay pedidos cerrados para este filtro.",
   }[filter];
 
   return (
@@ -1671,7 +1996,57 @@ function EmptyListState({ filter, locale }: { filter: OrdersFilter; locale: "en"
   );
 }
 
+function matchesClosedRange(order: OrderSummary, range: ClosedRange, customDate: string) {
+  const closedAt = new Date(order.updatedAt || order.createdAt);
+  if (Number.isNaN(closedAt.getTime())) return false;
+
+  if (range === "custom") {
+    return getLocalDateKey(closedAt) === customDate;
+  }
+
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+
+  if (range === "today") {
+    return closedAt >= start;
+  }
+
+  const days = range === "7d" ? 7 : 30;
+  start.setDate(start.getDate() - (days - 1));
+  return closedAt >= start;
+}
+
+function getLocalDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function openWhatsAppConversation(whatsappUrl?: string) {
+  if (!whatsappUrl) return;
+  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+}
+
+function getConversationStateLabel(state: string, locale: "en" | "es") {
+  const normalized = state.replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    browsing: locale === "en" ? "Browsing" : "Explorando",
+    collecting_order: locale === "en" ? "Taking order" : "Tomando pedido",
+    collecting_address: locale === "en" ? "Taking address" : "Tomando direccion",
+    collecting_payment: locale === "en" ? "Payment" : "Pago",
+    waiting_customer: locale === "en" ? "Waiting customer" : "Esperando cliente",
+    manual_intervention: locale === "en" ? "Manual review" : "Revision manual",
+  };
+  return labels[state] ?? normalized;
+}
+
 function matchesFilter(order: OrderSummary, filter: OrdersFilter) {
+  if (filter === "open") {
+    return false;
+  }
+
   if (filter === "pending") {
     return pendingStatuses.includes(order.status);
   }
@@ -1680,17 +2055,7 @@ function matchesFilter(order: OrderSummary, filter: OrdersFilter) {
     return confirmedStatuses.includes(order.status);
   }
 
-  if (filter === "alerts") {
-    return isAlertOrder(order);
-  }
-
   return closedStatuses.includes(order.status);
-}
-
-function isAlertOrder(order: OrderSummary) {
-  return order.customerNotificationStatus === "failed"
-    || order.status === "needs_customer_replacement"
-    || order.status === "payment_pending_review";
 }
 
 function getFilterLabel(filter: OrdersFilter, locale: "en" | "es") {
@@ -1707,10 +2072,10 @@ function getFilterTabClasses(filter: OrdersFilter, active: boolean) {
   }
 
   return {
+    open: "border-[rgba(137,164,196,0.22)] bg-[rgba(137,164,196,0.12)] text-[var(--text-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]",
     pending: "border-[rgba(137,164,196,0.22)] bg-[var(--surface-pending)] text-[var(--text-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]",
     confirmed: "border-[rgba(79,122,97,0.18)] bg-[var(--surface-confirmed)] text-[var(--text-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]",
     closed: "border-[rgba(118,93,71,0.16)] bg-[var(--surface-closed)] text-[var(--text-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]",
-    alerts: "border-[rgba(197,123,87,0.2)] bg-[rgba(197,123,87,0.1)] text-[var(--warning)]",
   }[filter];
 }
 
@@ -1720,10 +2085,10 @@ function getFilterCountClasses(filter: OrdersFilter, active: boolean) {
   }
 
   return {
+    open: "bg-[rgba(137,164,196,0.18)] text-[#4d6783]",
     pending: "bg-[rgba(137,164,196,0.18)] text-[#4d6783]",
     confirmed: "bg-[rgba(79,122,97,0.14)] text-[var(--success)]",
     closed: "bg-[rgba(118,93,71,0.12)] text-[var(--text-soft)]",
-    alerts: "bg-[rgba(197,123,87,0.14)] text-[var(--warning)]",
   }[filter];
 }
 

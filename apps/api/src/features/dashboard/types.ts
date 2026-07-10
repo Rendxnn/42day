@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type {
+  DraftOrderStatus,
   HumanInterventionStatus,
   Menu,
   OrderLineItemOptionsSnapshot,
@@ -195,6 +196,48 @@ export type OrderRow = {
 export type DraftOrderRow = {
   id: string;
   conversation_id?: string | null;
+  customer_id: string;
+  location_id?: string | null;
+  status: DraftOrderStatus;
+  fulfillment_type?: "delivery" | "pickup" | null;
+  service_timing?: "asap" | "scheduled" | null;
+  scheduled_for?: string | null;
+  delivery_address?: string | null;
+  delivery_address_id?: string | null;
+  payment_method?: "cash" | "transfer" | null;
+  subtotal: number;
+  delivery_fee: number;
+  discount_total: number;
+  total: number;
+  validation_errors?: string[] | null;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationRow = {
+  id: string;
+  customer_id: string;
+  state: string;
+  current_draft_order_id?: string | null;
+  last_inbound_at?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DraftOrderItemRow = {
+  id: string;
+  draft_order_id: string;
+  menu_item_id?: string | null;
+  product_id?: string | null;
+  combo_id?: string | null;
+  name_snapshot: string;
+  quantity: number;
+  unit_price: number;
+  options_snapshot?: OrderLineItemOptionsSnapshot | null;
+  notes?: string | null;
+  line_total: number;
 };
 
 export type OrderItemRow = {
@@ -241,6 +284,18 @@ export type AlertRow = {
   metadata?: Record<string, unknown> | null;
   created_at: string;
   resolved_at?: string | null;
+};
+
+export type AppEventRow = {
+  id: string;
+  conversation_id?: string | null;
+  draft_order_id?: string | null;
+  order_id?: string | null;
+  event_name: string;
+  severity: "info" | "warn" | "error" | string;
+  source: string;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
 };
 
 export type OrderNotificationContext = {

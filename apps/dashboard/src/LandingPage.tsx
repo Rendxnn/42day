@@ -63,9 +63,9 @@ type UseCase = {
 
 function getSalesWhatsappUrl(locale: LandingLocale) {
   const text = locale === "en"
-    ? "Hi, I want to schedule a ParaHoy demo"
-    : "Hola, quiero agendar una prueba de ParaHoy";
-  return `https://wa.me/573000000000?text=${encodeURIComponent(text)}`;
+    ? "hi, I'm interested in learning more about how ParaHoy works and how it could help me organize my restaurant orders through WhatsApp. I would like to schedule a demo to see the platform in action, resolve some questions, and understand how it would fit my business."
+    : "Hola, estoy interesado en conocer mejor cómo funciona ParaHoy y cómo podría ayudarme a organizar los pedidos de mi restaurante por WhatsApp. Me gustaría agendar una demostración para ver la plataforma en acción, resolver algunas dudas y entender cómo se adaptaría a mi negocio.";
+  return `https://wa.me/573207085729?text=${encodeURIComponent(text)}`;
 }
 
 function getLandingCopy(locale: LandingLocale) {

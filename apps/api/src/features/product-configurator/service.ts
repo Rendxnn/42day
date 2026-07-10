@@ -94,6 +94,8 @@ export function resolveProductConfiguration(input: {
     });
   }
 
+  applyImplicitRequiredSelections(productOptions, resolvedByOptionId);
+
   for (const rawOption of rawOptionTexts) {
     const optionCandidates = resolveOptionCandidates({
       productOptions,
@@ -426,6 +428,39 @@ function addResolvedOptionValue(
   });
   option.selectedValues = selectedValues;
   option.priceDelta = selectedValues.reduce((total, entry) => total + entry.priceDelta, 0);
+}
+
+function applyImplicitRequiredSelections(
+  productOptions: ProductOption[],
+  resolvedByOptionId: Map<string, OrderLineItemResolvedOption>,
+): void {
+  for (const option of productOptions) {
+    if (option.type === "text") {
+      continue;
+    }
+
+    if (minimumRequiredSelections(option) !== 1 || option.maxSelect !== 1 || !option.id) {
+      continue;
+    }
+
+    const current = resolvedByOptionId.get(option.id);
+    if (selectedCount(option, current) > 0) {
+      continue;
+    }
+
+    const activeValues = option.values.filter((value) => value.isActive);
+    if (activeValues.length !== 1) {
+      continue;
+    }
+
+    const [onlyActiveValue] = activeValues;
+    if (!onlyActiveValue) {
+      continue;
+    }
+
+    const resolved = ensureResolvedOption(resolvedByOptionId, option);
+    addResolvedOptionValue(resolved, onlyActiveValue);
+  }
 }
 
 function selectedCount(option: ProductOption, resolved: OrderLineItemResolvedOption | undefined): number {

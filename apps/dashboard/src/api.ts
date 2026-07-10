@@ -4,6 +4,7 @@ import type {
   DeliveryCoverageSettings,
   HumanInterventionAlert,
   MenuItem,
+  DashboardNotificationRecord,
   OrderCustomerNotificationType,
   OrderDetail,
   OrdersBucket,
@@ -413,6 +414,10 @@ export function getPublicCarta(tenantSlug: string) {
 
 export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {
   return request<OrdersDashboardPayload>(`/${tenantSlug}/orders?bucket=${bucket}`);
+}
+
+export function listNotifications(tenantSlug: string) {
+  return request<DashboardNotificationRecord[]>(`/${tenantSlug}/notifications`);
 }
 
 export function getOrder(tenantSlug: string, orderId: string) {

@@ -214,7 +214,7 @@ export function buildProductConfigurationPrompt(
     return lines.join("\n");
   }
 
-  lines.push(`Para continuar con ${itemName}, necesito que me confirmes ${option.name}.`);
+  lines.push(`Para continuar con ${itemName}, necesito que me confirmes tu elección de ${option.name}.`);
 
   if (option.type === "multiple") {
     const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);

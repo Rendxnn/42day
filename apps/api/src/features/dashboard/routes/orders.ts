@@ -22,8 +22,12 @@ import { getTenantUserRole } from "../auth";
 import { buildAcceptedOrderNotification } from "../order-customer-notifications";
 import type {
   AlertRow,
+  AppEventRow,
+  ConversationRow,
   CustomerRow,
   DashboardVariables,
+  DraftOrderItemRow,
+  DraftOrderRow,
   LocationRow,
   OrderItemRow,
   OrderRow,
@@ -33,7 +37,12 @@ import type {
 import {
   buildOutOfStockMessage,
   buildRetryNotificationMessage,
+  isOpenConversation,
+  isOpenDraftOrder,
   loadOrderNotificationContext,
+  mapDashboardNotification,
+  mapOpenConversationSummary,
+  mapOpenOrderSummary,
   mapOrderLineItem,
   mapLocation,
   mapMenu,
@@ -58,6 +67,12 @@ const ORDER_SELECT =
 const CUSTOMER_SELECT = "id,phone,name";
 const ORDER_ITEM_SELECT =
   "id,order_id,menu_item_id,product_id,combo_id,category_snapshot,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total";
+const DRAFT_ORDER_SELECT =
+  "id,conversation_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,payment_method,subtotal,delivery_fee,discount_total,total,validation_errors,expires_at,created_at,updated_at";
+const DRAFT_ORDER_ITEM_SELECT =
+  "id,draft_order_id,menu_item_id,product_id,combo_id,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total";
+const CONVERSATION_SELECT =
+  "id,customer_id,state,current_draft_order_id,last_inbound_at,expires_at,created_at,updated_at";
 
 export const ordersDashboardRoutes = new Hono<{
   Bindings: ApiBindings;
@@ -129,9 +144,12 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
   let customers: CustomerRow[] = [];
   let alerts: AlertRow[] = [];
   let orderItems: OrderItemRow[] = [];
+  let draftOrders: DraftOrderRow[] = [];
+  let draftOrderItems: DraftOrderItemRow[] = [];
+  let conversations: ConversationRow[] = [];
 
   try {
-    [orders, customers, alerts] = await Promise.all([
+    [orders, customers, alerts, draftOrders, conversations] = await Promise.all([
       supabase.select<OrderRow>({
         schema: tenant.schema_name,
         table: "orders",
@@ -152,6 +170,24 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
       }),
       selectAlerts(supabase, tenant.schema_name, {
         limit: 200,
+      }),
+      supabase.select<DraftOrderRow>({
+        schema: tenant.schema_name,
+        table: "draft_orders",
+        query: {
+          select: DRAFT_ORDER_SELECT,
+          order: "updated_at.desc",
+          limit,
+        },
+      }),
+      supabase.select<ConversationRow>({
+        schema: tenant.schema_name,
+        table: "conversations",
+        query: {
+          select: CONVERSATION_SELECT,
+          order: "updated_at.desc",
+          limit: 500,
+        },
       }),
     ]);
   } catch (error) {
@@ -179,32 +215,182 @@ ordersDashboardRoutes.get("/:tenantSlug/orders", async (c) => {
     }
   }
 
+  const activeConversationDraftIds = new Set(
+    conversations
+      .filter(isOpenConversation)
+      .map((conversation) => conversation.current_draft_order_id)
+      .filter((draftOrderId): draftOrderId is string => Boolean(draftOrderId)),
+  );
+  const activeDraftIds = new Set([
+    ...draftOrders
+      .filter((draftOrder) => draftOrder.conversation_id && conversations.some((conversation) => conversation.id === draftOrder.conversation_id && isOpenConversation(conversation)))
+      .map((draftOrder) => draftOrder.id),
+    ...activeConversationDraftIds,
+  ]);
+  if (activeDraftIds.size > 0) {
+    try {
+      const draftOrderIds = Array.from(activeDraftIds);
+      const batches = Array.from({ length: Math.ceil(draftOrderIds.length / 50) }, (_, index) => draftOrderIds.slice(index * 50, index * 50 + 50));
+      draftOrderItems = (await Promise.all(batches.map((batch) => supabase.select<DraftOrderItemRow>({
+        schema: tenant.schema_name,
+        table: "draft_order_items",
+        query: {
+          select: DRAFT_ORDER_ITEM_SELECT,
+          draft_order_id: `in.(${batch.join(",")})`,
+        },
+      })))).flat();
+    } catch (error) {
+      if (!isMissingTableError(error)) {
+        throw error;
+      }
+    }
+  }
+
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+  const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+  const draftOrderById = new Map(draftOrders.map((draftOrder) => [draftOrder.id, draftOrder]));
+  const orderByDraftOrderId = new Map(orders.filter((order) => order.draft_order_id).map((order) => [order.draft_order_id as string, order]));
   const itemsByOrderId = new Map<string, OrderItemRow[]>();
   for (const item of orderItems) {
     const current = itemsByOrderId.get(item.order_id) ?? [];
     current.push(item);
     itemsByOrderId.set(item.order_id, current);
   }
+  const itemsByDraftOrderId = new Map<string, DraftOrderItemRow[]>();
+  for (const item of draftOrderItems) {
+    const current = itemsByDraftOrderId.get(item.draft_order_id) ?? [];
+    current.push(item);
+    itemsByDraftOrderId.set(item.draft_order_id, current);
+  }
   const summaries = orders.map((order) => ({
     ...mapOrderSummary(order, customerById.get(order.customer_id)),
     items: (itemsByOrderId.get(order.id) ?? []).map(mapOrderLineItem),
   }));
+  const openOrders = conversations
+    .filter(isOpenConversation)
+    .map((conversation) => {
+      const draftOrder = conversation.current_draft_order_id
+        ? draftOrderById.get(conversation.current_draft_order_id)
+        : draftOrders.find((candidate) => candidate.conversation_id === conversation.id);
+
+      if (draftOrder && isOpenDraftOrder(draftOrder, conversation)) {
+        return mapOpenOrderSummary(
+          draftOrder,
+          customerById.get(draftOrder.customer_id),
+          conversation,
+          itemsByDraftOrderId.get(draftOrder.id) ?? [],
+          orderByDraftOrderId.get(draftOrder.id),
+        );
+      }
+
+      return mapOpenConversationSummary(conversation, customerById.get(conversation.customer_id));
+    });
   const filteredOrders = summaries.filter((order) => matchesOrdersBucket(order, bucket));
   const openAlerts = alerts.filter((alert) => alert.status === "open");
   const payload: OrdersDashboardPayload = {
     bucket,
     counts: {
+      open: openOrders.length,
       pendingConfirmation: summaries.filter((order) => matchesOrdersBucket(order, "pending_confirmation")).length,
       active: summaries.filter((order) => matchesOrdersBucket(order, "active")).length,
       history: summaries.filter((order) => matchesOrdersBucket(order, "history")).length,
       transferPendingReview: summaries.filter((order) => order.status === "payment_pending_review").length,
       openAlerts: openAlerts.length,
     },
+    openOrders,
     orders: filteredOrders,
   };
 
   return c.json(payload);
+});
+
+ordersDashboardRoutes.get("/:tenantSlug/notifications", async (c) => {
+  const tenant = c.get("tenant");
+  const supabase = createSupabaseRestClient(c.env);
+  const limit = parsePositiveInt(c.req.query("limit"), 40);
+  let events: AppEventRow[] = [];
+
+  try {
+    events = await supabase.select<AppEventRow>({
+      schema: tenant.schema_name,
+      table: "app_events",
+      query: {
+        select: "id,conversation_id,draft_order_id,order_id,event_name,severity,source,metadata,created_at",
+        event_name: "in.(order.pending_restaurant_confirmation_created,whatsapp.customer_notification_failed,whatsapp.customer_notification_sent,order.payment_pending_review,order.payment_confirmed,order.customer_replacement_selected,order.customer_cancelled_after_out_of_stock,order.out_of_stock_returned_to_customer,order.cancelled_by_restaurant)",
+        order: "created_at.desc",
+        limit,
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return c.json([]);
+    }
+
+    throw error;
+  }
+
+  if (events.length === 0) {
+    return c.json([]);
+  }
+
+  const orderIds = Array.from(new Set(events.map((event) => event.order_id).filter((id): id is string => Boolean(id))));
+  const draftOrderIds = Array.from(new Set(events.map((event) => event.draft_order_id).filter((id): id is string => Boolean(id))));
+  const [orders, draftOrders] = await Promise.all([
+    orderIds.length > 0
+      ? supabase.select<OrderRow>({
+          schema: tenant.schema_name,
+          table: "orders",
+          query: {
+            select: ORDER_SELECT,
+            id: `in.(${orderIds.join(",")})`,
+            limit: orderIds.length,
+          },
+        })
+      : Promise.resolve([] as OrderRow[]),
+    draftOrderIds.length > 0
+      ? supabase.select<DraftOrderRow>({
+          schema: tenant.schema_name,
+          table: "draft_orders",
+          query: {
+            select: DRAFT_ORDER_SELECT,
+            id: `in.(${draftOrderIds.join(",")})`,
+            limit: draftOrderIds.length,
+          },
+        })
+      : Promise.resolve([] as DraftOrderRow[]),
+  ]);
+
+  const customerIds = Array.from(new Set([
+    ...orders.map((order) => order.customer_id),
+    ...draftOrders.map((draftOrder) => draftOrder.customer_id),
+  ]));
+  const customers = customerIds.length > 0
+    ? await supabase.select<CustomerRow>({
+        schema: tenant.schema_name,
+        table: "customers",
+        query: {
+          select: CUSTOMER_SELECT,
+          id: `in.(${customerIds.join(",")})`,
+          limit: customerIds.length,
+        },
+      })
+    : [];
+
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const draftOrderById = new Map(draftOrders.map((draftOrder) => [draftOrder.id, draftOrder]));
+  const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+
+  return c.json(events.map((event) => {
+    const order = event.order_id ? orderById.get(event.order_id) : undefined;
+    const draftOrder = event.draft_order_id ? draftOrderById.get(event.draft_order_id) : undefined;
+    const customer = order
+      ? customerById.get(order.customer_id)
+      : draftOrder
+        ? customerById.get(draftOrder.customer_id)
+        : undefined;
+
+    return mapDashboardNotification(event, { customer, draftOrder, order });
+  }));
 });
 
 ordersDashboardRoutes.get("/:tenantSlug/orders/:orderId", async (c) => {
@@ -732,6 +918,60 @@ ordersDashboardRoutes.patch("/:tenantSlug/orders/:orderId/status", async (c) => 
 
   if (!order) {
     return c.json({ error: "order_not_found" }, 404);
+  }
+
+  if (body.status === "cancelled" && order.draft_order_id) {
+    const [draftOrder] = await createSupabaseRestClient(c.env).select<DraftOrderRow>({
+      schema: tenant.schema_name,
+      table: "draft_orders",
+      query: {
+        select: DRAFT_ORDER_SELECT,
+        id: `eq.${order.draft_order_id}`,
+        limit: 1,
+      },
+    });
+
+    await createSupabaseRestClient(c.env).update({
+      schema: tenant.schema_name,
+      table: "draft_orders",
+      values: {
+        status: "cancelled",
+        updated_at: now,
+      },
+      query: { id: `eq.${order.draft_order_id}` },
+    }).catch(() => undefined);
+
+    if (draftOrder?.conversation_id) {
+      await createSupabaseRestClient(c.env).update({
+        schema: tenant.schema_name,
+        table: "conversations",
+        values: {
+          state: "awaiting_mode_selection",
+          current_draft_order_id: null,
+          context: {},
+          manual_reason: null,
+          clarification_attempts: 0,
+          updated_at: now,
+        },
+        query: { id: `eq.${draftOrder.conversation_id}` },
+      }).catch(() => undefined);
+
+      await createSupabaseRestClient(c.env).insert({
+        schema: tenant.schema_name,
+        table: "app_events",
+        rows: {
+          conversation_id: draftOrder.conversation_id,
+          draft_order_id: order.draft_order_id,
+          order_id: order.id,
+          event_name: "order.cancelled_by_restaurant",
+          severity: "info",
+          source: "dashboard_api",
+          metadata: {
+            agentReset: true,
+          },
+        },
+      }).catch(() => undefined);
+    }
   }
 
   const [customer] = await createSupabaseRestClient(c.env).select<CustomerRow>({

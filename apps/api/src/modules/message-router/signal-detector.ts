@@ -154,7 +154,8 @@ function shouldTrySemanticOrder(text: string): boolean {
 
   return (
     /\b(con|sin|pero|y|tambien|ademas|otro|otra|otros|otras)\b/.test(text) ||
-    /\b(quiero|dame|deme|me regalas|regalame|mandame|necesito|agrega|agregame|agregar|sumale|suma|quita|quitar|quitemos|cambia|cambiame|cambiemos|reemplaza|reemplazame)\b/.test(text)
+    /\b(quiero|dame|deme|me regalas|regalame|mandame|necesito|agrega|agregame|agregar|sumale|suma|quita|quitar|quitemos|cambia|cambiame|cambiemos|reemplaza|reemplazame)\b/.test(text) ||
+    /\b(que|cual|cuales|cuanto|cuantos|como|tienen|hay|trae|incluye|viene|puedo|podria|recomiendas|recomiendame)\b/.test(text)
   );
 }
 

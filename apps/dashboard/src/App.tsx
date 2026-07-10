@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload } from "@42day/types";
+import type { DashboardNotificationRecord, MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload } from "@42day/types";
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
@@ -19,6 +19,7 @@ import {
   getMe,
   getPaymentConfigurationHealth,
   getPublicCarta,
+  listNotifications,
   getTodayMenu,
   listOrders,
   listAdminRestaurants,
@@ -83,6 +84,11 @@ type DashboardNotification = {
   title: string;
   detail: string;
   createdAt: string;
+  orderId?: string;
+  draftOrderId?: string;
+  conversationId?: string;
+  whatsappUrl?: string;
+  eventName?: string;
 };
 
 type NavigationItem = {
@@ -160,7 +166,7 @@ function getNavItems(locale: "en" | "es", canAccessConfiguration: boolean): Navi
     },
     {
       id: "catalog" as const,
-      label: locale === "en" ? "Catalog" : "Catalogo",
+      label: locale === "en" ? "Products" : "Productos",
       icon: ChefHat,
     },
     {
@@ -193,7 +199,7 @@ function getViewCopy(locale: "en" | "es"): Record<View, { eyebrow: string; title
     },
     catalog: {
       eyebrow: locale === "en" ? "Products" : "Productos",
-      title: locale === "en" ? "Restaurant catalog" : "Catalogo del restaurante",
+      title: locale === "en" ? "Product inventory" : "Inventario de productos",
       description: "",
     },
     configuration: {
@@ -317,39 +323,35 @@ function getFallbackItems(tenantSlug: string): MenuItem[] {
   }));
 }
 
-type CategorySectionId = "desayuno" | "almuerzo" | "adicion" | "bebida";
-
 type CategorySection<T> = {
-  id: CategorySectionId;
+  id: string;
   label: string;
   items: T[];
 };
 
-const categorySections: Array<{ id: CategorySectionId; label: string }> = [
-  { id: "desayuno", label: "Desayunos" },
-  { id: "almuerzo", label: "Almuerzos" },
-  { id: "adicion", label: "Adiciones" },
-  { id: "bebida", label: "Bebidas" },
-];
+const defaultCategoryOptions = ["General", "Entradas", "Platos principales", "Adiciones", "Bebidas", "Postres"];
 
-function getCategorySectionLabel(sectionId: CategorySectionId, locale: "en" | "es") {
-  return {
-    desayuno: locale === "en" ? "Breakfast" : "Desayunos",
-    almuerzo: locale === "en" ? "Lunch" : "Almuerzos",
-    adicion: locale === "en" ? "Extras" : "Adiciones",
-    bebida: locale === "en" ? "Drinks" : "Bebidas",
-  }[sectionId];
+function normalizeCategoryLabel(category?: string, fallback = "General") {
+  const trimmed = (category ?? "").trim();
+  return trimmed.length > 0 ? trimmed : fallback;
 }
 
-function normalizeCategorySection(category?: string): CategorySectionId {
-  const value = (category ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function normalizeCategoryKey(category?: string) {
+  return normalizeSearchText(normalizeCategoryLabel(category))
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "general";
+}
 
-  if (value.includes("desayuno")) return "desayuno";
-  if (value.includes("almuerzo") || value.includes("plato fuerte") || value.includes("menu")) return "almuerzo";
-  if (value.includes("bebida") || value.includes("jugo") || value.includes("gaseosa")) return "bebida";
-  if (value.includes("adicion") || value.includes("acompanamiento") || value.includes("entrada")) return "adicion";
-
-  return "adicion";
+function collectCategoryOptions(products: Array<Pick<Product, "category">>) {
+  const byKey = new Map<string, string>();
+  for (const category of defaultCategoryOptions) {
+    byKey.set(normalizeCategoryKey(category), category);
+  }
+  for (const product of products) {
+    const label = normalizeCategoryLabel(product.category, "");
+    if (label) byKey.set(normalizeCategoryKey(label), label);
+  }
+  return Array.from(byKey.values());
 }
 
 function normalizeSearchText(value?: string) {
@@ -388,27 +390,26 @@ function createDefaultCompositeOptions(): ProductOption[] {
   return [
     {
       ...createEmptyCompositeOption(0),
-      name: "Sopas",
+      name: "Sopa",
       values: [
         { name: "Sopa de lentejas", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Sopa de espinaca", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Frijoles", priceDelta: 0, isActive: true, sortOrder: 10 },
       ],
     },
     {
       ...createEmptyCompositeOption(10),
-      name: "Proteina",
+      name: "Carbohidrato",
       values: [
-        { name: "Res", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Cerdo", priceDelta: 0, isActive: true, sortOrder: 10 },
-        { name: "Pollo", priceDelta: 0, isActive: true, sortOrder: 20 },
+        { name: "Platano", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Papa", priceDelta: 0, isActive: true, sortOrder: 10 },
       ],
     },
     {
       ...createEmptyCompositeOption(20),
-      name: "Acompanante",
+      name: "Ensalada",
       values: [
-        { name: "Guarapo", priceDelta: 0, isActive: true, sortOrder: 0 },
-        { name: "Jugo natural", priceDelta: 0, isActive: true, sortOrder: 10 },
+        { name: "Ensalada de la casa", priceDelta: 0, isActive: true, sortOrder: 0 },
+        { name: "Ensalada Cesar", priceDelta: 0, isActive: true, sortOrder: 10 },
       ],
     },
   ];
@@ -416,10 +417,10 @@ function createDefaultCompositeOptions(): ProductOption[] {
 
 function createCompositeProductDraft(): Partial<Product> {
   return {
-    name: "Almuerzo del dia",
-    description: "Producto compuesto con componentes configurables.",
+    name: "Producto compuesto",
+    description: "Producto con componentes que el cliente debe elegir.",
     basePrice: 0,
-    category: "almuerzos",
+    category: "General",
     isActive: true,
     productType: "composite",
     options: createDefaultCompositeOptions(),
@@ -450,18 +451,17 @@ function normalizeProductOptions(options?: ProductOption[]) {
 }
 
 function groupByCategorySection<T>(items: T[], getCategory: (item: T) => string | undefined) {
-  const groups = new Map(
-    categorySections.map((section) => [section.id, { ...section, items: [] as T[] }]),
-  );
+  const groups = new Map<string, CategorySection<T>>();
 
   items.forEach((item) => {
-    const sectionId = normalizeCategorySection(getCategory(item));
-    groups.get(sectionId)?.items.push(item);
+    const label = normalizeCategoryLabel(getCategory(item));
+    const id = normalizeCategoryKey(label);
+    const group = groups.get(id) ?? { id, label, items: [] as T[] };
+    group.items.push(item);
+    groups.set(id, group);
   });
 
-  return categorySections
-    .map((section) => groups.get(section.id))
-    .filter((section): section is CategorySection<T> => Boolean(section && section.items.length > 0));
+  return Array.from(groups.values());
 }
 
 function formatPrice(value: number | undefined) {
@@ -469,7 +469,20 @@ function formatPrice(value: number | undefined) {
 }
 
 function getLocalizedCategoryLabel(category: string | undefined, locale: "en" | "es") {
-  return getCategorySectionLabel(normalizeCategorySection(category), locale);
+  const label = normalizeCategoryLabel(category, locale === "en" ? "General" : "General");
+  const known = defaultCategoryOptions.find((option) => normalizeCategoryKey(option) === normalizeCategoryKey(label));
+  if (!known) return label;
+  if (locale === "en") {
+    return {
+      General: "General",
+      Entradas: "Starters",
+      "Platos principales": "Main dishes",
+      Adiciones: "Extras",
+      Bebidas: "Drinks",
+      Postres: "Desserts",
+    }[known] ?? known;
+  }
+  return known;
 }
 
 function formatDateTime(value?: string) {
@@ -502,6 +515,29 @@ function getOrderNotificationDetail(order: OrderSummary) {
   return `${customer} - ${formatPrice(order.total)} - ${formatDateTime(order.createdAt)}`;
 }
 
+function mapNotificationRecord(record: DashboardNotificationRecord): DashboardNotification {
+  return {
+    id: record.id,
+    title: record.title,
+    detail: record.detail,
+    createdAt: record.createdAt,
+    orderId: record.orderId,
+    draftOrderId: record.draftOrderId,
+    conversationId: record.conversationId,
+    whatsappUrl: record.whatsappUrl,
+    eventName: record.eventName,
+  };
+}
+
+function mergeNotifications(next: DashboardNotification[], current: DashboardNotification[]) {
+  const byKey = new Map<string, DashboardNotification>();
+  for (const notification of [...next, ...current]) {
+    byKey.set(notification.id, notification);
+  }
+
+  return Array.from(byKey.values()).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+}
+
 function playNotificationSound() {
   type WindowWithWebkitAudio = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
   const AudioCtor = window.AudioContext ?? (window as WindowWithWebkitAudio).webkitAudioContext;
@@ -530,9 +566,16 @@ function playNotificationSound() {
   }
 }
 
-function showBrowserNotification(title: string, detail: string) {
+function showBrowserNotification(title: string, detail: string, onClick?: () => void) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
-  new Notification(title, { body: detail });
+  const notification = new Notification(title, { body: detail });
+  if (onClick) {
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+      onClick();
+    };
+  }
 }
 
 function isPublicCartaRoute() {
@@ -590,6 +633,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [focusedOrderId, setFocusedOrderId] = useState("");
   const [paymentConfigurationHealth, setPaymentConfigurationHealth] = useState<PaymentConfigurationHealth | null>(null);
   const seenNotificationOrderIdsRef = useRef<Set<string>>(new Set());
   const notificationsBootstrappedRef = useRef(false);
@@ -738,13 +782,25 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       setNotifications([]);
       setUnreadNotificationCount(0);
       setNotificationsOpen(false);
+      setFocusedOrderId("");
       return;
     }
 
     let active = true;
 
+    async function refreshNotificationHistory() {
+      try {
+        const records = await listNotifications(tenantSlug);
+        if (!active) return;
+        setNotifications((current) => mergeNotifications(records.map(mapNotificationRecord), current).slice(0, 12));
+      } catch {
+        if (active && !notificationsBootstrappedRef.current) setNotifications([]);
+      }
+    }
+
     async function checkForNewOrders() {
       try {
+        await refreshNotificationHistory();
         const payload = await listOrders(tenantSlug, "all");
         if (!active) return;
 
@@ -764,24 +820,27 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
         const nextNotifications = freshOrders
           .map((order) => ({
             id: order.id,
+            orderId: order.id,
             title: getOrderNotificationTitle(order),
             detail: getOrderNotificationDetail(order),
+            whatsappUrl: order.whatsappUrl,
             createdAt: order.createdAt,
           }))
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         const firstNotification = nextNotifications[0];
         if (!firstNotification) return;
 
-        setNotifications((current) => [...nextNotifications, ...current].slice(0, 8));
+        setNotifications((current) => mergeNotifications(nextNotifications, current).slice(0, 12));
         setUnreadNotificationCount((current) => current + nextNotifications.length);
         notify(nextNotifications.length === 1 ? firstNotification.title : `${nextNotifications.length} pedidos nuevos requieren revision`);
         playNotificationSound();
-        showBrowserNotification(firstNotification.title, firstNotification.detail);
+        showBrowserNotification(firstNotification.title, firstNotification.detail, () => handleNotificationSelect(firstNotification));
       } catch {
         // The order board already exposes offline state; notifications should stay quiet on transient failures.
       }
     }
 
+    void refreshNotificationHistory();
     void checkForNewOrders();
     const realtimeChannel = supabase && tenantSchema
       ? supabase
@@ -846,8 +905,25 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     setNotifications([]);
     setUnreadNotificationCount(0);
     setNotificationsOpen(false);
+    setFocusedOrderId("");
     seenNotificationOrderIdsRef.current = new Set();
     notificationsBootstrappedRef.current = false;
+  }
+
+  function handleNotificationSelect(notification: DashboardNotification) {
+    setNotificationsOpen(false);
+    setUnreadNotificationCount(0);
+
+    if (notification.orderId) {
+      setFocusedOrderId(notification.orderId);
+      setActiveView("orders");
+      return;
+    }
+
+    if (notification.draftOrderId || notification.conversationId) {
+      setFocusedOrderId("");
+      setActiveView("orders");
+    }
   }
 
   function toggleNotifications() {
@@ -1004,6 +1080,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
               unreadNotificationCount={unreadNotificationCount}
               viewCopy={activeViewCopy}
               onLogout={() => void handleLogout()}
+              onSelectNotification={handleNotificationSelect}
               onToggleNotifications={toggleNotifications}
             />
             <div className="px-3 pb-28 pt-2 sm:px-5 lg:px-8 lg:pb-10">
@@ -1031,7 +1108,15 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                   totalCount={items.length}
                 />
               )}
-              {activeView === "orders" && <OrdersView locale={locale} menuItems={items} onNotify={notify} tenantSlug={tenantSlug} />}
+              {activeView === "orders" && (
+                <OrdersView
+                  focusOrderId={focusedOrderId}
+                  locale={locale}
+                  menuItems={items}
+                  onNotify={notify}
+                  tenantSlug={tenantSlug}
+                />
+              )}
               {activeView === "catalog" && (
                 <Catalog
                   imageColumnReady={imageColumnReady}
@@ -1114,10 +1199,11 @@ function PublicCartaPage() {
   }, [tenantSlug]);
 
   const groups = useMemo(
-    () => groupByCategorySection(payload?.items ?? [], (item) => item.product?.category ?? item.displayName),
+    () => groupByCategorySection(payload?.items ?? [], (item) => item.product?.category),
     [payload?.items],
   );
   const featuredCategories = groups.slice(0, 4);
+  const totalMenuItems = payload?.items.length ?? 0;
 
   return (
     <div className="min-h-screen bg-[#050403] text-[var(--text-strong)]">
@@ -1140,21 +1226,26 @@ function PublicCartaPage() {
         }}
       />
       <main className="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-[36px] border border-[rgba(255,242,227,0.16)] bg-[rgba(10,8,6,0.58)] shadow-[0_28px_90px_rgba(0,0,0,0.46)] backdrop-blur-xl">
-          <div className="grid gap-4 p-4 sm:gap-6 sm:p-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:p-8">
-            <div className="flex min-h-[300px] flex-col justify-between rounded-[32px] bg-[linear-gradient(145deg,#211b17_0%,#342a24_58%,#4a3429_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_70px_rgba(32,24,18,0.28)] sm:p-8">
+        <section className="overflow-hidden rounded-[38px] border border-[rgba(255,242,227,0.16)] bg-[rgba(10,8,6,0.62)] shadow-[0_30px_100px_rgba(0,0,0,0.52)] backdrop-blur-2xl">
+          <div className="grid gap-4 p-4 sm:gap-6 sm:p-7 lg:grid-cols-[minmax(0,1fr)_340px] lg:p-8">
+            <div className="relative flex min-h-[360px] flex-col justify-between overflow-hidden rounded-[34px] bg-[linear-gradient(145deg,#17110d_0%,#2c211a_52%,#5b3827_100%)] p-6 text-[var(--text-on-dark)] shadow-[0_24px_80px_rgba(32,24,18,0.34)] sm:p-9">
+              <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-[rgba(213,167,108,0.16)] blur-3xl" />
+              <div className="pointer-events-none absolute bottom-0 left-0 h-32 w-full bg-gradient-to-t from-[rgba(0,0,0,0.28)] to-transparent" />
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.58)]">
-                  <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">42day carta</span>
+                  <span className="rounded-full border border-[rgba(255,242,227,0.14)] bg-[rgba(255,248,240,0.06)] px-3 py-1.5">Carta del dia</span>
                   {payload?.menu?.name ? (
-                    <span className="rounded-full border border-[rgba(255,242,227,0.12)] px-3 py-1.5">{payload.menu.name}</span>
+                    <span className="rounded-full border border-[rgba(255,242,227,0.14)] bg-[rgba(255,248,240,0.06)] px-3 py-1.5">{payload.menu.name}</span>
                   ) : null}
                 </div>
-                <h1 className="app-display mt-6 max-w-3xl text-[2.9rem] leading-[0.92] tracking-[-0.06em] sm:mt-8 sm:text-[4.5rem] lg:text-[5.2rem]">
+                <h1 className="app-display relative mt-7 max-w-3xl text-[3.2rem] leading-[0.86] tracking-[-0.07em] sm:mt-9 sm:text-[5rem] lg:text-[5.8rem]">
                   {payload?.tenant.name ?? "Carta del restaurante"}
                 </h1>
+                <p className="relative mt-5 max-w-2xl text-base leading-7 text-[rgba(246,236,223,0.72)] sm:text-lg">
+                  Seleccion curada para hoy. Revisa platos, precios y componentes antes de escribir por WhatsApp.
+                </p>
               </div>
-              <div className="mt-8 flex flex-wrap items-center gap-3 text-sm text-[rgba(246,236,223,0.72)]">
+              <div className="relative mt-9 flex flex-wrap items-center gap-3 text-sm text-[rgba(246,236,223,0.76)]">
                 {payload?.location?.name && (
                   <span className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(255,248,240,0.08)] px-4 py-3">
                     <MapPin size={16} />
@@ -1167,19 +1258,24 @@ function PublicCartaPage() {
                     {payload.menu.name}
                   </span>
                 )}
+                <span className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(255,248,240,0.08)] px-4 py-3">
+                  <List size={16} />
+                  {totalMenuItems} productos
+                </span>
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-[rgba(255,242,227,0.14)] bg-[rgba(255,250,244,0.82)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-md sm:p-5">
-              <div className="rounded-[28px] bg-[#1f1b18] p-4 text-[var(--text-on-dark)] shadow-[0_24px_60px_rgba(32,24,18,0.22)]">
-                <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(160deg,#2c2520,#191511)] p-4 sm:p-5">
+            <div className="rounded-[34px] border border-[rgba(255,242,227,0.14)] bg-[rgba(255,250,244,0.86)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] backdrop-blur-md sm:p-5">
+              <div className="rounded-[28px] bg-[#191411] p-4 text-[var(--text-on-dark)] shadow-[0_24px_60px_rgba(32,24,18,0.24)]">
+                <div className="relative overflow-hidden rounded-[25px] bg-[linear-gradient(160deg,#2c2520,#12100d)] p-5">
                   <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[rgba(197,123,87,0.22)] blur-2xl" />
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Hoy en carta</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(246,236,223,0.46)]">Explorar</p>
+                  <p className="mt-3 text-2xl font-extrabold tracking-[-0.04em] text-white">Secciones disponibles</p>
                   <a
-                    className="mt-4 inline-flex h-11 w-full items-center justify-between rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] px-4 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.16)]"
+                    className="mt-5 inline-flex h-12 w-full items-center justify-between rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.08)] px-4 text-sm font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.16)]"
                     href="#carta-secciones"
                   >
-                    <span>Ver secciones</span>
+                    <span>Ver carta completa</span>
                     <ArrowDown size={16} />
                   </a>
                 </div>
@@ -1206,10 +1302,22 @@ function PublicCartaPage() {
         ) : groups.length === 0 ? (
           <PublicCartaState title="Carta sin platos visibles" description="El restaurante aun no tiene productos publicados para mostrar en esta carta." />
         ) : (
-          <div className="mt-6 space-y-6 pb-12 sm:space-y-8" id="carta-secciones">
+          <div className="mt-6 pb-12" id="carta-secciones">
+            <nav className="sticky top-3 z-20 -mx-1 mb-6 flex gap-2 overflow-x-auto px-1 py-2 app-scrollbar">
+              {groups.map((group) => (
+                <a
+                  className="shrink-0 rounded-full border border-[rgba(255,242,227,0.16)] bg-[rgba(22,17,13,0.74)] px-4 py-2.5 text-xs font-extrabold uppercase tracking-[0.14em] text-[rgba(246,236,223,0.82)] shadow-[0_12px_36px_rgba(0,0,0,0.22)] backdrop-blur-xl transition hover:bg-[rgba(255,248,240,0.12)] hover:text-white"
+                  href={`#category-${group.id}`}
+                  key={`nav-${group.id}`}
+                >
+                  {group.label}
+                </a>
+              ))}
+            </nav>
+            <div className="space-y-7 sm:space-y-9">
             {groups.map((group) => (
               <section
-                className="scroll-mt-6 rounded-[30px] border border-[rgba(255,242,227,0.14)] bg-[rgba(10,8,6,0.50)] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-md sm:scroll-mt-8 sm:p-5"
+                className="scroll-mt-24 rounded-[32px] border border-[rgba(255,242,227,0.14)] bg-[rgba(10,8,6,0.54)] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.30)] backdrop-blur-xl sm:p-5"
                 id={`category-${group.id}`}
                 key={group.id}
               >
@@ -1218,6 +1326,9 @@ function PublicCartaPage() {
                     <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[rgba(246,236,223,0.56)]">Categoria</p>
                     <h2 className="app-display mt-2 text-[2.35rem] leading-none text-[var(--text-on-dark)] sm:text-[2.8rem]">{group.label}</h2>
                   </div>
+                  <span className="hidden rounded-full border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-3 py-1.5 text-xs font-bold text-[rgba(246,236,223,0.72)] sm:inline-flex">
+                    {group.items.length} opciones
+                  </span>
                 </div>
                 <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-3">
                   {group.items.map((item) => (
@@ -1226,6 +1337,7 @@ function PublicCartaPage() {
                 </div>
               </section>
             ))}
+            </div>
           </div>
         )}
       </main>
@@ -1254,41 +1366,41 @@ function PublicCartaCard({ item }: { item: MenuItem }) {
     .filter((option) => option.values.length > 0) ?? [];
 
   return (
-    <article className="group overflow-hidden rounded-[34px] border border-white/80 bg-[rgba(255,255,255,0.78)] shadow-[0_24px_70px_rgba(37,31,26,0.13)] backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_90px_rgba(37,31,26,0.18)]">
-      <div className="relative aspect-[4/3] overflow-hidden bg-[#dfe8f2]">
+    <article className="group overflow-hidden rounded-[34px] border border-[rgba(255,242,227,0.78)] bg-[rgba(255,251,246,0.88)] shadow-[0_24px_70px_rgba(0,0,0,0.18)] backdrop-blur transition duration-300 hover:-translate-y-1 hover:bg-white hover:shadow-[0_34px_100px_rgba(0,0,0,0.24)]">
+      <div className="relative aspect-[4/3] overflow-hidden bg-[#efe6d8]">
         {product?.imageUrl ? (
-          <img alt={name} className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" src={product.imageUrl} />
+          <img alt={name} className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.05]" src={product.imageUrl} />
         ) : (
-          <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.52),transparent_56%),linear-gradient(140deg,#f8fafc,#dbe6f0)]">
-            <span className="text-[5rem] drop-shadow-[0_18px_32px_rgba(32,26,22,0.14)]" role="img" aria-label={name}>
+          <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.54),transparent_52%),linear-gradient(140deg,#f7efe5,#ddcbb6)]">
+            <span className="text-[5.4rem] drop-shadow-[0_20px_36px_rgba(32,26,22,0.16)]" role="img" aria-label={name}>
               {product?.emoji || inferProductEmoji({ name, description: product?.description })}
             </span>
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[rgba(21,17,14,0.72)] via-[rgba(21,17,14,0.18)] to-transparent p-5">
           <span className="inline-flex rounded-full bg-[rgba(255,250,244,0.16)] px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-white/90 backdrop-blur">
-            {product?.category || "carta"}
+            {normalizeCategoryLabel(product?.category, "Carta")}
           </span>
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
-          <h3 className="text-lg font-extrabold tracking-[-0.02em] text-[var(--text-strong)]">{name}</h3>
-          <p className="shrink-0 rounded-2xl bg-[#201a16] px-3 py-2 text-sm font-extrabold text-white">{formatPrice(price)}</p>
+          <h3 className="text-xl font-extrabold leading-tight tracking-[-0.03em] text-[var(--text-strong)]">{name}</h3>
+          <p className="shrink-0 rounded-2xl bg-[#201a16] px-3 py-2 text-sm font-extrabold text-white shadow-[0_12px_30px_rgba(32,26,22,0.18)]">{formatPrice(price)}</p>
         </div>
         {product?.description && (
           <p className="mt-3 line-clamp-3 text-sm leading-6 text-[var(--text-soft)]">{product.description}</p>
         )}
         {product?.productType === "composite" && activeOptions.length > 0 && (
-          <div className="mt-4 rounded-[24px] bg-[#edf2f7] p-4">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[var(--text-faint)]">Opciones del plato</p>
+          <div className="mt-5 rounded-[24px] border border-[rgba(118,93,71,0.08)] bg-[#f2eadf] p-4">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[var(--text-faint)]">Componentes disponibles</p>
             <div className="mt-3 space-y-3">
               {activeOptions.map((option) => (
                 <div key={option.id ?? option.name}>
-                  <p className="text-xs font-extrabold text-[var(--text-strong)]">{option.name}</p>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[var(--text-strong)]">{option.name}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {option.values.map((value) => (
-                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)] shadow-sm" key={value.id ?? value.name}>
+                      <span className="rounded-full bg-white/82 px-3 py-1.5 text-xs font-semibold text-[var(--text-soft)] shadow-sm ring-1 ring-[rgba(118,93,71,0.06)]" key={value.id ?? value.name}>
                         {value.name}{value.priceDelta > 0 ? ` +${formatPrice(value.priceDelta)}` : ""}
                       </span>
                     ))}
@@ -1311,6 +1423,7 @@ function Header({
   notificationsOpen,
   onChangeLocale,
   onLogout,
+  onSelectNotification,
   onToggleNotifications,
   saveStatus,
   tenantName,
@@ -1324,6 +1437,7 @@ function Header({
   notificationsOpen: boolean;
   onChangeLocale: (locale: "en" | "es") => void;
   onLogout: () => void;
+  onSelectNotification: (notification: DashboardNotification) => void;
   onToggleNotifications: () => void;
   saveStatus: SaveStatus;
   tenantName: string;
@@ -1371,6 +1485,7 @@ function Header({
             notifications={notifications}
             open={notificationsOpen}
             unreadCount={unreadNotificationCount}
+            onSelect={onSelectNotification}
             onToggle={onToggleNotifications}
           />
           {activeView !== "orders" ? <SaveIndicator locale={locale} menuIsActive={menuIsActive} status={saveStatus} /> : null}
@@ -1391,6 +1506,7 @@ function NotificationBell({
   compact = false,
   locale,
   notifications,
+  onSelect,
   onToggle,
   open,
   unreadCount,
@@ -1398,6 +1514,7 @@ function NotificationBell({
   compact?: boolean;
   locale: "en" | "es";
   notifications: DashboardNotification[];
+  onSelect: (notification: DashboardNotification) => void;
   onToggle: () => void;
   open: boolean;
   unreadCount: number;
@@ -1434,13 +1551,20 @@ function NotificationBell({
           <div className="max-h-80 space-y-2 overflow-y-auto p-3 app-scrollbar">
             {notifications.length > 0 ? (
               notifications.map((notification) => (
-                <div
-                  className="rounded-2xl border border-[rgba(118,93,71,0.14)] bg-[rgba(255,255,255,0.46)] p-3"
+                <button
+                  className="w-full rounded-2xl border border-[rgba(118,93,71,0.14)] bg-[rgba(255,255,255,0.46)] p-3 text-left transition hover:border-[rgba(118,93,71,0.26)] hover:bg-white"
                   key={notification.id}
+                  onClick={() => onSelect(notification)}
+                  type="button"
                 >
                   <p className="text-sm font-extrabold text-[var(--text-strong)]">{notification.title}</p>
                   <p className="mt-1 text-xs leading-5 text-[var(--text-soft)]">{notification.detail}</p>
-                </div>
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+                    {notification.orderId
+                      ? (locale === "en" ? "Open order" : "Abrir pedido")
+                      : (locale === "en" ? "Open order center" : "Abrir centro de pedidos")}
+                  </p>
+                </button>
               ))
             ) : (
               <div className="rounded-2xl border border-dashed border-[rgba(118,93,71,0.22)] p-4 text-sm leading-6 text-[var(--text-soft)]">
@@ -1714,7 +1838,7 @@ function TodayMenu(props: {
               <div className="border-b border-[rgba(118,93,71,0.12)] px-5 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
                     <h3 className="app-display mt-2 text-[1.55rem] leading-none text-[var(--text-strong)] sm:text-[2rem]">
                       {group.items.length} {locale === "en" ? "items on menu" : "Items en menu"}
                     </h3>
@@ -2022,7 +2146,7 @@ function AddDishModal(props: { items: MenuItem[]; products: Product[]; onAdd: (p
           return (
             <section className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.9)] p-3" key={group.id}>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
                 <button
                   className="inline-flex h-9 items-center rounded-xl border border-[rgba(118,93,71,0.12)] px-3 text-xs font-semibold text-[var(--text-soft)]"
                   onClick={() => toggleCategory(ids)}
@@ -2101,7 +2225,7 @@ function Summary({
     ? Math.round(activeMenuItems.reduce((sum, item) => sum + (item.priceOverride ?? item.product?.basePrice ?? 0), 0) / activeMenuItems.length)
     : 0;
   const activeCategoryCount = useMemo(
-    () => new Set(activeMenuItems.map((item) => normalizeCategorySection(item.product?.category || item.displayName))).size,
+    () => new Set(activeMenuItems.map((item) => normalizeCategoryKey(item.product?.category))).size,
     [activeMenuItems],
   );
 
@@ -2563,7 +2687,7 @@ function Catalog({
 }) {
   const locale = activeDashboardLocale;
   const [modalProduct, setModalProduct] = useState<Partial<Product> | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "list">("list");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [isAddingToMenu, setIsAddingToMenu] = useState(false);
   const [categorySavingByProductId, setCategorySavingByProductId] = useState<Record<string, boolean>>({});
@@ -2571,6 +2695,7 @@ function Catalog({
     () => groupByCategorySection(products, (product) => product.category),
     [products],
   );
+  const categoryOptions = useMemo(() => collectCategoryOptions(products), [products]);
 
   useEffect(() => {
     setSelectedProductIds((current) => current.filter((productId) => products.some((product) => product.id === productId)));
@@ -2634,9 +2759,12 @@ function Catalog({
         name: product.name,
         description: product.description,
         basePrice: product.basePrice,
+        emoji: product.emoji,
         imageUrl: product.imageUrl,
         isActive: product.isActive,
         category: nextCategory,
+        productType: product.productType ?? "simple",
+        options: product.options ?? [],
       });
     } finally {
       setCategorySavingByProductId((current) => ({ ...current, [product.id]: false }));
@@ -2646,7 +2774,7 @@ function Catalog({
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <SectionTitle title={locale === "en" ? "Catalog" : "Catalogo"} subtitle={`${products.length} ${locale === "en" ? "products" : "productos"}`} />
+        <SectionTitle title={locale === "en" ? "Products" : "Productos"} subtitle={`${products.length} ${locale === "en" ? "products managed" : "productos gestionados"}`} />
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <div className="app-panel-muted flex rounded-2xl p-1">
             <button
@@ -2680,7 +2808,7 @@ function Catalog({
             type="button"
           >
             <Plus size={17} />
-            {locale === "en" ? "New combo" : "Nuevo compuesto"}
+            {locale === "en" ? "New composite" : "Nuevo compuesto"}
           </button>
         </div>
       </div>
@@ -2711,8 +2839,9 @@ function Catalog({
             <section className="app-panel rounded-[28px] overflow-hidden" key={group.id}>
               <div className="flex flex-col gap-3 border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{getCategorySectionLabel(group.id, locale)}</p>
-                  <h3 className="app-display mt-2 text-[1.55rem] leading-none text-[var(--text-strong)] sm:text-[2rem]">{group.items.length} {locale === "en" ? "products" : "productos"}</h3>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</p>
+                  <h3 className="app-display mt-2 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.55rem]">{group.label}</h3>
+                  <p className="mt-2 text-xs font-semibold text-[var(--text-soft)]">{group.items.length} {locale === "en" ? "products" : "productos"}</p>
                 </div>
                 <button
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] disabled:opacity-60"
@@ -2728,6 +2857,7 @@ function Catalog({
                 <div className="grid gap-4 p-4 md:grid-cols-2 2xl:grid-cols-3">
                   {group.items.map((product) => (
                     <ProductCard
+                      categoryOptions={categoryOptions}
                       inMenu={menuProductIds.has(product.id)}
                       isCategorySaving={Boolean(categorySavingByProductId[product.id])}
                       isSelected={selectedProductIds.includes(product.id)}
@@ -2744,6 +2874,7 @@ function Catalog({
                 <div className="space-y-3 p-4">
                   {group.items.map((product) => (
                     <ProductListRow
+                      categoryOptions={categoryOptions}
                       inMenu={menuProductIds.has(product.id)}
                       isCategorySaving={Boolean(categorySavingByProductId[product.id])}
                       isSelected={selectedProductIds.includes(product.id)}
@@ -2764,13 +2895,14 @@ function Catalog({
 
       {products.length === 0 && (
         <div className="app-panel rounded-[28px] px-6 py-14 text-center">
-          <p className="app-display text-[2rem] leading-none text-[var(--text-strong)]">{locale === "en" ? "Empty catalog" : "Catalogo vacio"}</p>
+          <p className="app-display text-[2rem] leading-none text-[var(--text-strong)]">{locale === "en" ? "No products yet" : "Sin productos"}</p>
         </div>
       )}
 
       {modalProduct && (
         <ProductModal
           imageColumnReady={imageColumnReady}
+          categoryOptions={categoryOptions}
           initialProduct={modalProduct}
           onClose={() => setModalProduct(null)}
           onSave={async (product) => {
@@ -2784,6 +2916,7 @@ function Catalog({
 }
 
 function ProductCard({
+  categoryOptions,
   inMenu,
   isCategorySaving,
   isSelected,
@@ -2793,6 +2926,7 @@ function ProductCard({
   onEdit,
   onToggleSelect,
 }: {
+  categoryOptions: string[];
   inMenu: boolean;
   isCategorySaving: boolean;
   isSelected: boolean;
@@ -2848,6 +2982,7 @@ function ProductCard({
         </div>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           <CategorySelect
+            options={categoryOptions}
             disabled={isCategorySaving}
             onChange={onCategoryChange}
             value={product.category}
@@ -2875,6 +3010,7 @@ function ProductCard({
 }
 
 function ProductListRow({
+  categoryOptions,
   inMenu,
   isCategorySaving,
   isSelected,
@@ -2884,6 +3020,7 @@ function ProductListRow({
   onEdit,
   onToggleSelect,
 }: {
+  categoryOptions: string[];
   inMenu: boolean;
   isCategorySaving: boolean;
   isSelected: boolean;
@@ -2912,7 +3049,7 @@ function ProductListRow({
               </span>
               {product.productType === "composite" ? (
                 <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--warning)]">
-                  {locale === "en" ? "Combo" : "Compuesto"} · {product.options?.length ?? 0}
+                  {locale === "en" ? "Composite" : "Compuesto"} · {product.options?.length ?? 0} {locale === "en" ? "groups" : "grupos"}
                 </span>
               ) : null}
             </div>
@@ -2932,6 +3069,7 @@ function ProductListRow({
             {inMenu ? (locale === "en" ? "Already on menu" : "Ya en menu") : isSelected ? (locale === "en" ? "Selected" : "Seleccionado") : (locale === "en" ? "Select" : "Seleccionar")}
           </button>
           <CategorySelect
+            options={categoryOptions}
             disabled={isCategorySaving}
             onChange={onCategoryChange}
             value={product.category}
@@ -2961,33 +3099,52 @@ function ProductListRow({
 function CategorySelect({
   disabled,
   onChange,
+  options = defaultCategoryOptions,
   value,
 }: {
   disabled: boolean;
   onChange: (nextCategory: string) => void;
+  options?: string[];
   value?: string;
 }) {
   const locale = activeDashboardLocale;
-  const options = [
-    { id: "desayunos", label: locale === "en" ? "Breakfast" : "Desayunos" },
-    { id: "almuerzos", label: locale === "en" ? "Lunch" : "Almuerzos" },
-    { id: "adiciones", label: locale === "en" ? "Extras" : "Adiciones" },
-    { id: "bebidas", label: locale === "en" ? "Drinks" : "Bebidas" },
-  ];
+  const listId = useId();
+  const [draftValue, setDraftValue] = useState(value ?? "");
+  const categoryOptions = Array.from(new Set([normalizeCategoryLabel(value, ""), ...options].filter(Boolean)));
+
+  useEffect(() => {
+    setDraftValue(value ?? "");
+  }, [value]);
+
+  function commitCategory(nextValue = draftValue) {
+    const normalized = normalizeCategoryLabel(nextValue);
+    setDraftValue(normalized);
+    if (normalized !== value) onChange(normalized);
+  }
 
   return (
-    <select
-      className="h-11 w-full min-w-0 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.45)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+    <>
+    <input
+      className="h-11 w-full min-w-0 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.45)] px-3 text-sm font-semibold text-[var(--text-strong)] outline-none transition placeholder:text-[var(--text-faint)] focus:border-[rgba(118,93,71,0.24)] focus:ring-4 focus:ring-[rgba(197,123,87,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
       disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      value={value ?? "adiciones"}
-    >
-      {options.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
+      list={listId}
+      onBlur={(event) => commitCategory(event.target.value)}
+      onChange={(event) => setDraftValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitCategory();
+        }
+      }}
+      placeholder={locale === "en" ? "Type or choose category" : "Escribe o elige categoria"}
+      value={draftValue}
+    />
+    <datalist id={listId}>
+      {categoryOptions.map((option) => (
+        <option key={option} value={option} />
       ))}
-    </select>
+    </datalist>
+    </>
   );
 }
 
@@ -3068,12 +3225,12 @@ function ProductTypeSelector({ onChange, value }: { onChange: (value: Product["p
     {
       id: "simple" as const,
       title: locale === "en" ? "Simple product" : "Producto simple",
-      copy: locale === "en" ? "Fixed dish with no internal selections." : "Plato fijo sin selecciones internas.",
+      copy: locale === "en" ? "Fixed dish. The customer orders it as-is." : "Plato fijo. El cliente lo pide tal como esta.",
     },
     {
       id: "composite" as const,
       title: locale === "en" ? "Composite product" : "Producto compuesto",
-      copy: locale === "en" ? "Dish with component groups to choose from." : "Plato con grupos de componentes para elegir.",
+      copy: locale === "en" ? "Dish with component groups the customer must choose in WhatsApp." : "Plato con grupos de componentes que el cliente debe elegir por WhatsApp.",
     },
   ];
 
@@ -3153,8 +3310,8 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Dish components" : "Componentes del plato"}</p>
           <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
             {locale === "en"
-              ? "Create groups like Soups, Protein or Side. If a group has one active option, it is included; if it has several, the customer chooses."
-              : "Crea grupos como Sopas, Proteina o Acompanante. Si un grupo tiene una opcion activa, queda incluida; si tiene varias, el cliente elige."}
+              ? "Create groups like Soup, Carb or Salad. WhatsApp asks the customer about required groups with multiple active options; if only one active option remains, it is included automatically."
+              : "Crea grupos como Sopa, Carbohidrato o Ensalada. WhatsApp le preguntara al cliente los grupos requeridos que tengan varias opciones activas; si solo queda una opcion activa, se incluye automaticamente."}
           </p>
         </div>
         <button
@@ -3171,8 +3328,8 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
         {options.length === 0 ? (
           <div className="rounded-[22px] border border-dashed border-[rgba(118,93,71,0.22)] px-4 py-8 text-center text-sm leading-6 text-[var(--text-soft)]">
             {locale === "en"
-              ? "Add at least one group to turn this product into a composite item."
-              : "Agrega al menos un grupo para convertir este producto en compuesto."}
+              ? "Add at least one choice group so the customer can configure this dish."
+              : "Agrega al menos un grupo de eleccion para que el cliente pueda configurar este plato."}
           </div>
         ) : null}
 
@@ -3267,11 +3424,13 @@ function CompositeOptionsEditor({ onChange, options }: { onChange: (options: Pro
 }
 
 function ProductModal({
+  categoryOptions,
   imageColumnReady,
   initialProduct,
   onClose,
   onSave,
 }: {
+  categoryOptions: string[];
   imageColumnReady: boolean;
   initialProduct: Partial<Product>;
   onClose: () => void;
@@ -3282,7 +3441,7 @@ function ProductModal({
     return {
       ...initialProduct,
       productType,
-      category: initialProduct.category ?? (productType === "composite" ? "almuerzos" : "adiciones"),
+      category: initialProduct.category ?? categoryOptions[0] ?? "General",
       isActive: initialProduct.isActive ?? true,
       options: productType === "composite" && (!initialProduct.options || initialProduct.options.length === 0)
         ? createDefaultCompositeOptions()
@@ -3328,6 +3487,7 @@ function ProductModal({
         <label className="block">
           <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</span>
           <CategorySelect
+            options={categoryOptions}
             disabled={false}
             onChange={(category) => setForm({ ...form, category })}
             value={form.category}
