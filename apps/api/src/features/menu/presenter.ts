@@ -21,10 +21,13 @@ export function buildMenuText(payload: TodayMenuPayload): string {
   ].join("\n");
 }
 
-export function buildWelcomeMenuText(payload: TodayMenuPayload): string {
+export function buildWelcomeMenuText(payload: TodayMenuPayload, restaurantName?: string): string {
+  const welcomeName = restaurantName?.trim() || payload.location?.name?.trim() || "nuestro restaurante";
+
   return [
     "¡Hola! 👋",
     "",
+    `¡Bienvenido a ${welcomeName}!`,
     "Yo te ayudaré a tomar tu pedido automáticamente para que todo sea más rápido para ti y para el restaurante.",
     'Si prefieres hablar con alguien del restaurante en cualquier momento, escribe "asesor".',
     "",

@@ -256,6 +256,6 @@ async function showCurrentMenu(input: RouteInboundMessageInput, isGreeting: bool
 
   await sendAndLogText(
     input,
-    isGreeting ? buildWelcomeMenuText(menu) : buildMenuText(menu),
+    isGreeting ? buildWelcomeMenuText(menu, input.tenant.name) : buildMenuText(menu),
   );
 }

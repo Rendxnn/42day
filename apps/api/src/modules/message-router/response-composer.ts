@@ -13,11 +13,11 @@ export function buildDeliveryAddressPrompt(): string {
   return "Perfecto 📍 Por favor, envíame tu ubicación de WhatsApp o escríbeme la dirección completa para continuar. Después te pediré los datos de facturación.";
 }
 
-export function buildPaymentPrompt(_draft: DraftOrder, menu: TodayMenuPayload): string {
+export function buildPaymentPrompt(draft: DraftOrder, _menu: TodayMenuPayload): string {
   const lines = ["Muy bien. ¿Cómo prefieres pagar: en efectivo o por transferencia?"];
 
-  if (menu.location?.deliveryFeeFixed && menu.location.deliveryFeeFixed > 0) {
-    lines.push(`El valor del domicilio es de ${formatCop(menu.location.deliveryFeeFixed)}.`);
+  if (draft.fulfillmentType === "delivery" && draft.deliveryFee > 0) {
+    lines.push(`El valor del domicilio es de ${formatCop(draft.deliveryFee)}.`);
   }
 
   return lines.join("\n");

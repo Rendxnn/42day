@@ -1545,8 +1545,7 @@ function NotificationBell({
       {open ? (
         <div className="app-panel absolute right-0 z-30 mt-3 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-[24px]">
           <div className="border-b border-[var(--border)] px-4 py-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Notifications" : "Notificaciones"}</p>
-            <h2 className="mt-1 text-base font-extrabold text-[var(--text-strong)]">{locale === "en" ? "Live orders" : "Pedidos en tiempo real"}</h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Notifications" : "Notificaciones"}</h2>
           </div>
           <div className="max-h-80 space-y-2 overflow-y-auto p-3 app-scrollbar">
             {notifications.length > 0 ? (
