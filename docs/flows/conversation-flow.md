@@ -35,14 +35,17 @@ El usuario puede seguir por:
 - numero del producto,
 - nombre,
 - alias,
-- frase natural simple,
-- pedido mas libre si el parser semantico ayuda.
+- frase natural simple o compleja.
 
 ## Flow B: seleccion de productos
 
-### Camino deterministico
+### Interpretacion deterministica seguida de fallback semantico
 
-Resuelve hoy:
+El router intenta primero un match deterministico **solo** cuando es una respuesta cerrada, exacta y valida para el estado actual: seleccion numerica, palabra mapeada de pago, confirmacion o fulfillment. Un match deterministico puede terminar el turno solo si resuelve todo el mensaje sin ambiguedad.
+
+Para cualquier no-match, ambiguedad, frase mixta o mensaje que el handler no puede completar, el parser semantico se invoca obligatoriamente antes de aclarar o derivar a humano. No existe un camino textual que use solo reglas como fallback final.
+
+El camino deterministico resuelve:
 
 - seleccion numerica,
 - match por texto o alias,
@@ -58,16 +61,16 @@ Cuando agrega item:
 5. deja la conversacion en `awaiting_more_items`,
 6. pregunta si desea agregar algo mas o seguir con entrega.
 
-### Camino con IA
+### Camino semantico de fallback
 
-Si el mensaje parece pedido libre o edicion libre:
+Cuando el match deterministico no es suficiente:
 
-1. el router intenta parser semantico,
+1. el router intenta parser semantico con el estado de conversacion,
 2. el parser devuelve textos, cantidades, posibles opciones y confianza,
 3. el backend intenta resolver eso contra el menu real y contra configurables reales,
 4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
 5. si puede aplicar el cambio, actualiza el draft,
-6. si no puede, vuelve a aclaracion o camino deterministico.
+6. si no puede, vuelve a aclaracion o handoff; no intenta una regla amplia como segundo fallback.
 
 El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
 
@@ -80,6 +83,8 @@ Estado actual implementado:
 3. intenta resolver la respuesta solo contra la opcion pendiente,
 4. si completa todas las opciones requeridas, agrega el item al draft con precio final resuelto,
 5. si supera el umbral de aclaraciones, deriva a `manual`.
+
+Si la respuesta no resuelve la opcion pendiente de forma deterministica, tambien se intenta interpretacion semantica antes de repetir la aclaracion.
 
 ## Flow C: checkout
 
@@ -222,9 +227,9 @@ completed
 expired
 ```
 
-## Balance deterministico vs IA
+## Politica deterministica vs IA
 
-Deterministico:
+Deterministico, antes de IA y solo con alta confianza:
 
 - saludo,
 - menu,
@@ -233,15 +238,14 @@ Deterministico:
 - confirmacion,
 - ubicacion,
 - comprobante por tipo de mensaje,
-- cantidades simples,
-- producto por numero o alias.
+- producto por numero o alias exacto en el contexto activo.
 
-IA:
+IA, como fallback obligatorio para texto no resuelto:
 
 - pedido libre multi-producto,
 - edicion libre del draft,
 - opciones y notas expresadas en lenguaje natural,
-- frases mixtas donde el deterministico no alcanza.
+- frases mixtas o cualquier respuesta que no pueda cerrarse con una regla valida para el estado.
 
 Humano:
 

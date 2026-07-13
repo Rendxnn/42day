@@ -10,10 +10,13 @@ import {
   buildRestaurantReviewPendingMessage,
   buildResumeExistingOrderPrompt,
 } from "../../modules/message-router/response-composer";
-import { isActiveOrderState, loadCurrentMenu, shouldTrySemanticAtState } from "./shared/helpers";
+import { isActiveOrderState, loadCurrentMenu } from "./shared/helpers";
 import { sendAndLogText } from "./outbound/send";
-import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch } from "./transfer/fallback";
-import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
+import {
+  handleTransferFallbackPaymentMethodClarification,
+  tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch,
+} from "./transfer/fallback";
+import { handleTransferProofClarification, tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
 import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./guided/product-configuration";
 import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements/selection";
 import { tryHandleGuidedSelection } from "./guided/selection";
@@ -85,20 +88,15 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     }
   }
 
-  if (input.conversation.state === "awaiting_restaurant_confirmation") {
-    await sendAndLogText(
-      input,
-      buildRestaurantReviewPendingMessage(),
-    );
-    return;
-  }
-
   if (input.conversation.state === "awaiting_replacement_selection") {
     const handledReplacementSelection = await tryHandleReplacementSelectionBranch(input, signals);
     if (handledReplacementSelection) {
       return;
     }
 
+    if (await trySemanticFallback(input, signals)) {
+      return;
+    }
     await handleReplacementSelectionClarificationBranch(input);
     return;
   }
@@ -106,13 +104,6 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.conversation.state === "awaiting_product_configuration") {
     const handledProductConfiguration = await tryHandlePendingProductConfigurationBranch(input);
     if (handledProductConfiguration) {
-      return;
-    }
-  }
-
-  if (shouldTrySemanticAtState(input.conversation.state, signals)) {
-    const handledSemantic = await tryHandleSemanticOrder(input, signals);
-    if (handledSemantic) {
       return;
     }
   }
@@ -189,7 +180,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     }
   }
 
-  if (signals.isGreeting || signals.wantsMenu) {
+  if ((signals.isGreeting || signals.wantsMenu) && canHandleGreetingOrMenuDeterministically(input.conversation.state)) {
     await handleGreetingOrMenu(input, signals.isGreeting);
     return;
   }
@@ -202,7 +193,43 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     return;
   }
 
+  if (await trySemanticFallback(input, signals)) {
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_restaurant_confirmation") {
+    await sendAndLogText(input, buildRestaurantReviewPendingMessage());
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_transfer_proof") {
+    await handleTransferProofClarification(input);
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
+    await handleTransferFallbackPaymentMethodClarification(input);
+    return;
+  }
+
   await handleClarification(input, buildClarificationPrompt(input.conversation.state), "validation_failed_repeatedly");
+}
+
+async function trySemanticFallback(input: RouteInboundMessageInput, signals: ReturnType<typeof detectSignals>): Promise<boolean> {
+  if (!input.message.text?.trim()) {
+    return false;
+  }
+
+  return tryHandleSemanticOrder(input, signals);
+}
+
+function canHandleGreetingOrMenuDeterministically(state: RouteInboundMessageInput["conversation"]["state"]): boolean {
+  return ![
+    "awaiting_restaurant_confirmation",
+    "awaiting_replacement_selection",
+    "awaiting_transfer_proof",
+    "awaiting_transfer_fallback_payment_method",
+  ].includes(state);
 }
 
 async function handleGreetingOrMenu(input: RouteInboundMessageInput, isGreeting: boolean): Promise<void> {

@@ -84,7 +84,7 @@ export async function tryHandleNormalBillingInfo(input: RouteInboundMessageInput
   }
 
   const fullName = (input.message.text ?? "").trim();
-  if (!fullName) {
+  if (!looksLikeBillingFullName(fullName)) {
     return false;
   }
 
@@ -124,6 +124,20 @@ export async function tryHandleNormalBillingInfo(input: RouteInboundMessageInput
 
   await proceedToNextOrderStep(input);
   return true;
+}
+
+function looksLikeBillingFullName(value: string): boolean {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  return words.length >= 2
+    && words.length <= 5
+    && words.every((word) => /^[\p{Letter}]{2,}$/u.test(word))
+    && !words.some((word) => ["quiero", "cambiar", "pedido", "agregar", "domicilio", "efectivo", "transferencia"].includes(word));
 }
 
 export async function tryHandleElectronicBillingInfo(input: RouteInboundMessageInput): Promise<boolean> {

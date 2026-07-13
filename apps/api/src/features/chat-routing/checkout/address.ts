@@ -16,6 +16,7 @@ import { startBillingStep } from "./billing";
 export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, signals: {
   looksLikeAddress?: boolean;
   normalizedText?: string;
+  addressText?: string;
   paymentMethod?: "cash" | "transfer" | null;
 }): Promise<boolean> {
   if (input.message.type !== "location" && !signals.looksLikeAddress) {
@@ -45,7 +46,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
           env: input.env,
           schemaName: input.tenant.schemaName,
           customerId: input.conversation.customerId,
-          addressText: input.message.text ?? signals.normalizedText ?? "",
+          addressText: signals.addressText ?? input.message.text ?? signals.normalizedText ?? "",
         });
 
     if (address) {

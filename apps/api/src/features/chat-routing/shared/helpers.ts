@@ -1,19 +1,11 @@
 import type { Conversation, DraftOrder, MenuItem, PaymentMethod, TodayMenuPayload } from "@42day/types";
 import type { DetectedSignals } from "../../../modules/message-router/signal-detector";
 import type { SemanticParserResult } from "../../../modules/semantic-parser/semantic-parser";
-import { parseFulfillmentSelection, parsePaymentMethod } from "../../../modules/message-router/signal-detector";
+import { parseSemanticFulfillmentSelection, parseSemanticPaymentMethod } from "../../../modules/message-router/signal-detector";
 import { loadTodayPublishedMenu } from "../../menu/service";
 import type { RouteInboundMessageInput } from "./types";
 
-export function shouldTrySemanticAtState(state: Conversation["state"], signals: DetectedSignals): boolean {
-  if (!signals.shouldTrySemanticOrder) {
-    return false;
-  }
-
-  if (state === "awaiting_address" && signals.looksLikeAddress) {
-    return false;
-  }
-
+export function canApplySemanticDraftChangeAtState(state: Conversation["state"]): boolean {
   return [
     "awaiting_guided_item_selection",
     "awaiting_mode_selection",
@@ -86,8 +78,8 @@ export function mergeSemanticSignals(signals: DetectedSignals, parsed: SemanticP
 
   return {
     ...signals,
-    fulfillmentType: signals.fulfillmentType ?? (fulfillmentText ? parseFulfillmentSelection(fulfillmentText, "awaiting_guided_item_selection") : null),
-    paymentMethod: signals.paymentMethod ?? (paymentText ? parsePaymentMethod(paymentText, "awaiting_guided_item_selection") : null),
+    fulfillmentType: signals.fulfillmentType ?? (fulfillmentText ? parseSemanticFulfillmentSelection(fulfillmentText) : null),
+    paymentMethod: signals.paymentMethod ?? (paymentText ? parseSemanticPaymentMethod(paymentText) : null),
   };
 }
 

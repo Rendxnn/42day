@@ -126,7 +126,7 @@ Sigue siendo el centro funcional del flujo conversacional, pero ya no todo vive 
 Responsable de:
 
 - detectar senales cerradas,
-- decidir si intentar parser semantico,
+- ejecutar interpretacion deterministica estricta y, si no resuelve por completo, fallback semantico,
 - operar el draft,
 - avanzar de estado,
 - mover a `manual`,
@@ -141,7 +141,7 @@ Estado de refactor:
 
 ### `semantic_parser`
 
-Se usa solo como fallback cuando el usuario escribe un pedido libre o una edicion libre.
+Es el fallback obligatorio para todo inbound textual que no haya sido resuelto por una regla deterministica estricta y valida para el estado actual. No es solo para pedidos o ediciones libres.
 
 Reglas:
 
@@ -235,9 +235,9 @@ La IA no reemplaza la state machine.
 
 Secuencia actual:
 
-1. `message_router` intenta resolver por reglas.
-2. Si el texto parece pedido libre o edicion libre, intenta `semantic_parser`.
-3. Si el parser devuelve baja confianza o no resuelve contra menu, el flujo vuelve al camino deterministico.
+1. `message_router` intenta una regla deterministica cerrada y state-scoped.
+2. Si no resuelve el mensaje completo, intenta `semantic_parser`.
+3. Si el parser devuelve baja confianza o no puede resolverse contra datos canonicos, el flujo aclara o deriva; no vuelve a matcher amplio.
 4. Cada outbound registra si fue:
    - `deterministic`
    - `llm`
@@ -258,8 +258,8 @@ Hoy ya existe idempotencia inicial a nivel de webhook raw. La siguiente mejora n
 
 Si falla Gemini:
 
-- el flujo guiado sigue disponible,
-- el pedido libre vuelve a matcher deterministico o aclaracion,
+- se intenta el proveedor semantico de respaldo configurado,
+- si no hay interpretacion segura, el flujo aclara o deriva a humano,
 - el outbound deja trazabilidad de fallback.
 
 Si falla Supabase:

@@ -1,21 +1,21 @@
 # Conversacion natural e integracion IA
 
-Ultima actualizacion: 2026-06-07.
+Ultima actualizacion: 2026-07-13.
 
 ## Objetivo
 
 Mantener un bot que se sienta natural sin perder control operativo:
 
 - deterministico para senales cerradas,
-- LLM solo para extraer estructura cuando aporta valor,
+- fallback semantico para todo texto que no quede resuelto por una respuesta cerrada de alta confianza,
 - validacion backend siempre,
 - humano cuando el caso deja de ser seguro para automatizar.
 
 ## Como interactua hoy la IA con el flujo
 
-### 1. El camino por defecto es deterministico
+### 1. El primer intento es deterministico y estricto
 
-Primero se detectan senales como:
+Primero se detectan senales cerradas y state-scoped como:
 
 - saludo,
 - menu,
@@ -23,17 +23,13 @@ Primero se detectan senales como:
 - pago,
 - confirmacion,
 - humano,
-- direccion simple,
 - comprobante por tipo de mensaje.
 
-### 2. El LLM entra como fallback acotado
+Una regla solo termina el turno si la respuesta es exacta, no contiene intenciones adicionales y produce una transicion permitida.
 
-El router intenta parser semantico solo si el texto parece:
+### 2. El LLM es el fallback obligatorio
 
-- pedido libre,
-- pedido con varias entidades,
-- edicion libre del draft,
-- frase donde el matcher por reglas puede quedarse corto.
+El router intenta parser semantico para todo mensaje textual que no haya quedado resuelto completamente por el intento deterministico, sin depender de palabras clave ni de que parezca un pedido libre.
 
 ### 3. El LLM no decide negocio
 
@@ -61,7 +57,7 @@ Despues del parser:
 
 - el backend intenta mapear `productText` al menu activo,
 - si no puede, no acepta ciegamente la salida,
-- si la confianza es baja, vuelve a aclaracion o flujo deterministico,
+- si la confianza es baja, aclara o deriva a humano; no vuelve a un matcher amplio,
 - si puede aplicar el cambio, actualiza el draft.
 
 ### 5. Toda respuesta deja trazabilidad
@@ -108,14 +104,13 @@ Cada outbound registra metadata para saber si fue:
 
 ### Deterministico
 
-Debe resolver sin IA:
+Puede resolver antes de IA solo cuando la respuesta cerrada es exacta y valida para el estado:
 
 - saludo,
 - menu,
 - fulfillment,
 - pago,
 - confirmacion,
-- direccion simple,
 - ubicacion WhatsApp,
 - solicitud de humano,
 - comprobante por tipo de mensaje,
@@ -123,7 +118,7 @@ Debe resolver sin IA:
 
 ### IA
 
-Debe ayudar en:
+Debe ser invocada cuando el intento deterministico no alcanza, incluyendo:
 
 - pedido libre con varios productos,
 - cambios libres sobre el draft,

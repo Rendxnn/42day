@@ -6,13 +6,14 @@ import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderIt
 import { buildOrderAdjustedPrompt, buildManualHandoffMessage } from "../../../modules/message-router/response-composer";
 import { buildMenuText, resolveMenuSelectionFromText } from "../../menu/service";
 import { markLlmAttempt, markLlmOutcome } from "../shared/tracing";
-import { loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext } from "../shared/helpers";
+import { canApplySemanticDraftChangeAtState, loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext } from "../shared/helpers";
 import { moveToManual } from "../manual/handoff";
 import { applyKnownSignalsToDraft, proceedToNextOrderStep } from "../checkout";
 import { stageConfiguredItemSelection } from "../guided/selection";
 import { updateConversationState } from "../../conversations/service";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
+import { tryHandleDeliveryAddress } from "../checkout/address";
 
 export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, signals: DetectedSignals): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
@@ -81,9 +82,26 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     return false;
   }
 
+  if (input.conversation.state === "awaiting_address" && parsed.addressText?.trim()) {
+    await tryHandleDeliveryAddress(input, {
+      looksLikeAddress: true,
+      addressText: parsed.addressText.trim(),
+    });
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: providerId,
+      parsed,
+      reason: "semantic_delivery_address_applied",
+    });
+    return true;
+  }
+
   const semanticSignals = mergeSemanticSignals(signals, parsed);
 
-  if (parsed.intent === "menu") {
+  const canApplyDraftChange = canApplySemanticDraftChangeAtState(input.conversation.state);
+
+  if (parsed.intent === "menu" && canApplyDraftChange) {
     markLlmOutcome(input, {
       used: true,
       outcome: "handled",
@@ -110,7 +128,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     return true;
   }
 
-  if (parsed.intent === "order_edit") {
+  if (parsed.intent === "order_edit" && canApplyDraftChange) {
     const handledEdit = await tryApplySemanticEdit(input, {
       menu,
       parsed,
@@ -121,13 +139,15 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     }
   }
 
-  if (parsed.intent !== "order" || parsed.items.length === 0) {
+  if (parsed.intent !== "order" || parsed.items.length === 0 || !canApplyDraftChange) {
     markLlmOutcome(input, {
       used: false,
       outcome: "not_order",
       provider: providerId,
       parsed,
-      reason: parsed.intent !== "order" ? "intent_not_order" : "empty_items",
+      reason: !canApplyDraftChange
+        ? "semantic_action_not_allowed_in_current_state"
+        : parsed.intent !== "order" ? "intent_not_order" : "empty_items",
     });
     return false;
   }

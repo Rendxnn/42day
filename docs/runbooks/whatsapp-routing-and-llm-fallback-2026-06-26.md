@@ -2,6 +2,8 @@
 
 Fecha de referencia: `2026-06-26`.
 
+> Documento historico de una correccion operativa. No define la politica actual de routing: desde `2026-07-13`, todo inbound textual no resuelto por una regla deterministica estricta debe intentar fallback semantico antes de aclarar o derivar.
+
 ## Estado validado
 
 ### Routing del numero nuevo

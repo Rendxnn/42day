@@ -18,7 +18,7 @@ Vive ahi:
 - resolucion de tenant,
 - orquestacion del flujo conversacional,
 - llamadas al parser semantico,
-- validacion deterministica,
+- interpretacion deterministica estricta y fallback semantico obligatorio para texto no resuelto,
 - calculo de precios,
 - creacion de ordenes,
 - handoff humano,

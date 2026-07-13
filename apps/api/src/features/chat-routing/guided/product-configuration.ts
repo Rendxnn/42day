@@ -18,7 +18,7 @@ import { detectSignals } from "../../../modules/message-router/signal-detector";
 import { sendAndLogText } from "../outbound/send";
 import type { ConfigurableItemCandidate, PendingProductConfigurationContext } from "../shared/context";
 import { loadCurrentMenu } from "../shared/helpers";
-import { handleClarification, moveToManual } from "../manual/handoff";
+import { moveToManual } from "../manual/handoff";
 import { continueAfterItemAdded } from "../checkout";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { stageConfiguredItemSelection } from "./selection";
@@ -57,12 +57,7 @@ export async function tryHandlePendingProductConfiguration(input: RouteInboundMe
   const answerText = input.message.text?.trim() ?? "";
   const rawOptionTexts = mapConfigurationAnswerToRawOptionTexts(option, answerText);
   if (rawOptionTexts.length === 0) {
-    await handleClarification(
-      input,
-      buildProductConfigurationPrompt(selectedItem.displayName ?? selectedItem.product?.name ?? "tu producto", option),
-      "product_configuration_unresolved",
-    );
-    return true;
+    return false;
   }
 
   const resolution = resolveProductConfiguration({
@@ -123,6 +118,10 @@ export async function tryHandlePendingProductConfiguration(input: RouteInboundMe
   }
 
   if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
+    if ((resolution.invalidValueTexts?.length ?? 0) > 0 || (resolution.ambiguousValueTexts?.length ?? 0) > 0) {
+      return false;
+    }
+
     await persistPendingProductConfiguration(input, {
       menu,
       selectedItem,

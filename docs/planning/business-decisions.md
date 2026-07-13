@@ -106,7 +106,7 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 ## Lo que consideramos aceptable para demos
 
 - matcher de productos fuerte para items simples,
-- parser semantico controlado con fallback,
+- interpretacion deterministica estricta seguida de fallback semantico obligatorio para todo texto no resuelto,
 - validacion deterministica de configurables para productos bien modelados en catalogo,
 - retries manuales de notificacion,
 - algunas rutas operativas dependientes de pasos internos de configuracion.

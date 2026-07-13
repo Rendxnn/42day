@@ -72,6 +72,7 @@ export async function parseFreeFormOrder(input: {
       "Si el usuario pide asesor, marca intent support o needsHuman.",
       "Si parece pedido, usa intent order.",
       "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
+      "Si la conversacion esta esperando direccion y el usuario proporciona una direccion escrita, copiala en addressText sin inventar detalles.",
       "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
       "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
       "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",

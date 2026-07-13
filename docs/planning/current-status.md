@@ -140,9 +140,9 @@ cliente escribe por WhatsApp
 
 ## IA: estado actual
 
-La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
+La IA no maneja las reglas de negocio. Hoy actua como interpretador semantico de fallback:
 
-- intenta ayudar solo cuando el mensaje parece pedido libre o edicion libre,
+- se invoca para todo mensaje textual que no quede resuelto completamente por un match deterministico estricto y valido para el estado,
 - devuelve textos, cantidades, opciones y confianza,
 - puede extraer `optionTexts`, pero no resuelve IDs finales,
 - no calcula precios,
@@ -150,7 +150,7 @@ La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
 - no decide disponibilidad,
 - no confirma ordenes.
 
-El backend siempre intenta resolver esa salida contra el menu real y puede volver al camino deterministico si la salida no es confiable o no es aplicable. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
+El backend siempre resuelve esa salida contra el menu real. Si no es confiable o aplicable, aclara o deriva a humano; no vuelve a un matcher deterministico amplio. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
 
 ## Verificacion actual
 
