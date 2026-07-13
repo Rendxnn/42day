@@ -6,6 +6,14 @@ type MessageLogRow = {
   id: string;
 };
 
+type ConversationMessageRow = {
+  id: string;
+  direction: "inbound" | "outbound";
+  message_type: string;
+  text?: string | null;
+  created_at: string;
+};
+
 export async function logInboundMessage(input: {
   env: ApiBindings;
   schemaName: string;
@@ -53,6 +61,46 @@ export async function logOutboundTextMessage(input: {
     result: input.result,
     metadata: input.metadata,
   });
+}
+
+export async function loadRecentConversationMessages(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  limit?: number;
+  direction?: "inbound" | "outbound";
+}): Promise<Array<{
+  id: string;
+  direction: "inbound" | "outbound";
+  messageType: string;
+  text?: string;
+  createdAt: string;
+}>> {
+  const client = createSupabaseRestClient(input.env);
+  const query: Record<string, string> = {
+    select: "id,direction,message_type,text,created_at",
+    conversation_id: `eq.${input.conversationId}`,
+    order: "created_at.desc",
+    limit: String(input.limit ?? 10),
+  };
+
+  if (input.direction) {
+    query.direction = `eq.${input.direction}`;
+  }
+
+  const rows = await client.select<ConversationMessageRow>({
+    schema: input.schemaName,
+    table: "messages",
+    query,
+  }).catch(() => []);
+
+  return rows.map((row) => ({
+    id: row.id,
+    direction: row.direction,
+    messageType: row.message_type,
+    text: row.text ?? undefined,
+    createdAt: row.created_at,
+  }));
 }
 
 export async function logOutboundImageMessage(input: {

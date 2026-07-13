@@ -1,23 +1,44 @@
 import type { DraftOrder, MenuItem, TodayMenuPayload } from "@42day/types";
 import type { DetectedSignals } from "../../../modules/message-router/signal-detector";
-import type { SemanticOrderEditAction, SemanticParserResult } from "../../../modules/semantic-parser/semantic-parser";
-import { parseFreeFormOrder } from "../../../modules/semantic-parser/semantic-parser";
+import type { SemanticOrderEditAction, SemanticParserResult, SemanticTextDirectives } from "../../../modules/semantic-parser/semantic-parser";
+import { parseFreeFormOrder, parseSemanticStateDirectives } from "../../../modules/semantic-parser/semantic-parser";
 import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderItemQuantity } from "../../draft-orders/service";
-import { buildOrderAdjustedPrompt, buildManualHandoffMessage } from "../../../modules/message-router/response-composer";
-import { buildMenuText, resolveMenuSelectionFromText } from "../../menu/service";
-import { markLlmAttempt, markLlmOutcome, redactSemanticParserResult } from "../shared/tracing";
-import { canApplySemanticDraftChangeAtState, loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext } from "../shared/helpers";
+import {
+  buildClarificationPrompt,
+  buildContinueWithMenuAndDraftPrompt,
+  buildManualHandoffMessage,
+  buildOrderAdjustedPrompt,
+  buildResumeExistingOrderPrompt,
+} from "../../../modules/message-router/response-composer";
+import { buildMenuText, buildWelcomeMenuText, resolveMenuSelectionFromText } from "../../menu/service";
+import { logRoutingDiagnostic, markLlmAttempt, markLlmOutcome, redactSemanticParserResult } from "../shared/tracing";
+import { canApplySemanticDraftChangeAtState, loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext, buildEmptyDetectedSignals, isActiveOrderState } from "../shared/helpers";
 import { moveToManual } from "../manual/handoff";
-import { applyDraftFacts, applyKnownSignalsToDraft, proceedToNextOrderStep } from "../checkout";
+import {
+  applyDraftFacts,
+  applyKnownSignalsToDraft,
+  proceedToNextOrderStep,
+  tryHandleBillingReuseConfirmation,
+  tryHandleConfirmation,
+  tryHandleDeliveryAddress,
+  tryHandleFulfillmentSelection,
+  tryHandlePaymentMethod,
+} from "../checkout";
 import { stageConfiguredItemSelection } from "../guided/selection";
 import { updateConversationState } from "../../conversations/service";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { tryHandleDeliveryAddress } from "../checkout/address";
 import { buildSemanticDraftFacts, hasDraftFacts } from "./draft-facts";
+import { tryHandlePendingProductConfiguration, readPendingProductConfiguration } from "../guided/product-configuration";
+import { tryHandleReplacementSelection } from "../replacements/selection";
+import { tryHandleTransferFallbackPaymentMethod } from "../transfer/fallback";
+import { readPendingBillingContext } from "../checkout/billing-helpers";
+import { getPendingCustomerReplacementOrder } from "../../orders/service";
+import { loadRecentConversationMessages } from "../../../modules/message-log/message-log";
 
-export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, signals: DetectedSignals): Promise<boolean> {
+export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
+  const baseSignals = buildEmptyDetectedSignals(input.message.text);
   let parsed: SemanticParserResult;
   let providerId: "gemini" | "openrouter" = "gemini";
 
@@ -26,16 +47,15 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     const execution = await parseFreeFormOrder({
       env: input.env,
       tenantId: input.tenant.id,
-      rawMessage: input.message.text ?? signals.normalizedText,
+      rawMessage: input.message.text ?? baseSignals.normalizedText,
       activeMenu: menu,
       conversationState: input.conversation.state,
+      stateContext: await buildSemanticStateContext(input, menu),
     });
     parsed = execution.parsed;
     providerId = execution.providerId;
-    console.info("semantic_parser.completed", {
-      tenantId: input.tenant.id,
-      conversationId: input.conversation.id,
-      inboundProviderMessageId: input.message.providerMessageId,
+    parsed = await enrichStateDirectivesIfNeeded(input, parsed);
+    logRoutingDiagnostic(input, "semantic_parser.completed", {
       provider: execution.providerId,
       fallbackFromProviderId: execution.fallbackFromProviderId,
       parsed: redactSemanticParserResult(parsed),
@@ -47,8 +67,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
       provider: providerId,
       reason: error instanceof Error ? error.message : String(error),
     });
-    console.info("semantic_parser.skipped_or_failed", {
-      tenantId: input.tenant.id,
+    logRoutingDiagnostic(input, "semantic_parser.skipped_or_failed", {
       reason: error instanceof Error ? error.message : String(error),
     });
     return false;
@@ -83,25 +102,29 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     return false;
   }
 
-  if (input.conversation.state === "awaiting_address" && parsed.addressText?.trim() && !parsed.draftFacts) {
-    await tryHandleDeliveryAddress(input, {
-      looksLikeAddress: true,
-      addressText: parsed.addressText.trim(),
-    });
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: "semantic_delivery_address_applied",
-    });
-    return true;
-  }
-
-  const semanticSignals = mergeSemanticSignals(signals, parsed);
+  const semanticSignals = mergeSemanticSignals(baseSignals, parsed);
 
   const canApplyDraftChange = canApplySemanticDraftChangeAtState(input.conversation.state);
   const draftFacts = buildSemanticDraftFacts(parsed, semanticSignals);
+  logRoutingDiagnostic(input, "semantic_draft_facts.evaluated", {
+    canApplyDraftChange,
+    proposedFacts: redactSemanticParserResult(parsed).draftFacts ?? null,
+    acceptedFacts: {
+      fulfillmentType: draftFacts.fulfillmentType ?? null,
+      paymentMethod: draftFacts.paymentMethod ?? null,
+      hasDeliveryAddress: Boolean(draftFacts.deliveryAddressText),
+      billingType: draftFacts.billing?.type ?? null,
+    },
+  });
+
+  if (await tryHandleSemanticStateResponse(input, {
+    menu,
+    parsed,
+    semanticSignals,
+    providerId,
+  })) {
+    return true;
+  }
 
   if (canApplyDraftChange && hasDraftFacts(draftFacts) && (parsed.intent === "unknown" || parsed.items.length === 0)) {
     const draft = await getOrCreateActiveDraftOrder({
@@ -124,30 +147,15 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     return true;
   }
 
-  if (parsed.intent === "menu" && canApplyDraftChange) {
+  if ((parsed.intent === "menu" || semanticSignals.isGreeting) && canApplyDraftChange) {
     markLlmOutcome(input, {
       used: true,
       outcome: "handled",
       provider: providerId,
       parsed,
-      reason: "semantic_menu_question",
+      reason: semanticSignals.isGreeting ? "semantic_greeting" : "semantic_menu_question",
     });
-
-    await updateConversationState({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_guided_item_selection",
-      context: {
-        flow: "semantic_menu",
-        activeMenuId: menu.menu?.id,
-        activeLocationId: menu.location?.id,
-        questions: parsed.questions ?? [],
-      },
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-
-    await sendAndLogText(input, buildMenuText(menu));
+    await handleSemanticGreetingOrMenu(input, menu, semanticSignals.isGreeting);
     return true;
   }
 
@@ -183,6 +191,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     const resolved = resolveMenuSelectionFromText(menu, item.productText);
     const selectedItem = resolved?.item ?? null;
     if (!selectedItem) {
+      logRoutingDiagnostic(input, "semantic_draft_item_unresolved", { itemIndex: index, productText: item.productText });
       continue;
     }
 
@@ -211,6 +220,12 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
       rawOptionTexts: item.optionTexts,
       notes: item.notes,
       queuedItems,
+    });
+    logRoutingDiagnostic(input, "semantic_draft_item_stage_result", {
+      itemIndex: index,
+      productText: item.productText,
+      selectedMenuItemId: selectedItem.id,
+      result: stageResult.kind,
     });
     if (stageResult.kind === "prompted") {
       markLlmOutcome(input, {
@@ -260,6 +275,410 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     contextItem: lastSelectedItem,
   });
   return true;
+}
+
+async function tryHandleSemanticStateResponse(input: RouteInboundMessageInput, payload: {
+  menu: TodayMenuPayload;
+  parsed: SemanticParserResult;
+  semanticSignals: DetectedSignals;
+  providerId: "gemini" | "openrouter";
+}): Promise<boolean> {
+  if (input.conversation.state === "awaiting_product_configuration") {
+    const handled = await tryHandlePendingProductConfiguration(input, {
+      semanticAnswer: payload.parsed.textDirectives?.productConfiguration?.confidence !== undefined
+        && payload.parsed.textDirectives.productConfiguration.confidence < 0.6
+        ? null
+        : payload.parsed.textDirectives?.productConfiguration
+          ? {
+              optionTexts: payload.parsed.textDirectives.productConfiguration.optionTexts,
+              notes: payload.parsed.textDirectives.productConfiguration.notes,
+              confidence: payload.parsed.textDirectives.productConfiguration.confidence,
+            }
+          : null,
+      signals: payload.semanticSignals,
+    });
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_product_configuration_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.product_configuration_applied", {});
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_replacement_selection") {
+    const replacementSignals = {
+      ...payload.semanticSignals,
+      confirmation: payload.parsed.textDirectives?.replacementRejectAll ? "no" : payload.semanticSignals.confirmation,
+    };
+    const handled = await tryHandleReplacementSelection(input, replacementSignals, {
+      selectionText: payload.parsed.textDirectives?.replacementChoiceText ?? null,
+    });
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_replacement_selection_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.replacement_applied", {
+        replacementChoiceText: payload.parsed.textDirectives?.replacementChoiceText ?? null,
+        rejectedAll: payload.parsed.textDirectives?.replacementRejectAll ?? false,
+      });
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
+    const transferSignals = {
+      ...payload.semanticSignals,
+      paymentMethod: mapTransferFallbackPayment(payload.parsed),
+      confirmation: mapTransferFallbackConfirmation(payload.parsed),
+    };
+    const handled = await tryHandleTransferFallbackPaymentMethod(input, transferSignals);
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_transfer_fallback_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.transfer_fallback_applied", {
+        transferFallbackDecision: payload.parsed.textDirectives?.transferFallbackDecision ?? null,
+      });
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_transfer_proof") {
+    return false;
+  }
+
+  if (
+    input.conversation.state === "awaiting_address"
+    && (
+      payload.parsed.addressText?.trim()
+      || payload.parsed.draftFacts?.deliveryAddressText?.trim()
+    )
+  ) {
+    const handled = await tryHandleDeliveryAddress(input, {
+      looksLikeAddress: true,
+      addressText: payload.parsed.addressText?.trim() ?? payload.parsed.draftFacts?.deliveryAddressText?.trim(),
+      paymentMethod: payload.semanticSignals.paymentMethod,
+    });
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_delivery_address_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.address_applied", {});
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_more_items" && payload.semanticSignals.doneAddingItems) {
+    await proceedToNextOrderStep(input);
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: payload.providerId,
+      parsed: payload.parsed,
+      reason: "semantic_continue_checkout",
+    });
+    logRoutingDiagnostic(input, "semantic_state.continue_checkout_applied", {});
+    return true;
+  }
+
+  if (
+    input.conversation.state === "awaiting_more_items"
+    || input.conversation.state === "awaiting_fulfillment_type"
+    || input.conversation.state === "awaiting_confirmation"
+  ) {
+    const handled = await tryHandleFulfillmentSelection(input, payload.semanticSignals);
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_fulfillment_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.fulfillment_applied", {
+        fulfillmentType: payload.semanticSignals.fulfillmentType ?? null,
+      });
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_billing_reuse_confirmation") {
+    const handled = await tryHandleBillingReuseConfirmation(input, {
+      ...payload.semanticSignals,
+      billingDecision: payload.parsed.textDirectives?.billingDecision ?? null,
+    });
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_billing_reuse_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.billing_reuse_applied", {
+        billingDecision: payload.parsed.textDirectives?.billingDecision ?? null,
+      });
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_payment_method" || input.conversation.state === "awaiting_confirmation") {
+    const handled = await tryHandlePaymentMethod(input, payload.semanticSignals);
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_payment_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.payment_applied", {
+        paymentMethod: payload.semanticSignals.paymentMethod ?? null,
+      });
+      return true;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_confirmation") {
+    const handled = await tryHandleConfirmation(input, payload.semanticSignals);
+    if (handled) {
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: payload.providerId,
+        parsed: payload.parsed,
+        reason: "semantic_confirmation_applied",
+      });
+      logRoutingDiagnostic(input, "semantic_state.confirmation_applied", {
+        confirmation: payload.semanticSignals.confirmation ?? null,
+      });
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function handleSemanticGreetingOrMenu(
+  input: RouteInboundMessageInput,
+  menu: TodayMenuPayload,
+  isGreeting: boolean,
+): Promise<void> {
+  if (isActiveOrderState(input.conversation.state) && input.conversation.currentDraftOrderId) {
+    const draft = await getOrCreateActiveDraftOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversation: input.conversation,
+      customerId: input.conversation.customerId,
+      locationId: menu.location?.id,
+      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+    });
+
+    if (draft.items.length > 0) {
+      if (!isGreeting) {
+        await updateConversationState({
+          env: input.env,
+          schemaName: input.tenant.schemaName,
+          conversationId: input.conversation.id,
+          state: "awaiting_more_items",
+          resetClarificationAttempts: true,
+        }).catch(() => undefined);
+
+        await sendAndLogText(input, buildContinueWithMenuAndDraftPrompt(buildMenuText(menu), draft));
+        return;
+      }
+
+      await sendAndLogText(input, buildResumeExistingOrderPrompt(draft, buildClarificationPrompt(input.conversation.state)));
+      return;
+    }
+  }
+
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_guided_item_selection",
+    context: {
+      flow: "guided",
+      activeMenuId: menu.menu?.id,
+      activeLocationId: menu.location?.id,
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(
+    input,
+    isGreeting ? buildWelcomeMenuText(menu, input.tenant.name) : buildMenuText(menu),
+  );
+}
+
+async function buildSemanticStateContext(input: RouteInboundMessageInput, menu: TodayMenuPayload): Promise<Record<string, unknown>> {
+  const context: Record<string, unknown> = {};
+  const [lastOutboundMessage] = await loadRecentConversationMessages({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    direction: "outbound",
+    limit: 1,
+  });
+
+  if (lastOutboundMessage?.text) {
+    context.lastAssistantPrompt = lastOutboundMessage.text;
+  }
+
+  const pendingBilling = readPendingBillingContext(input.conversation.context);
+  if (pendingBilling) {
+    context.pendingBilling = {
+      type: pendingBilling.type,
+      hasReusableProfile: Boolean(pendingBilling.reuseProfile),
+      expectedActions: ["reuse", "change", "switch_to_electronic"],
+    };
+  }
+
+  const pendingConfig = readPendingProductConfiguration(input.conversation);
+  if (pendingConfig) {
+    const item = menu.items.find((entry) => entry.id === pendingConfig.menuItemId);
+    const option = item?.product?.options?.find((entry) => entry.id === pendingConfig.pendingOptionId);
+    context.pendingProductConfiguration = {
+      itemName: item?.displayName ?? item?.product?.name ?? null,
+      optionName: option?.name ?? pendingConfig.pendingOptionName,
+      optionType: option?.type ?? pendingConfig.pendingOptionType,
+      values: option?.type === "text"
+        ? []
+        : option?.values.filter((value) => value.isActive).map((value) => value.name) ?? [],
+      expectedActions: ["answer_pending_option"],
+    };
+  }
+
+  if (input.conversation.state === "awaiting_replacement_selection") {
+    const pendingReplacement = await getPendingCustomerReplacementOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      currentDraftOrderId: input.conversation.currentDraftOrderId,
+    }).catch(() => null);
+    if (pendingReplacement) {
+      context.pendingReplacement = {
+        replacementOptions: pendingReplacement.replacementOptions.map((option) => option.name),
+        expectedActions: ["choose_replacement", "reject_all"],
+      };
+    }
+  }
+
+  if (input.conversation.state === "awaiting_more_items") {
+    context.expectedActions = ["add_more_items", "continue_checkout"];
+  }
+
+  if (input.conversation.state === "awaiting_confirmation") {
+    context.expectedActions = ["confirm_order", "change_order", "reject_confirmation"];
+  }
+
+  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
+    context.expectedActions = ["accept_cash_fallback", "insist_on_transfer"];
+  }
+
+  return context;
+}
+
+async function enrichStateDirectivesIfNeeded(
+  input: RouteInboundMessageInput,
+  parsed: SemanticParserResult,
+): Promise<SemanticParserResult> {
+  if (!needsStateDirectiveOverlay(input.conversation.state, parsed)) {
+    return parsed;
+  }
+
+  const stateContext = await buildSemanticStateContext(input, await loadCurrentMenu(input));
+  const directiveExecution = await parseSemanticStateDirectives({
+    env: input.env,
+    tenantId: input.tenant.id,
+    rawMessage: input.message.text ?? "",
+    conversationState: input.conversation.state,
+    stateContext,
+  });
+
+  const mergedDirectives = {
+    ...(parsed.textDirectives ?? {}),
+    ...directiveExecution.directives,
+  } satisfies SemanticTextDirectives;
+
+  logRoutingDiagnostic(input, "semantic_state_directives.completed", {
+    provider: directiveExecution.providerId,
+    fallbackFromProviderId: directiveExecution.fallbackFromProviderId,
+    directives: redactSemanticStateDirectives(mergedDirectives),
+  });
+
+  return {
+    ...parsed,
+    textDirectives: mergedDirectives,
+  };
+}
+
+function mapTransferFallbackPayment(parsed: SemanticParserResult): "cash" | "transfer" | null {
+  const decision = parsed.textDirectives?.transferFallbackDecision;
+  if (decision === "cash" || decision === "confirm_cash") return "cash";
+  if (decision === "transfer" || decision === "reject_cash") return "transfer";
+  return null;
+}
+
+function mapTransferFallbackConfirmation(parsed: SemanticParserResult): "yes" | "no" | "change" | null {
+  const decision = parsed.textDirectives?.transferFallbackDecision;
+  if (decision === "confirm_cash") return "yes";
+  if (decision === "reject_cash") return "no";
+  return parsed.textDirectives?.confirmation ?? null;
+}
+
+function needsStateDirectiveOverlay(
+  state: RouteInboundMessageInput["conversation"]["state"],
+  parsed: SemanticParserResult,
+): boolean {
+  switch (state) {
+    case "awaiting_billing_reuse_confirmation":
+      return !parsed.textDirectives?.billingDecision && !parsed.textDirectives?.confirmation;
+    case "awaiting_more_items":
+      return parsed.textDirectives?.continueCheckout !== true;
+    case "awaiting_confirmation":
+      return !parsed.textDirectives?.confirmation;
+    case "awaiting_replacement_selection":
+      return !parsed.textDirectives?.replacementChoiceText && parsed.textDirectives?.replacementRejectAll !== true;
+    case "awaiting_transfer_fallback_payment_method":
+      return !parsed.textDirectives?.transferFallbackDecision;
+    case "awaiting_product_configuration":
+      return !parsed.textDirectives?.productConfiguration?.optionTexts?.length;
+    default:
+      return false;
+  }
+}
+
+function redactSemanticStateDirectives(directives: SemanticTextDirectives): Record<string, unknown> {
+  return {
+    ...directives,
+    replacementChoiceText: directives.replacementChoiceText ? "[redacted]" : directives.replacementChoiceText,
+    productConfiguration: directives.productConfiguration
+      ? {
+          confidence: directives.productConfiguration.confidence,
+          optionCount: directives.productConfiguration.optionTexts?.length ?? 0,
+          noteCount: directives.productConfiguration.notes?.length ?? 0,
+        }
+      : directives.productConfiguration,
+  };
 }
 
 async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {

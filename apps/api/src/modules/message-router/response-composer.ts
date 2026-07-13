@@ -25,7 +25,8 @@ export function buildPaymentPrompt(draft: DraftOrder, _menu: TodayMenuPayload): 
 
 export function buildAddMorePrompt(draft: DraftOrder): string {
   return [
-    `Perfecto ✨ Ya agregué ${formatDraftItemsInline(draft)}.`,
+    `Perfecto ✨ Ya agregué: \n
+    ${formatDraftItemsInline(draft)}.`,
     `Subtotal parcial: ${formatCop(draft.subtotal)}.`,
     "",
     "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?",

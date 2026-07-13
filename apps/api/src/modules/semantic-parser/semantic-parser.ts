@@ -43,6 +43,31 @@ export type SemanticDraftFacts = {
   } | null;
 };
 
+export type SemanticTextDirectives = {
+  isGreeting?: boolean;
+  greetingConfidence?: number;
+  continueCheckout?: boolean;
+  continueCheckoutConfidence?: number;
+  confirmation?: "yes" | "no" | "change" | null;
+  confirmationConfidence?: number;
+  billingDecision?: "reuse" | "change" | "switch_to_electronic" | null;
+  billingDecisionConfidence?: number;
+  replacementChoiceText?: string | null;
+  replacementRejectAll?: boolean;
+  replacementConfidence?: number;
+  transferFallbackDecision?: "cash" | "transfer" | "confirm_cash" | "reject_cash" | null;
+  transferFallbackConfidence?: number;
+  productConfiguration?: {
+    optionTexts?: Array<{
+      groupText?: string;
+      valueText: string;
+      confidence?: number;
+    }>;
+    notes?: string[];
+    confidence?: number;
+  } | null;
+};
+
 export type SemanticParserResult = {
   intent: "order" | "order_edit" | "menu" | "support" | "unknown";
   confidence: number;
@@ -53,6 +78,7 @@ export type SemanticParserResult = {
   addressText?: string | null;
   confirmationText?: string | null;
   draftFacts?: SemanticDraftFacts;
+  textDirectives?: SemanticTextDirectives;
   needsHuman?: boolean;
   questions?: string[];
 };
@@ -63,22 +89,20 @@ export type SemanticParserExecutionResult = {
   fallbackFromProviderId?: "gemini" | "openrouter";
 };
 
+export type SemanticStateDirectiveResult = {
+  providerId: "gemini" | "openrouter";
+  directives: SemanticTextDirectives;
+  fallbackFromProviderId?: "gemini" | "openrouter";
+};
+
 export async function parseFreeFormOrder(input: {
   env: ApiBindings;
   tenantId: string;
   rawMessage: string;
   activeMenu: TodayMenuPayload;
   conversationState: Conversation["state"];
+  stateContext?: Record<string, unknown>;
 }): Promise<SemanticParserExecutionResult> {
-  const provider = await loadTenantAiProviderConfig({
-    env: input.env,
-    tenantId: input.tenantId,
-  });
-
-  if (!provider) {
-    throw new Error("semantic_parser.not_configured");
-  }
-
   const router = new AiProviderRouter([new GeminiAdapter(), new OpenRouterAdapter()]);
   const task = createObjectTask({
     schemaName: "semantic_order_parse",
@@ -91,9 +115,16 @@ export async function parseFreeFormOrder(input: {
       "Si el usuario pide asesor, marca intent support o needsHuman.",
       "Si parece pedido, usa intent order.",
       "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
+      "Usa textDirectives para respuestas conversacionales dependientes del estado: saludo, continuar al siguiente paso, confirmar, rechazar, pedir cambios, reutilizar o cambiar facturación, cambiar a factura electrónica, elegir o rechazar reemplazos, aceptar efectivo en fallback o insistir en transferencia, y responder una configuración pendiente.",
       "Si la conversacion esta esperando direccion y el usuario proporciona una direccion escrita, copiala en addressText sin inventar detalles.",
       "Extrae en draftFacts los datos independientes que el usuario entregue antes de que se los preguntemos: tipo de entrega, pago, direccion de entrega y facturacion. Incluye la confianza de cada dato.",
       "Para facturacion normal usa fullName y billingAddress si fueron dichos. Para electronica exige legalName, taxId y email. Incluye confidence para billing.",
+      "Si el usuario dice algo como 'asi esta bien', 'sigamos', 'eso es todo' o equivalente, marca textDirectives.continueCheckout en true con confianza.",
+      "Si el usuario responde con si, no o cambio segun el contexto, usa textDirectives.confirmation.",
+      "Si el contexto es de reutilizar facturacion, usa textDirectives.billingDecision con reuse, change o switch_to_electronic.",
+      "Si el contexto es de reemplazo, usa replacementChoiceText o replacementRejectAll.",
+      "Si el contexto es de fallback de transferencia, usa transferFallbackDecision.",
+      "Si el contexto es de configuracion pendiente, llena textDirectives.productConfiguration.optionTexts con los valores elegidos y notes con instrucciones libres relevantes.",
       "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
       "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
       "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
@@ -105,46 +136,79 @@ export async function parseFreeFormOrder(input: {
         text: JSON.stringify({
           conversationState: input.conversationState,
           message: input.rawMessage,
+          stateContext: input.stateContext ?? null,
           menu: summarizeMenu(input.activeMenu),
         }),
       },
     ],
   });
 
-  try {
-    return {
-      providerId: provider.providerId,
-      parsed: await router.generateObject<SemanticParserResult>({
-        provider,
-        task,
-      }),
-    };
-  } catch (error) {
-    if (!shouldAttemptFallback(error)) {
-      throw error;
-    }
+  const execution = await generateSemanticObject<SemanticParserResult>({
+    env: input.env,
+    tenantId: input.tenantId,
+    router,
+    task,
+  });
 
-    const fallbackProvider = await loadTenantAiFallbackProviderConfig({
-      env: input.env,
-      tenantId: input.tenantId,
-      excludeProviderId: provider.providerId,
-    });
+  return {
+    providerId: execution.providerId,
+    parsed: execution.output,
+    fallbackFromProviderId: execution.fallbackFromProviderId,
+  };
+}
 
-    if (!fallbackProvider) {
-      throw error;
-    }
+export async function parseSemanticStateDirectives(input: {
+  env: ApiBindings;
+  tenantId: string;
+  rawMessage: string;
+  conversationState: Conversation["state"];
+  stateContext?: Record<string, unknown>;
+}): Promise<SemanticStateDirectiveResult> {
+  const router = new AiProviderRouter([new GeminiAdapter(), new OpenRouterAdapter()]);
+  const task = createObjectTask({
+    schemaName: "semantic_state_directives",
+    outputSchema: semanticStateDirectivesSchema,
+    temperature: 0,
+    instructions: [
+      "Interpreta una respuesta corta de WhatsApp segun el estado actual de la conversacion.",
+      "Devuelve solo textDirectives y sus confidencias.",
+      "No inventes productos, IDs, precios ni datos no dichos por el usuario.",
+      "Usa stateContext.lastAssistantPrompt como la pregunta exacta que el bot acaba de hacer y resuelve la respuesta del usuario contra esa pregunta.",
+      "Usa stateContext.expectedActions o expectedActions dentro de cada subcontexto para elegir una accion valida del estado actual.",
+      "Respuestas como 'si', 'yes', 'ok', 'asi esta bien', 'dejala igual' o equivalentes deben mapearse a la accion afirmativa correcta del estado actual, no a una accion generica.",
+      "Si el estado es awaiting_billing_reuse_confirmation, usa billingDecision con reuse, change o switch_to_electronic.",
+      "Si el estado es awaiting_more_items, usa continueCheckout cuando el cliente quiera seguir al siguiente paso.",
+      "Si el estado es awaiting_confirmation, usa confirmation con yes, no o change.",
+      "Si el estado es awaiting_replacement_selection, usa replacementChoiceText o replacementRejectAll.",
+      "Si el estado es awaiting_transfer_fallback_payment_method, usa transferFallbackDecision.",
+      "Si el estado es awaiting_product_configuration, usa productConfiguration.optionTexts y notes.",
+      "Usa isGreeting solo si el mensaje realmente es un saludo.",
+      "Si no puedes decidir con claridad, deja los campos vacios o nulos.",
+    ].join("\n"),
+    input: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          conversationState: input.conversationState,
+          message: input.rawMessage,
+          stateContext: input.stateContext ?? null,
+        }),
+      },
+    ],
+  });
 
-    const parsed = await router.generateObject<SemanticParserResult>({
-      provider: fallbackProvider,
-      task,
-    });
+  const execution = await generateSemanticObject<SemanticTextDirectives>({
+    env: input.env,
+    tenantId: input.tenantId,
+    router,
+    task,
+  });
 
-    return {
-      providerId: fallbackProvider.providerId,
-      parsed,
-      fallbackFromProviderId: provider.providerId,
-    };
-  }
+  return {
+    providerId: execution.providerId,
+    directives: execution.output,
+    fallbackFromProviderId: execution.fallbackFromProviderId,
+  };
 }
 
 function summarizeMenu(menu: TodayMenuPayload): Record<string, unknown> {
@@ -321,6 +385,62 @@ const semanticOrderSchema = {
         },
       },
     },
+    textDirectives: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        isGreeting: { type: "boolean" },
+        greetingConfidence: { type: "number", minimum: 0, maximum: 1 },
+        continueCheckout: { type: "boolean" },
+        continueCheckoutConfidence: { type: "number", minimum: 0, maximum: 1 },
+        confirmation: {
+          type: ["string", "null"],
+          enum: ["yes", "no", "change", null],
+        },
+        confirmationConfidence: { type: "number", minimum: 0, maximum: 1 },
+        billingDecision: {
+          type: ["string", "null"],
+          enum: ["reuse", "change", "switch_to_electronic", null],
+        },
+        billingDecisionConfidence: { type: "number", minimum: 0, maximum: 1 },
+        replacementChoiceText: { type: ["string", "null"] },
+        replacementRejectAll: { type: "boolean" },
+        replacementConfidence: { type: "number", minimum: 0, maximum: 1 },
+        transferFallbackDecision: {
+          type: ["string", "null"],
+          enum: ["cash", "transfer", "confirm_cash", "reject_cash", null],
+        },
+        transferFallbackConfidence: { type: "number", minimum: 0, maximum: 1 },
+        productConfiguration: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            optionTexts: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["valueText"],
+                properties: {
+                  groupText: { type: "string" },
+                  valueText: { type: "string" },
+                  confidence: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: 1,
+                  },
+                },
+              },
+            },
+            notes: {
+              type: "array",
+              items: { type: "string" },
+            },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
+      },
+    },
     needsHuman: {
       type: "boolean",
     },
@@ -330,6 +450,116 @@ const semanticOrderSchema = {
     },
   },
 };
+
+const semanticStateDirectivesSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    isGreeting: { type: "boolean" },
+    greetingConfidence: { type: "number", minimum: 0, maximum: 1 },
+    continueCheckout: { type: "boolean" },
+    continueCheckoutConfidence: { type: "number", minimum: 0, maximum: 1 },
+    confirmation: {
+      type: ["string", "null"],
+      enum: ["yes", "no", "change", null],
+    },
+    confirmationConfidence: { type: "number", minimum: 0, maximum: 1 },
+    billingDecision: {
+      type: ["string", "null"],
+      enum: ["reuse", "change", "switch_to_electronic", null],
+    },
+    billingDecisionConfidence: { type: "number", minimum: 0, maximum: 1 },
+    replacementChoiceText: { type: ["string", "null"] },
+    replacementRejectAll: { type: "boolean" },
+    replacementConfidence: { type: "number", minimum: 0, maximum: 1 },
+    transferFallbackDecision: {
+      type: ["string", "null"],
+      enum: ["cash", "transfer", "confirm_cash", "reject_cash", null],
+    },
+    transferFallbackConfidence: { type: "number", minimum: 0, maximum: 1 },
+    productConfiguration: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        optionTexts: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["valueText"],
+            properties: {
+              groupText: { type: "string" },
+              valueText: { type: "string" },
+              confidence: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+              },
+            },
+          },
+        },
+        notes: {
+          type: "array",
+          items: { type: "string" },
+        },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+    },
+  },
+};
+
+async function generateSemanticObject<T>(input: {
+  env: ApiBindings;
+  tenantId: string;
+  router: AiProviderRouter;
+  task: ReturnType<typeof createObjectTask>;
+}): Promise<{
+  providerId: "gemini" | "openrouter";
+  output: T;
+  fallbackFromProviderId?: "gemini" | "openrouter";
+}> {
+  const provider = await loadTenantAiProviderConfig({
+    env: input.env,
+    tenantId: input.tenantId,
+  });
+
+  if (!provider) {
+    throw new Error("semantic_parser.not_configured");
+  }
+
+  try {
+    return {
+      providerId: provider.providerId,
+      output: await input.router.generateObject<T>({
+        provider,
+        task: input.task,
+      }),
+    };
+  } catch (error) {
+    if (!shouldAttemptFallback(error)) {
+      throw error;
+    }
+
+    const fallbackProvider = await loadTenantAiFallbackProviderConfig({
+      env: input.env,
+      tenantId: input.tenantId,
+      excludeProviderId: provider.providerId,
+    });
+
+    if (!fallbackProvider) {
+      throw error;
+    }
+
+    return {
+      providerId: fallbackProvider.providerId,
+      output: await input.router.generateObject<T>({
+        provider: fallbackProvider,
+        task: input.task,
+      }),
+      fallbackFromProviderId: provider.providerId,
+    };
+  }
+}
 
 function shouldAttemptFallback(error: unknown): error is AiRouterError {
   return error instanceof AiRouterError

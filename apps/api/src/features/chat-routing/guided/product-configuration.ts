@@ -14,7 +14,7 @@ import {
 } from "../../../modules/message-router/response-composer";
 import { addMenuItemToDraftOrder, getOrCreateActiveDraftOrder } from "../../draft-orders/service";
 import { resolveProductConfiguration, shouldPersistConfigurationSnapshot, splitConfigurationAnswerTexts, buildOrderLineItemOptionsSnapshot, type ProductConfigurationSource, type ProductConfigurationResolution } from "../../product-configurator/service";
-import { detectSignals } from "../../../modules/message-router/signal-detector";
+import type { DetectedSignals } from "../../../modules/message-router/signal-detector";
 import { sendAndLogText } from "../outbound/send";
 import type { ConfigurableItemCandidate, PendingProductConfigurationContext } from "../shared/context";
 import { loadCurrentMenu } from "../shared/helpers";
@@ -23,7 +23,17 @@ import { continueAfterItemAdded } from "../checkout";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { stageConfiguredItemSelection } from "./selection";
 
-export async function tryHandlePendingProductConfiguration(input: RouteInboundMessageInput): Promise<boolean> {
+export async function tryHandlePendingProductConfiguration(
+  input: RouteInboundMessageInput,
+  payload?: {
+    semanticAnswer?: {
+      optionTexts?: OrderLineItemOptionTextInput[];
+      notes?: string[];
+      confidence?: number;
+    } | null;
+    signals?: DetectedSignals;
+  },
+): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
   const pending = readPendingProductConfiguration(input.conversation);
   if (!pending) {
@@ -55,7 +65,9 @@ export async function tryHandlePendingProductConfiguration(input: RouteInboundMe
   }
 
   const answerText = input.message.text?.trim() ?? "";
-  const rawOptionTexts = mapConfigurationAnswerToRawOptionTexts(option, answerText);
+  const rawOptionTexts = payload?.semanticAnswer?.optionTexts?.length
+    ? payload.semanticAnswer.optionTexts
+    : mapConfigurationAnswerToRawOptionTexts(option, answerText);
   if (rawOptionTexts.length === 0) {
     return false;
   }
@@ -72,7 +84,7 @@ export async function tryHandlePendingProductConfiguration(input: RouteInboundMe
   const mergedRawOptionTexts = [...pending.rawOptionTexts, ...rawOptionTexts];
 
   if (resolution.status === "resolved") {
-    const notes = uniqueNotes([...pending.notes, ...resolution.freeTextNotes]);
+    const notes = uniqueNotes([...pending.notes, ...resolution.freeTextNotes, ...(payload?.semanticAnswer?.notes ?? [])]);
     let draft = await addSelectedItem(input, {
       menu,
       selectedItem,
@@ -109,10 +121,21 @@ export async function tryHandlePendingProductConfiguration(input: RouteInboundMe
       draft,
       selectedItem: lastSelectedItem,
       quantity: pending.quantity,
-      signals: detectSignals({
-        message: input.message,
-        state: input.conversation.state,
-      }),
+      signals: payload?.signals ?? {
+        normalizedText: "",
+        numericSelection: null,
+        isGreeting: false,
+        wantsMenu: false,
+        humanRequested: false,
+        fulfillmentType: null,
+        paymentMethod: null,
+        confirmation: null,
+        wantsElectronicBilling: false,
+        billingDataChanged: false,
+        looksLikeAddress: false,
+        hasTransferProofCandidate: false,
+        doneAddingItems: false,
+      },
     });
     return true;
   }
@@ -204,7 +227,7 @@ export async function persistPendingProductConfiguration(input: RouteInboundMess
   );
 }
 
-function readPendingProductConfiguration(conversation: Conversation): PendingProductConfigurationContext | null {
+export function readPendingProductConfiguration(conversation: Conversation): PendingProductConfigurationContext | null {
   const candidate = conversation.context?.pendingConfig;
   if (!candidate || typeof candidate !== "object") {
     return null;

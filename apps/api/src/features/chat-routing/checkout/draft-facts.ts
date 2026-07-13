@@ -10,6 +10,7 @@ import {
 } from "../../draft-orders/service";
 import { applyBillingDefaults } from "./billing-helpers";
 import type { RouteInboundMessageInput } from "../shared/types";
+import { logRoutingDiagnostic } from "../shared/tracing";
 
 export type DraftFacts = {
   fulfillmentType?: "delivery" | "pickup" | null;
@@ -26,6 +27,12 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
   let draft = payload.draft;
   const deliveryFeeFixed = payload.menu.location?.deliveryFeeFixed;
 
+  logRoutingDiagnostic(input, "draft_facts.apply_started", {
+    draftOrderId: draft.id,
+    requestedFacts: summarizeFacts(payload.facts),
+    before: summarizeDraft(draft),
+  });
+
   if (payload.facts.fulfillmentType) {
     draft = await updateDraftOrderFulfillment({
       env: input.env,
@@ -34,6 +41,7 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
       fulfillmentType: payload.facts.fulfillmentType,
       deliveryFeeFixed,
     });
+    logRoutingDiagnostic(input, "draft_facts.fulfillment_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
   }
 
   if (payload.facts.deliveryAddressText?.trim() && draft.fulfillmentType === "delivery") {
@@ -59,6 +67,12 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
         confidence: "low",
         deliveryFeeFixed,
       });
+      logRoutingDiagnostic(input, "draft_facts.delivery_address_reference_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
+    } else {
+      logRoutingDiagnostic(input, "draft_facts.delivery_address_skipped", {
+        draftOrderId: draft.id,
+        reason: "written_address_reference_disabled",
+      });
     }
   }
 
@@ -77,6 +91,7 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
       billing: { ...billing, profileId: profile.id },
       deliveryFeeFixed,
     });
+    logRoutingDiagnostic(input, "draft_facts.billing_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
   }
 
   if (payload.facts.paymentMethod) {
@@ -87,7 +102,33 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
       paymentMethod: payload.facts.paymentMethod,
       deliveryFeeFixed,
     });
+    logRoutingDiagnostic(input, "draft_facts.payment_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
   }
 
+  logRoutingDiagnostic(input, "draft_facts.apply_completed", { draftOrderId: draft.id, after: summarizeDraft(draft) });
   return draft;
+}
+
+function summarizeFacts(facts: DraftFacts): Record<string, unknown> {
+  return {
+    fulfillmentType: facts.fulfillmentType ?? null,
+    paymentMethod: facts.paymentMethod ?? null,
+    hasDeliveryAddress: Boolean(facts.deliveryAddressText?.trim()),
+    billing: facts.billing
+      ? { type: facts.billing.type, hasName: Boolean(facts.billing.fullName || facts.billing.legalName), hasAddress: Boolean(facts.billing.billingAddress), hasTaxId: Boolean(facts.billing.taxId), hasEmail: Boolean(facts.billing.email) }
+      : null,
+  };
+}
+
+function summarizeDraft(draft: DraftOrder): Record<string, unknown> {
+  return {
+    status: draft.status,
+    items: draft.items.map((item) => ({ name: item.name, quantity: item.quantity, lineTotal: item.lineTotal })),
+    fulfillmentType: draft.fulfillmentType ?? null,
+    paymentMethod: draft.paymentMethod ?? null,
+    hasDeliveryAddress: Boolean(draft.deliveryAddress || draft.deliveryAddressId),
+    coverage: draft.coverageValidationMethod ?? null,
+    billing: draft.billing ? { type: draft.billing.type, hasName: Boolean(draft.billing.fullName || draft.billing.legalName) } : null,
+    total: draft.total,
+  };
 }

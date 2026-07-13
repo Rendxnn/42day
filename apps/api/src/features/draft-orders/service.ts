@@ -452,5 +452,17 @@ async function recalculateDraftOrder(input: {
     },
   });
 
+  console.info("draft_order.recalculated", {
+    schemaName: input.schemaName,
+    draftOrderId: nextDraft.id,
+    status: nextDraft.status,
+    items: nextDraft.items.map((item) => ({ name: item.name, quantity: item.quantity, lineTotal: item.lineTotal })),
+    fulfillmentType: nextDraft.fulfillmentType ?? null,
+    paymentMethod: nextDraft.paymentMethod ?? null,
+    hasDeliveryAddress: Boolean(nextDraft.deliveryAddress || nextDraft.deliveryAddressId),
+    billingType: nextDraft.billing?.type ?? null,
+    total: nextDraft.total,
+  });
+
   return nextDraft;
 }

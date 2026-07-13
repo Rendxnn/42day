@@ -10,20 +10,29 @@ import {
 import { loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { applyBillingDefaults, parseElectronicBillingText, readPendingBillingContext, renderBillingProfile } from "./billing-helpers";
+import {
+  applyBillingDefaults,
+  parseElectronicBillingText,
+  readPendingBillingContext,
+  renderBillingProfile,
+  resolveBillingReuseDecision,
+} from "./billing-helpers";
 import { proceedToNextOrderStep } from "./progression";
 
 export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessageInput, signals: {
   confirmation?: "yes" | "no" | "change" | null;
   wantsElectronicBilling?: boolean;
   billingDataChanged?: boolean;
+  billingDecision?: "reuse" | "change" | "switch_to_electronic" | null;
 }): Promise<boolean> {
   const pending = readPendingBillingContext(input.conversation.context);
   if (!pending) {
     return false;
   }
 
-  if (signals.wantsElectronicBilling && pending.type !== "electronic") {
+  const resolved = resolveBillingReuseDecision(signals);
+
+  if (resolved.switchToElectronic && pending.type !== "electronic") {
     return switchToElectronicBilling(input);
   }
 
@@ -37,7 +46,7 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
 
-  if (signals.confirmation === "yes" && pending.reuseProfile) {
+  if (resolved.reuseExisting && pending.reuseProfile) {
     const billing = applyBillingDefaults(toOrderBillingDetails(pending.reuseProfile), draft);
     await updateDraftOrderBilling({
       env: input.env,
@@ -50,7 +59,7 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     return true;
   }
 
-  if (signals.confirmation === "no" || signals.confirmation === "change" || signals.billingDataChanged) {
+  if (resolved.changeBilling) {
     await updateConversationState({
       env: input.env,
       schemaName: input.tenant.schemaName,
