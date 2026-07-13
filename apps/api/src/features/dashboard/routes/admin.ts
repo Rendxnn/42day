@@ -78,7 +78,7 @@ adminDashboardRoutes.get("/admin/overview", async (c) => {
   });
 
   return c.json({
-    activeRestaurantCount: tenants.filter((tenant) => tenant.slug !== "thaledon").length,
+    activeRestaurantCount: tenants.length,
   });
 });
 

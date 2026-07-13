@@ -96,7 +96,6 @@ export async function listAdminRestaurants(env: ApiBindings) {
     table: "tenants",
     query: {
       select: "id,name,slug,schema_name,status,timezone,currency,automation_enabled,created_at,updated_at",
-      slug: "neq.thaledon",
       order: "created_at.desc",
     },
   });
