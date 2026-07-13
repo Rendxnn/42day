@@ -151,6 +151,8 @@ Reglas:
 - no decide disponibilidad,
 - no confirma ordenes.
 
+Tambien puede proponer `draftFacts` para fulfillment, pago, direccion escrita y facturacion entregados anticipadamente. Cada dato lleva confianza y el backend solo persiste valores completos y validos; el modelo no define precios, IDs, cobertura ni transiciones finales.
+
 ### `draft_order_service`
 
 Responsable de:

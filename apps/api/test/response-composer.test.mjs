@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -80,4 +80,25 @@ test("menciona el valor del domicilio cuando el pedido es delivery", () => {
 
   assert.match(message, /El valor del domicilio es de/);
   assert.match(message, /5\.000/);
+});
+
+test("la confirmacion incluye entrega, facturacion y pago acumulados", () => {
+  const message = buildOrderSummaryText(buildDraft({
+    fulfillmentType: "delivery",
+    deliveryFee: 5000,
+    deliveryAddress: "Calle 10 # 5-20",
+    total: 17000,
+    billing: {
+      type: "normal",
+      fullName: "Samuel Rendon",
+      billingAddress: "Carrera 7 # 12-34",
+    },
+  }), "cash");
+
+  assert.match(message, /Arepa/);
+  assert.match(message, /Domicilio: \$\s+5\.000/);
+  assert.match(message, /Dirección de entrega: Calle 10 # 5-20/);
+  assert.match(message, /Samuel Rendon/);
+  assert.match(message, /Dirección de facturación: Carrera 7 # 12-34/);
+  assert.match(message, /Pago: efectivo/);
 });

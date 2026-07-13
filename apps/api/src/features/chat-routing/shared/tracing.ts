@@ -34,8 +34,27 @@ export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
       confidence: payload.parsed?.confidence,
       itemCount: payload.parsed?.items.length,
       editActionCount: payload.parsed?.editActions?.length,
-      parsed: payload.parsed,
+      parsed: payload.parsed ? redactSemanticParserResult(payload.parsed) : undefined,
     },
+  };
+}
+
+export function redactSemanticParserResult(parsed: SemanticParserResult): SemanticParserResult {
+  return {
+    ...parsed,
+    addressText: parsed.addressText ? "[redacted]" : parsed.addressText,
+    draftFacts: parsed.draftFacts
+      ? {
+          ...parsed.draftFacts,
+          deliveryAddressText: parsed.draftFacts.deliveryAddressText ? "[redacted]" : parsed.draftFacts.deliveryAddressText,
+          billing: parsed.draftFacts.billing
+            ? {
+                type: parsed.draftFacts.billing.type,
+                confidence: parsed.draftFacts.billing.confidence,
+              }
+            : parsed.draftFacts.billing,
+        }
+      : undefined,
   };
 }
 

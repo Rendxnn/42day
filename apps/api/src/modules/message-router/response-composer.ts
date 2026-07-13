@@ -66,14 +66,20 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
 
   if (draft.fulfillmentType === "delivery") {
     lines.push(`Domicilio: ${formatCop(draft.deliveryFee)}`);
+    if (draft.deliveryAddress) {
+      lines.push(`Dirección de entrega: ${draft.deliveryAddress}`);
+    }
   } else {
     lines.push("Entrega: para recoger");
   }
 
   if (draft.billing?.type === "electronic") {
     lines.push(`Factura: electrónica a nombre de ${draft.billing.legalName ?? "cliente"}`);
+    if (draft.billing.taxId) lines.push(`NIT o cédula: ${draft.billing.taxId}`);
+    if (draft.billing.email) lines.push(`Correo de facturación: ${draft.billing.email}`);
   } else if (draft.billing?.fullName) {
     lines.push(`Factura: normal a nombre de ${draft.billing.fullName}`);
+    if (draft.billing.billingAddress) lines.push(`Dirección de facturación: ${draft.billing.billingAddress}`);
   }
 
   lines.push(`Pago: ${paymentMethod === "cash" ? "efectivo" : "transferencia"}`);

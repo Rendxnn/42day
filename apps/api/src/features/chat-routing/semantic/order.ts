@@ -5,15 +5,16 @@ import { parseFreeFormOrder } from "../../../modules/semantic-parser/semantic-pa
 import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderItemQuantity } from "../../draft-orders/service";
 import { buildOrderAdjustedPrompt, buildManualHandoffMessage } from "../../../modules/message-router/response-composer";
 import { buildMenuText, resolveMenuSelectionFromText } from "../../menu/service";
-import { markLlmAttempt, markLlmOutcome } from "../shared/tracing";
+import { markLlmAttempt, markLlmOutcome, redactSemanticParserResult } from "../shared/tracing";
 import { canApplySemanticDraftChangeAtState, loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext } from "../shared/helpers";
 import { moveToManual } from "../manual/handoff";
-import { applyKnownSignalsToDraft, proceedToNextOrderStep } from "../checkout";
+import { applyDraftFacts, applyKnownSignalsToDraft, proceedToNextOrderStep } from "../checkout";
 import { stageConfiguredItemSelection } from "../guided/selection";
 import { updateConversationState } from "../../conversations/service";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { tryHandleDeliveryAddress } from "../checkout/address";
+import { buildSemanticDraftFacts, hasDraftFacts } from "./draft-facts";
 
 export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, signals: DetectedSignals): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
@@ -37,7 +38,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
       inboundProviderMessageId: input.message.providerMessageId,
       provider: execution.providerId,
       fallbackFromProviderId: execution.fallbackFromProviderId,
-      parsed,
+      parsed: redactSemanticParserResult(parsed),
     });
   } catch (error) {
     markLlmOutcome(input, {
@@ -82,7 +83,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     return false;
   }
 
-  if (input.conversation.state === "awaiting_address" && parsed.addressText?.trim()) {
+  if (input.conversation.state === "awaiting_address" && parsed.addressText?.trim() && !parsed.draftFacts) {
     await tryHandleDeliveryAddress(input, {
       looksLikeAddress: true,
       addressText: parsed.addressText.trim(),
@@ -100,6 +101,28 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
   const semanticSignals = mergeSemanticSignals(signals, parsed);
 
   const canApplyDraftChange = canApplySemanticDraftChangeAtState(input.conversation.state);
+  const draftFacts = buildSemanticDraftFacts(parsed, semanticSignals);
+
+  if (canApplyDraftChange && hasDraftFacts(draftFacts) && (parsed.intent === "unknown" || parsed.items.length === 0)) {
+    const draft = await getOrCreateActiveDraftOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversation: input.conversation,
+      customerId: input.conversation.customerId,
+      locationId: menu.location?.id,
+      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+    });
+    const updatedDraft = await applyDraftFacts(input, { menu, draft, facts: draftFacts });
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: providerId,
+      parsed,
+      reason: "semantic_draft_facts_applied",
+    });
+    await proceedToNextOrderStep(input, { menu, draft: updatedDraft });
+    return true;
+  }
 
   if (parsed.intent === "menu" && canApplyDraftChange) {
     markLlmOutcome(input, {
@@ -227,6 +250,8 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput, si
     parsed,
     reason: "semantic_order_applied",
   });
+
+  updatedDraft = await applyDraftFacts(input, { menu, draft: updatedDraft, facts: draftFacts });
 
   await continueAfterSemanticEdit(input, {
     menu,
@@ -389,6 +414,7 @@ async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {
   });
   return true;
 }
+
 
 function normalizeSemanticEditActions(parsed: SemanticParserResult): SemanticOrderEditAction[] {
   const actions = [...(parsed.editActions ?? [])];

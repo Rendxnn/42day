@@ -100,6 +100,8 @@ Secuencia actual:
 
 El backend intenta capturar multiples senales en un mismo mensaje cuando son claras.
 
+Los datos capturados se acumulan en el `draft_order` aunque correspondan a pasos posteriores. Despues de cada actualizacion, el backend pregunta solamente el primer requisito faltante en este orden: productos, fulfillment, ubicacion/cobertura para delivery, facturacion, pago y confirmacion. La ubicacion WhatsApp sigue siendo necesaria para validar cobertura salvo configuracion explicita del tenant.
+
 Ejemplos que debe tolerar:
 
 ```txt
@@ -136,6 +138,8 @@ Cuando el cliente confirma:
 3. crea alerta operativa de confirmacion,
 4. deja la conversacion en `awaiting_restaurant_confirmation`,
 5. informa que el restaurante revisa el pedido.
+
+La confirmacion debe mostrar productos, fulfillment (y direccion/costo si es delivery), datos de facturacion, metodo de pago y total.
 
 ## Flow E: confirmacion del restaurante
 

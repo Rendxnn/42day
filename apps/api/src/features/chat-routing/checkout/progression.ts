@@ -1,5 +1,5 @@
 import type { DraftOrder, MenuItem, TodayMenuPayload } from "@42day/types";
-import { getOrCreateActiveDraftOrder, updateDraftOrderFulfillment, updateDraftOrderPaymentMethod } from "../../draft-orders/service";
+import { getOrCreateActiveDraftOrder } from "../../draft-orders/service";
 import { updateConversationState } from "../../conversations/service";
 import {
   buildAddMorePrompt,
@@ -15,6 +15,7 @@ import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
 import { startBillingStep } from "./billing";
+import { applyDraftFacts } from "./draft-facts";
 
 type CheckoutSignals = {
   fulfillmentType?: "delivery" | "pickup" | null;
@@ -60,29 +61,14 @@ export async function applyKnownSignalsToDraft(input: RouteInboundMessageInput, 
   draft: DraftOrder;
   signals: CheckoutSignals;
 }): Promise<DraftOrder> {
-  let draft = payload.draft;
-
-  if (payload.signals.fulfillmentType) {
-    draft = await updateDraftOrderFulfillment({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      draftOrderId: draft.id,
+  return applyDraftFacts(input, {
+    menu: payload.menu,
+    draft: payload.draft,
+    facts: {
       fulfillmentType: payload.signals.fulfillmentType,
-      deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-    });
-  }
-
-  if (payload.signals.paymentMethod) {
-    draft = await updateDraftOrderPaymentMethod({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      draftOrderId: draft.id,
       paymentMethod: payload.signals.paymentMethod,
-      deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-    });
-  }
-
-  return draft;
+    },
+  });
 }
 
 export async function proceedToNextOrderStep(input: RouteInboundMessageInput, payload?: {

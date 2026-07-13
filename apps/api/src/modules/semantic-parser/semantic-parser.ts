@@ -25,6 +25,24 @@ export type SemanticOrderEditAction = {
   notes?: string[];
 };
 
+export type SemanticDraftFacts = {
+  fulfillmentText?: string | null;
+  fulfillmentConfidence?: number;
+  paymentText?: string | null;
+  paymentConfidence?: number;
+  deliveryAddressText?: string | null;
+  deliveryAddressConfidence?: number;
+  billing?: {
+    type?: "normal" | "electronic" | null;
+    fullName?: string | null;
+    billingAddress?: string | null;
+    legalName?: string | null;
+    taxId?: string | null;
+    email?: string | null;
+    confidence?: number;
+  } | null;
+};
+
 export type SemanticParserResult = {
   intent: "order" | "order_edit" | "menu" | "support" | "unknown";
   confidence: number;
@@ -34,6 +52,7 @@ export type SemanticParserResult = {
   paymentText?: string | null;
   addressText?: string | null;
   confirmationText?: string | null;
+  draftFacts?: SemanticDraftFacts;
   needsHuman?: boolean;
   questions?: string[];
 };
@@ -73,6 +92,8 @@ export async function parseFreeFormOrder(input: {
       "Si parece pedido, usa intent order.",
       "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
       "Si la conversacion esta esperando direccion y el usuario proporciona una direccion escrita, copiala en addressText sin inventar detalles.",
+      "Extrae en draftFacts los datos independientes que el usuario entregue antes de que se los preguntemos: tipo de entrega, pago, direccion de entrega y facturacion. Incluye la confianza de cada dato.",
+      "Para facturacion normal usa fullName y billingAddress si fueron dichos. Para electronica exige legalName, taxId y email. Incluye confidence para billing.",
       "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
       "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
       "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
@@ -274,6 +295,31 @@ const semanticOrderSchema = {
     },
     confirmationText: {
       type: ["string", "null"],
+    },
+    draftFacts: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        fulfillmentText: { type: ["string", "null"] },
+        fulfillmentConfidence: { type: "number", minimum: 0, maximum: 1 },
+        paymentText: { type: ["string", "null"] },
+        paymentConfidence: { type: "number", minimum: 0, maximum: 1 },
+        deliveryAddressText: { type: ["string", "null"] },
+        deliveryAddressConfidence: { type: "number", minimum: 0, maximum: 1 },
+        billing: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            type: { type: ["string", "null"], enum: ["normal", "electronic", null] },
+            fullName: { type: ["string", "null"] },
+            billingAddress: { type: ["string", "null"] },
+            legalName: { type: ["string", "null"] },
+            taxId: { type: ["string", "null"] },
+            email: { type: ["string", "null"] },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
+      },
     },
     needsHuman: {
       type: "boolean",

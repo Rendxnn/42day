@@ -12,6 +12,9 @@ export function canApplySemanticDraftChangeAtState(state: Conversation["state"])
     "awaiting_more_items",
     "awaiting_fulfillment_type",
     "awaiting_address",
+    "awaiting_billing_reuse_confirmation",
+    "awaiting_normal_billing_info",
+    "awaiting_electronic_billing_info",
     "awaiting_payment_method",
     "awaiting_confirmation",
   ].includes(state);
@@ -73,8 +76,12 @@ export function resolveReplacementOptionSelection(input: {
 }
 
 export function mergeSemanticSignals(signals: DetectedSignals, parsed: SemanticParserResult): DetectedSignals {
-  const fulfillmentText = parsed.fulfillmentText ?? undefined;
-  const paymentText = parsed.paymentText ?? undefined;
+  const fulfillmentText = parsed.draftFacts?.fulfillmentConfidence !== undefined && parsed.draftFacts.fulfillmentConfidence < 0.75
+    ? undefined
+    : parsed.draftFacts?.fulfillmentText ?? parsed.fulfillmentText ?? undefined;
+  const paymentText = parsed.draftFacts?.paymentConfidence !== undefined && parsed.draftFacts.paymentConfidence < 0.75
+    ? undefined
+    : parsed.draftFacts?.paymentText ?? parsed.paymentText ?? undefined;
 
   return {
     ...signals,
