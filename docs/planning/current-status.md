@@ -199,6 +199,32 @@ El script E2E actual cubre:
 - si la automatizacion esta apagada, el sistema deja de responder,
 - pero todavia no deja siempre una alerta operativa consistente por mensaje pendiente.
 
+### Eventos de dominio y notificaciones realtime
+
+Estado actual:
+
+- el dashboard usa Supabase Realtime por WebSocket sobre `INSERT` y `UPDATE` de `orders` del tenant activo,
+- el payload de Realtime no se usa directamente: dispara una nueva consulta HTTP de pedidos,
+- existe polling de respaldo cada 30 segundos para reconstruir el estado de la campana,
+- el historial de la campana consulta un subconjunto fijo de `app_events` mediante `/notifications`,
+- el sonido, toast y Browser Notification se disparan solamente cuando aparece un nuevo pedido en estados notificables,
+- `app_events`, `messages` y `human_intervention_alerts` son modelos separados,
+- el estado de lectura de notificaciones vive solo en memoria del navegador.
+
+Esto sigue siendo una implementacion funcional para demo, no un bus de eventos de dominio completo.
+
+Pendiente para una etapa posterior:
+
+- definir un catalogo tipado y centralizado de eventos de dominio,
+- registrar eventos de forma transaccional con el cambio de estado, idealmente mediante outbox,
+- separar eventos de auditoria, notificaciones operativas y estados de entrega de WhatsApp,
+- persistir notificaciones por usuario/equipo con lectura, acknowledgement, asignacion y deduplicacion,
+- publicar notificaciones persistidas por Realtime Broadcast y usar polling solo para reconciliacion con cursor,
+- definir una politica explicita de severidad: que eventos producen sonido/notificacion nativa y cuales solo aparecen en el historial,
+- cubrir reconexion, reintentos, ordenamiento, idempotencia y pruebas end-to-end.
+
+Referencia detallada: [Notificaciones en tiempo real de pedidos](./realtime-order-notifications.md).
+
 ### Testing
 
 - falta suite automatizada de pruebas conversacionales,

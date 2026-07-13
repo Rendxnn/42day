@@ -104,6 +104,60 @@ Antes, la bandeja de pedidos hacia polling propio cada 20 segundos. Ahora la cam
 - Si la pestana esta suspendida por el navegador, el fallback puede tardar mas.
 - Los schemas que no tienen tabla `orders` no reciben notificaciones hasta que exista la estructura completa.
 
+## Estado conceptual actual
+
+La implementacion actual debe entenderse como un mecanismo de deteccion de pedidos, no como un sistema general de eventos de dominio:
+
+- `orders` es la fuente realtime observada por WebSocket.
+- `app_events` es un historial persistido consultado por HTTP, con un allowlist fijo de nombres de evento.
+- `human_intervention_alerts` es una cola separada para casos de handoff.
+- `messages` registra el transporte inbound/outbound de WhatsApp.
+- el frontend combina Realtime, polling y estado local para decidir cuando mostrar o sonar una alerta.
+
+Por lo tanto, un evento persistido en `app_events` no necesariamente produce sonido, y un cambio de estado de `orders` puede producir sonido aunque no exista un `app_event` equivalente.
+
+## Pendiente: modelo estándar de eventos y notificaciones
+
+### Eventos de dominio
+
+Crear un modelo inmutable de eventos con, al menos:
+
+- `event_id`, `tenant_id`, `aggregate_type`, `aggregate_id`, `event_type`, `occurred_at`,
+- `actor_id`, `correlation_id`, `causation_id`, `schema_version` y `payload`.
+
+Los eventos deben escribirse en la misma transaccion que el cambio de dominio. Un outbox permitiria publicar despues del commit, reintentar y evitar perder eventos cuando falle Realtime o un consumidor.
+
+### Notificaciones operativas
+
+Derivar una tabla de notificaciones desde los eventos de dominio, en vez de usar `app_events` directamente como campana. Esa tabla deberia permitir:
+
+- destinatario o alcance por equipo,
+- prioridad y categoria,
+- `read`, `acknowledged`, `resolved` y asignacion,
+- `dedupe_key`, reintentos y fecha de expiracion,
+- referencias a pedido, conversacion y alerta humana.
+
+### Canales de entrega
+
+- usar Realtime Broadcast para entregar notificaciones nuevas con baja latencia,
+- conservar la notificacion en Postgres para replay y auditoria,
+- al reconectar, consultar solo eventos posteriores a un cursor (`event_id`/timestamp),
+- mantener polling como reconciliacion de respaldo, no como fuente primaria.
+
+### Politica de sonido
+
+Deberian producir sonido y Browser Notification solo eventos accionables y de alta prioridad, por ejemplo:
+
+- pedido nuevo esperando confirmacion del restaurante,
+- comprobante pendiente de revision,
+- reemplazo esperando respuesta,
+- solicitud de humano o automatizacion desactivada,
+- fallo de envio de una notificacion al cliente.
+
+Eventos informativos como `whatsapp.customer_notification_sent`, pago confirmado o cambios normales del pedido deberian quedar en el historial o generar una alerta visual silenciosa.
+
+La politica debe incluir preferencias por usuario, horario silencioso, deduplicacion por pedido/conversacion y fallback visual cuando el navegador bloquee audio.
+
 ## Mejoras futuras
 
 - Crear automaticamente la policy y publication de Realtime al crear un tenant nuevo.
