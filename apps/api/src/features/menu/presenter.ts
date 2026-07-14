@@ -16,8 +16,7 @@ export function buildMenuText(payload: TodayMenuPayload): string {
     heading,
     "",
     buildGroupedMenuLines(payload.items),
-    "",
-    'Puedes pedirme por nombre, cantidad o número. Por ejemplo: "2 hamburguesas y una limonada" o "1 y 4".',
+    ""
   ].join("\n");
 }
 

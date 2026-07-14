@@ -172,8 +172,7 @@ export function buildContinueWithMenuAndDraftPrompt(menuText: string, draft: Dra
   return [
     menuText,
     "",
-    buildCurrentDraftText(draft),
-    "Si quieres, puedes pedirme otro producto por nombre o por número.",
+    buildCurrentDraftText(draft)
   ].join("\n");
 }
 

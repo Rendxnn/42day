@@ -732,7 +732,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
         setProducts(payload.products);
         setItems(payload.items);
         setSaveStatus("saved");
-        setLastUpdated(payload.menu?.publishedAt ? "desde Supabase" : "sin menu publicado");
+        setLastUpdated(payload.menu?.publishedAt ? "" : "sin menu publicado");
       })
       .catch(() => {
         setProducts([]);
@@ -1788,7 +1788,7 @@ function TodayMenu(props: {
             </span>
           </div>
           <h2 className="app-display mt-5 text-[2rem] leading-none sm:text-[3rem]">
-            {locale === "en" ? "Curate today's menu" : "Curar el menu del dia"}
+            {locale === "en" ? "Curate today's menu" : "Armar menú del día"}
           </h2>
           <div className="mt-auto pt-6">
             <button
@@ -1837,10 +1837,7 @@ function TodayMenu(props: {
               <div className="border-b border-[rgba(118,93,71,0.12)] px-5 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</p>
-                    <h3 className="app-display mt-2 text-[1.55rem] leading-none text-[var(--text-strong)] sm:text-[2rem]">
-                      {group.items.length} {locale === "en" ? "items on menu" : "Items en menu"}
-                    </h3>
+                    <h1 className="text-[16px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{group.label}</h1>
                   </div>
                   <div className="rounded-full bg-[rgba(197,123,87,0.12)] px-3 py-2 text-xs font-semibold text-[var(--warning)]">
                     {group.activeCount} {locale === "en" ? "visible now" : "visibles ahora"}
