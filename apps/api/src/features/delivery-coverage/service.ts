@@ -89,6 +89,9 @@ export async function validateDeliveryCoverageFromWrittenAddress(input: {
   confidence: "high" | "medium" | "low";
 } | null> {
   const settings = await getDeliveryCoverageSettings(input);
+  if (settings?.tryGeocodeWrittenAddresses === false) {
+    return null;
+  }
   const geocoded = await geocodeAddressWithGoogleMaps({
     env: input.env,
     addressText: input.addressText,
@@ -124,7 +127,7 @@ function mapDeliveryCoverageSettings(row: DeliveryCoverageLocationRow): Delivery
     restaurantCountry: row.restaurant_country?.trim() || "Colombia",
     deliveryRadiusKm: row.delivery_radius_km ?? 3,
     allowWrittenAddressReference: row.allow_written_address_reference ?? true,
-    tryGeocodeWrittenAddresses: row.try_geocode_written_addresses ?? false,
+    tryGeocodeWrittenAddresses: row.try_geocode_written_addresses ?? true,
     allowOutOfCoverageOrders: row.allow_out_of_coverage_orders ?? false,
     requestLocationMessage: row.request_location_message?.trim() || DEFAULT_REQUEST_LOCATION_MESSAGE,
     writtenAddressFallbackMessage: row.written_address_fallback_message?.trim() || DEFAULT_WRITTEN_ADDRESS_FALLBACK_MESSAGE,

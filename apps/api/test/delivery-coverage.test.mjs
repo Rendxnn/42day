@@ -7,6 +7,7 @@ import {
   hasValidatedDeliveryCoverage,
   haversineDistanceKm,
   parseDeliveryCoverageSettingsUpdate,
+  validateDeliveryCoverageFromWrittenAddress,
 } from "../src/features/delivery-coverage/service.ts";
 
 const baseSettings = {
@@ -17,7 +18,7 @@ const baseSettings = {
   restaurantCountry: "Colombia",
   deliveryRadiusKm: 3,
   allowWrittenAddressReference: true,
-  tryGeocodeWrittenAddresses: false,
+  tryGeocodeWrittenAddresses: true,
   allowOutOfCoverageOrders: false,
   requestLocationMessage: "Envia tu ubicacion actual por WhatsApp para validar cobertura.",
   writtenAddressFallbackMessage: "Guardamos tu direccion como referencia, pero necesitamos tu ubicacion exacta.",
@@ -130,7 +131,35 @@ test("usa query legacy cuando faltan columnas nuevas en locations", async () => 
     assert.equal(settings?.deliveryRadiusKm, 3);
     assert.equal(settings?.restaurantCountry, "Colombia");
     assert.equal(settings?.allowWrittenAddressReference, true);
-    assert.equal(settings?.tryGeocodeWrittenAddresses, false);
+    assert.equal(settings?.tryGeocodeWrittenAddresses, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("no geocodifica direcciones escritas cuando el restaurante lo desactiva", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify([{
+      id: "location-1",
+      delivery_enabled: true,
+      latitude: 6.2442,
+      longitude: -75.5812,
+      delivery_radius_km: 3,
+      try_geocode_written_addresses: false,
+    }]), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const result = await validateDeliveryCoverageFromWrittenAddress({
+      env: { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "test-key", GOOGLE_MAPS_GEOCODING_API_KEY: "google-key" },
+      schemaName: "tenant_demo",
+      addressText: "Calle 74 Sur #35-145, Sabaneta",
+    });
+    assert.equal(result, null);
+    assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -45,6 +45,8 @@ La politica vigente es un experimento temporal de routing semantico total: todo 
 
 Las ramas no textuales o de seguridad siguen antes o fuera del parser: conversacion en `manual`, media/comprobante y ubicacion WhatsApp. Despues del parser, el backend resuelve datos canonicos y valida productos, opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
 
+Para delivery, una direccion escrita puede persistirse y geocodificarse server-side con Google Geocoding cuando la sede mantiene habilitada esa opcion (activa por defecto). El resultado guarda coordenadas, distancia, cobertura y confianza en draft/orden; una direccion no resoluble se conserva como referencia sin inventar coordenadas.
+
 Cuando agrega item:
 
 1. crea o reutiliza `draft_order`,

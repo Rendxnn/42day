@@ -135,7 +135,7 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 - falta bandeja visual dedicada de alertas y timeline humano en dashboard,
 - si la automatizacion esta apagada, sigue pendiente una alerta por cada mensaje nuevo que llegue durante la pausa; el control seguro de pausar/reanudar ya existe,
 - falta rechazo formal de comprobante con pedido de reenvio,
-- `addressText` ya se aplica a direccion escrita; falta explotar mejor `confirmationText` y `questions`,
+- `addressText` ya se aplica a direccion escrita y, con geocoding habilitado por sede, se valida y persiste en draft/orden; falta explotar mejor `confirmationText` y `questions`,
 - falta suite conversacional automatizada mas amplia,
 - falta automatizar la verificacion de migraciones y rollout remoto por tenant.
 

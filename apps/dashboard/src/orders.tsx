@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ConversationAutomation, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
   DashboardApiError,
-  getDeliveryCoverageSettings,
   getOrder,
   getOrderPaymentProof,
   listOrders,
@@ -16,6 +15,7 @@ import {
 import {
   AlertCircle,
   Check,
+  Clock,
   ChevronRight,
   ClipboardList,
   ExternalLink,
@@ -30,6 +30,11 @@ import type { LucideIcon } from "lucide-react";
 import { BillingSummaryCard } from "./features/orders/BillingSummaryCard";
 import { OrderMetaCard } from "./features/orders/OrderMetaCard";
 import { formatDashboardDateTime, formatDashboardPrice } from "./i18n";
+
+const DeliveryCoverageMap = lazy(async () => {
+  const module = await import("./features/configuration/DeliveryCoverageMap");
+  return { default: module.DeliveryCoverageMap };
+});
 
 type OrdersViewProps = {
   locale: "en" | "es";
@@ -92,7 +97,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   const [detailOpen, setDetailOpen] = useState(false);
   const [openConversationDetail, setOpenConversationDetail] = useState<OpenOrderSummary | null>(null);
   const [automationConfirmation, setAutomationConfirmation] = useState<ConversationAutomation | null>(null);
-  const [deliveryRadiusKm, setDeliveryRadiusKm] = useState<number | undefined>();
 
   const loadOrders = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
@@ -175,18 +179,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
       window.clearInterval(intervalId);
     };
   }, [loadOrders, tenantSlug]);
-
-  useEffect(() => {
-    let active = true;
-    getDeliveryCoverageSettings(tenantSlug)
-      .then((settings) => {
-        if (active) setDeliveryRadiusKm(settings.deliveryRadiusKm);
-      })
-      .catch(() => {
-        if (active) setDeliveryRadiusKm(undefined);
-      });
-    return () => { active = false; };
-  }, [tenantSlug]);
 
   const allOrders = payload?.orders ?? [];
   const openOrders = payload?.openOrders ?? [];
@@ -693,7 +685,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                         <p className="mt-1 text-xs leading-5 text-[var(--text-faint)]">
                           {formatDateTime(order.createdAt, locale)}
                         </p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{getFulfillmentLabel(order, locale)}</p>
+                        <OrderSummaryIconChips locale={locale} order={order} />
                         {filter === "confirmed" ? (
                           <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                             acceptedStage
@@ -745,7 +737,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
           ) : selectedOrder ? (
             <OrderDetailPanel
               actionKey={actionKey}
-              deliveryRadiusKm={deliveryRadiusKm}
               menuItems={menuItems}
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -775,7 +766,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
             ) : selectedOrder ? (
               <OrderDetailPanel
                 actionKey={actionKey}
-                deliveryRadiusKm={deliveryRadiusKm}
                 menuItems={menuItems}
                 onAccept={() => void handleAccept(selectedOrder.id)}
                 onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -1067,7 +1057,7 @@ function OperationalOrderCard({
       <p className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-[var(--text-strong)]">
         {getOrderItemsSummary(order.items, locale)}
       </p>
-      <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{getOperationalFulfillmentLabel(order, locale)}</p>
+      <OrderSummaryIconChips locale={locale} order={order} />
       {closedStatuses.includes(order.status) ? (
         <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
           {locale === "en" ? "Closed" : "Cerrado"}: {formatDateTime(order.updatedAt, locale)}
@@ -1154,7 +1144,6 @@ function OperationalOrderCard({
 
 function OrderDetailPanel({
   actionKey,
-  deliveryRadiusKm,
   menuItems,
   onAccept,
   onAdvanceConfirmed,
@@ -1170,7 +1159,6 @@ function OrderDetailPanel({
   selectedSummary,
 }: {
   actionKey: string;
-  deliveryRadiusKm?: number;
   menuItems: MenuItem[];
   onAccept: () => void;
   onAdvanceConfirmed: () => void;
@@ -1231,13 +1219,12 @@ function OrderDetailPanel({
             <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">
               {order.customerPhone || (locale === "en" ? "No phone" : "Sin telefono")} - {formatDateTime(order.createdAt, locale)}
             </p>
-            <p className="mt-1 text-sm leading-7 text-[var(--text-soft)]">{getFulfillmentLabel(order, locale)}</p>
             {confirmedStatuses.includes(order.status) ? (
               <OrderProgressRail fulfillmentType={order.fulfillmentType} locale={locale} status={order.status} />
             ) : null}
           </div>
 
-          <div className="flex w-full flex-col gap-4 xl:w-[238px] xl:shrink-0 xl:items-end">
+          <div className="flex w-full flex-col gap-4 xl:w-[300px] xl:shrink-0 xl:items-end">
             {automation ? (
               <AutomationSwitch
                 busy={actionKey === `automation:${automation.conversationId}`}
@@ -1248,7 +1235,7 @@ function OrderDetailPanel({
                 onToggle={() => onToggleAutomation(!automation.enabled)}
               />
             ) : null}
-            <div className="flex w-full flex-col gap-2 xl:items-stretch xl:[&>button]:!w-full">
+            <div className="grid w-full grid-cols-2 gap-2 xl:[&>button]:!w-full">
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -1332,7 +1319,7 @@ function OrderDetailPanel({
               />
             )}
             {canCancel && (
-              <div className="mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2 xl:[&>button]:!w-full">
+              <div className="col-span-2 mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2 xl:[&>button]:!w-full">
                 <ActionButton
                   active={actionKey === `status:${order.id}:cancelled`}
                   icon={X}
@@ -1353,14 +1340,10 @@ function OrderDetailPanel({
             <div className="flex flex-wrap items-center gap-3">
               <InfoChip icon={order.fulfillmentType === "delivery" ? Truck : Store} label={order.fulfillmentType === "delivery" ? (locale === "en" ? "Delivery" : "Domicilio") : (locale === "en" ? "Pickup" : "Recoge en local")} />
               <InfoChip icon={ClipboardList} label={order.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"} />
+              <InfoChip icon={Clock} label={order.serviceTiming === "scheduled" && order.scheduledFor ? formatDateTime(order.scheduledFor, locale) : (locale === "en" ? "As soon as possible" : "Lo antes posible")} />
             </div>
-            {order.deliveryAddress && (
-              <p className="mt-5 text-sm leading-7 text-[var(--text-soft)]">
-                <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {order.deliveryAddress}
-              </p>
-            )}
             {order.fulfillmentType === "delivery" ? (
-              <DeliveryCoverageDetail deliveryRadiusKm={deliveryRadiusKm} locale={locale} order={order} />
+              <DeliveryCoverageDetail locale={locale} order={order} />
             ) : null}
             {order.restaurantReviewNote && (
               <p className="mt-4 text-sm leading-7 text-[var(--text-soft)]">
@@ -1841,11 +1824,9 @@ function OutOfStockModal({
 }
 
 function DeliveryCoverageDetail({
-  deliveryRadiusKm,
   locale,
   order,
 }: {
-  deliveryRadiusKm?: number;
   locale: "en" | "es";
   order: OrderDetail;
 }) {
@@ -1853,9 +1834,11 @@ function DeliveryCoverageDetail({
   const customerLatitude = order.customerLatitude ?? legacyCoordinates?.latitude;
   const customerLongitude = order.customerLongitude ?? legacyCoordinates?.longitude;
   const hasExactLocation = customerLatitude !== undefined && customerLongitude !== undefined;
+  const restaurantLocation = order.restaurantLocation;
+  const canShowMap = hasExactLocation && restaurantLocation !== undefined;
+  const addressText = getDisplayDeliveryAddress(order);
   const requiresLocation = order.coverageValidationMethod === "written_address_reference"
     && !hasExactLocation;
-  const validationPending = hasExactLocation && order.isInsideDeliveryCoverage === undefined;
   const status = requiresLocation
     ? (locale === "en" ? "Location required" : "Requiere ubicacion")
     : order.isInsideDeliveryCoverage === true
@@ -1866,43 +1849,56 @@ function DeliveryCoverageDetail({
   const statusClass = order.isInsideDeliveryCoverage === true
     ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
     : "bg-[rgba(197,123,87,0.12)] text-[var(--warning)]";
-  const method = {
-    whatsapp_location: locale === "en" ? "WhatsApp location" : "Ubicacion de WhatsApp",
-    written_address_reference: locale === "en" ? "Written address reference" : "Direccion escrita como referencia",
-    geocoded_address: locale === "en" ? "Geocoded address" : "Direccion geocodificada",
-    not_validated: locale === "en" ? "Not validated" : "No validado",
-  }[order.coverageValidationMethod ?? "not_validated"];
+  const isApproximate = order.coverageValidationMethod === "geocoded_address" && order.coverageConfidence === "low";
 
   return (
     <div className="mt-5 border-t border-[rgba(118,93,71,0.12)] pt-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">{locale === "en" ? "Delivery" : "Domicilio"}</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">{locale === "en" ? "Delivery location" : "Ubicacion de entrega"}</h4>
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{status}</span>
       </div>
-      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <SummaryRow label={locale === "en" ? "Method" : "Metodo"} value={method} />
-        <SummaryRow label={locale === "en" ? "Distance" : "Distancia"} value={order.deliveryDistanceKm !== undefined ? `${order.deliveryDistanceKm.toFixed(1)} km` : (locale === "en" ? "Not calculated" : "Sin calcular")} />
-        <SummaryRow label={locale === "en" ? "Coordinates" : "Coordenadas"} value={hasExactLocation ? `${customerLatitude.toFixed(6)}, ${customerLongitude.toFixed(6)}` : (locale === "en" ? "Not received" : "No recibidas")} />
-      </div>
+      {addressText ? <p className="mt-4 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {addressText}</p> : null}
+      {canShowMap ? (
+        <div className="mt-4">
+          <Suspense fallback={<div className="grid h-[220px] place-items-center rounded-[18px] bg-[var(--surface-base)]"><Loader2 className="animate-spin text-[var(--text-soft)]" size={20} /></div>}>
+            <DeliveryCoverageMap
+              compact
+              customerLatitude={customerLatitude}
+              customerLongitude={customerLongitude}
+              draggableMarker={false}
+              latitude={restaurantLocation.latitude}
+              longitude={restaurantLocation.longitude}
+              onLocationChange={() => undefined}
+              radiusKm={restaurantLocation.deliveryRadiusKm ?? 0.1}
+            />
+          </Suspense>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-medium text-[var(--text-soft)]">
+            <span>{locale === "en" ? "Green: restaurant" : "Verde: restaurante"}</span>
+            <span aria-hidden="true">·</span>
+            <span>{locale === "en" ? "Orange: customer" : "Naranja: cliente"}</span>
+            {isApproximate ? <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-2 py-1 font-semibold text-[var(--warning)]">{locale === "en" ? "Approximate location" : "Ubicacion aproximada"}</span> : null}
+          </div>
+        </div>
+      ) : null}
       {requiresLocation ? (
         <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
           <AlertCircle className="mt-0.5 shrink-0" size={16} />
           {locale === "en" ? "The customer wrote an address, but coverage has not been validated with an exact location yet." : "El cliente escribio una direccion, pero todavia no se valido cobertura con ubicacion exacta."}
         </div>
       ) : null}
-      {validationPending ? (
-        <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
-          <AlertCircle className="mt-0.5 shrink-0" size={16} />
-          {locale === "en" ? "The exact location was received, but delivery coverage has not been validated yet." : "La ubicacion exacta fue recibida, pero la cobertura de domicilio aun no ha sido validada."}
-        </div>
-      ) : null}
+      {!canShowMap && !requiresLocation ? <p className="mt-3 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "The map is unavailable because this order does not have both locations." : "El mapa no esta disponible porque esta orden no tiene ambas ubicaciones."}</p> : null}
     </div>
   );
 }
 
+function getDisplayDeliveryAddress(order: Pick<OrderDetail, "customerAddressText" | "deliveryAddress">): string | undefined {
+  const value = order.customerAddressText?.trim() || order.deliveryAddress?.trim();
+  return value && !parseSharedLocationCoordinates(value) ? value : undefined;
+}
+
 function parseSharedLocationCoordinates(value?: string) {
   if (!value) return undefined;
-  const match = value.match(/(?:ubicaci[oó]n\s+compartida\s*:\s*)?(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/i);
+  const match = value.match(/^\s*(?:ubicaci[oó]n\s+compartida\s*:\s*)?(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/i);
   if (!match) return undefined;
   const latitude = Number(match[1]);
   const longitude = Number(match[2]);
@@ -2188,6 +2184,36 @@ function InfoChip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   );
 }
 
+function OrderSummaryIconChips({ locale, order }: { locale: "en" | "es"; order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming"> }) {
+  const fulfillment = order.fulfillmentType === "delivery"
+    ? (locale === "en" ? "Delivery" : "Domicilio")
+    : (locale === "en" ? "Pickup" : "Recoge en local");
+  const payment = order.paymentMethod === "transfer"
+    ? (locale === "en" ? "Bank transfer" : "Transferencia")
+    : (locale === "en" ? "Cash" : "Efectivo");
+  const timing = order.serviceTiming === "scheduled" && order.scheduledFor
+    ? formatDateTime(order.scheduledFor, locale)
+    : (locale === "en" ? "As soon as possible" : "Lo antes posible");
+  const fulfillmentIcon = order.fulfillmentType === "delivery" ? Truck : Store;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 text-[var(--text-soft)]">
+      <SummaryIconChip icon={fulfillmentIcon} label={fulfillment} />
+      <SummaryIconChip icon={ClipboardList} label={payment} />
+      <SummaryIconChip icon={Clock} label={timing} />
+    </div>
+  );
+}
+
+function SummaryIconChip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+  return (
+    <span aria-label={label} className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[rgba(118,93,71,0.08)]" title={label}>
+      <Icon aria-hidden="true" size={14} />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
 function LoadingBlock({ copy }: { copy: string }) {
   return (
     <div className="grid min-h-[380px] place-items-center px-5 py-10 sm:min-h-[620px]">
@@ -2408,36 +2434,6 @@ function getDashboardErrorMessage(error: unknown, fallback: string, locale: "en"
   }
 
   return fallback;
-}
-
-function getFulfillmentLabel(order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming">, locale: "en" | "es") {
-  const fulfillment = order.fulfillmentType === "delivery"
-    ? (locale === "en" ? "Delivery" : "Domicilio")
-    : locale === "en" ? "Pickup" : "Recoge en local";
-  const payment = order.paymentMethod === "transfer"
-    ? (locale === "en" ? "bank transfer" : "transferencia")
-    : (locale === "en" ? "cash" : "efectivo");
-  const serviceTiming = order.serviceTiming === "scheduled" && order.scheduledFor
-    ? `${locale === "en" ? "scheduled" : "programado"} ${formatDateTime(order.scheduledFor, locale)}`
-    : locale === "en" ? "as soon as possible" : "lo antes posible";
-  return `${fulfillment} - ${payment} - ${serviceTiming}`;
-}
-
-function getOperationalFulfillmentLabel(
-  order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming">,
-  locale: "en" | "es",
-) {
-  const fulfillment = order.fulfillmentType === "delivery"
-    ? (locale === "en" ? "Delivery" : "Domicilio")
-    : (locale === "en" ? "Pickup" : "Recoge en local");
-  const payment = order.paymentMethod === "transfer"
-    ? (locale === "en" ? "Bank transfer" : "Transferencia")
-    : (locale === "en" ? "Cash" : "Efectivo");
-  const timing = order.serviceTiming === "scheduled" && order.scheduledFor
-    ? formatDateTime(order.scheduledFor, locale)
-    : (locale === "en" ? "As soon as possible" : "Lo antes posible");
-
-  return `${fulfillment} · ${payment} · ${timing}`;
 }
 
 function getOrderItemsSummary(items: OrderLineItem[] | undefined, locale: "en" | "es") {

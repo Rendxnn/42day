@@ -7,11 +7,17 @@ type DeliveryCoverageMapProps = {
   latitude: number;
   longitude: number;
   radiusKm: number;
+  customerLatitude?: number;
+  customerLongitude?: number;
+  compact?: boolean;
   draggableMarker?: boolean;
   onLocationChange: (latitude: number, longitude: number) => void;
 };
 
 export function DeliveryCoverageMap({
+  compact = false,
+  customerLatitude,
+  customerLongitude,
   draggableMarker = true,
   latitude,
   longitude,
@@ -25,9 +31,18 @@ export function DeliveryCoverageMap({
     iconAnchor: [18, 36],
     iconSize: [36, 36],
   }), []);
+  const customerIcon = useMemo(() => L.divIcon({
+    className: "parahoy-map-pin parahoy-map-pin--customer",
+    html: '<span aria-hidden="true"></span>',
+    iconAnchor: [18, 36],
+    iconSize: [36, 36],
+  }), []);
+  const customerPosition = customerLatitude !== undefined && customerLongitude !== undefined
+    ? L.latLng(customerLatitude, customerLongitude)
+    : undefined;
 
   return (
-    <div className="delivery-coverage-map overflow-hidden rounded-[18px] border border-[rgba(118,93,71,0.14)]">
+    <div className={`delivery-coverage-map ${compact ? "delivery-coverage-map--compact" : ""} overflow-hidden rounded-[18px] border border-[rgba(118,93,71,0.14)]`}>
       <MapContainer
         center={center}
         className="h-full min-h-[300px] w-full sm:min-h-[380px]"
@@ -54,21 +69,24 @@ export function DeliveryCoverageMap({
           icon={restaurantIcon}
           position={center}
         />
-        <MapViewport center={center} radiusKm={radiusKm} />
+        {customerPosition ? <Marker icon={customerIcon} position={customerPosition} /> : null}
+        <MapViewport center={center} customerPosition={customerPosition} radiusKm={radiusKm} />
       </MapContainer>
     </div>
   );
 }
 
-function MapViewport({ center, radiusKm }: { center: L.LatLng; radiusKm: number }) {
+function MapViewport({ center, customerPosition, radiusKm }: { center: L.LatLng; customerPosition?: L.LatLng; radiusKm: number }) {
   const map = useMap();
 
   useEffect(() => {
     const radiusMeters = Math.max(radiusKm, 0.1) * 1000;
-    const bounds = center.toBounds(radiusMeters * 2.4);
+    const bounds = customerPosition
+      ? L.latLngBounds([center, customerPosition]).pad(0.25)
+      : center.toBounds(radiusMeters * 2.4);
     map.fitBounds(bounds, { animate: true, padding: [24, 24], maxZoom: 16 });
     window.setTimeout(() => map.invalidateSize(), 0);
-  }, [center, map, radiusKm]);
+  }, [center, customerPosition, map, radiusKm]);
 
   return null;
 }

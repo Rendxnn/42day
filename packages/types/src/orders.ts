@@ -311,6 +311,11 @@ export type OpenOrderSummary = {
 
 export type OrderDetail = OrderSummary & {
   locationId?: string;
+  restaurantLocation?: {
+    latitude: number;
+    longitude: number;
+    deliveryRadiusKm?: number;
+  };
   deliveryAddress?: string;
   deliveryAddressId?: string;
   items: OrderLineItem[];
