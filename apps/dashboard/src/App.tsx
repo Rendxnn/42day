@@ -20,6 +20,7 @@ import {
   getPaymentConfigurationHealth,
   getPublicCarta,
   listNotifications,
+  listAlerts,
   getTodayMenu,
   listOrders,
   listAdminRestaurants,
@@ -636,6 +637,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
   const [focusedOrderId, setFocusedOrderId] = useState("");
   const [paymentConfigurationHealth, setPaymentConfigurationHealth] = useState<PaymentConfigurationHealth | null>(null);
   const seenNotificationOrderIdsRef = useRef<Set<string>>(new Set());
+  const seenSupportAlertIdsRef = useRef<Set<string>>(new Set());
   const notificationsBootstrappedRef = useRef(false);
 
   useEffect(() => {
@@ -778,6 +780,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
 
     if (!tenantSlug || isSystemAdmin) {
       seenNotificationOrderIdsRef.current = new Set();
+      seenSupportAlertIdsRef.current = new Set();
       notificationsBootstrappedRef.current = false;
       setNotifications([]);
       setUnreadNotificationCount(0);
@@ -840,7 +843,28 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       }
     }
 
+    async function refreshSupportAlerts(notifyNew = false) {
+      try {
+        const alerts = await listAlerts(tenantSlug, "open");
+        if (!active) return;
+        const fresh = alerts.filter((alert) => alert.type === "support_requested" && !seenSupportAlertIdsRef.current.has(alert.id));
+        alerts.forEach((alert) => seenSupportAlertIdsRef.current.add(alert.id));
+        if (!notifyNew || fresh.length === 0) return;
+        const first = fresh[0];
+        if (!first) return;
+        const notification = { id: first.id, title: locale === "en" ? "Customer requests an advisor" : "Cliente solicita asesor", detail: first.description ?? (locale === "en" ? "Human intervention is required." : "Requiere intervencion humana."), conversationId: first.conversationId, orderId: first.orderId, createdAt: first.createdAt };
+        setNotifications((current) => mergeNotifications([notification], current).slice(0, 12));
+        setUnreadNotificationCount((current) => current + fresh.length);
+        notify(notification.title);
+        playNotificationSound();
+        showBrowserNotification(notification.title, notification.detail);
+      } catch {
+        // Alerts are retried through the same interval as order notifications.
+      }
+    }
+
     void refreshNotificationHistory();
+    void refreshSupportAlerts();
     void checkForNewOrders();
     const realtimeChannel = supabase && tenantSchema
       ? supabase
@@ -857,7 +881,10 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
           )
           .subscribe()
       : null;
-    const intervalId = window.setInterval(() => void checkForNewOrders(), 30000);
+    const alertsChannel = supabase && tenantSchema
+      ? supabase.channel(`dashboard-alerts:${tenantSlug}`).on("postgres_changes", { event: "INSERT", schema: tenantSchema, table: "human_intervention_alerts" }, () => void refreshSupportAlerts(true)).subscribe()
+      : null;
+    const intervalId = window.setInterval(() => { void checkForNewOrders(); void refreshSupportAlerts(true); }, 30000);
 
     return () => {
       active = false;
@@ -865,6 +892,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       if (realtimeChannel && supabase) {
         void supabase.removeChannel(realtimeChannel);
       }
+      if (alertsChannel && supabase) void supabase.removeChannel(alertsChannel);
     };
   }, [isSystemAdmin, tenantSlug, tenants]);
 

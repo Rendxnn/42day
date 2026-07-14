@@ -22,6 +22,7 @@ export function createNewConversation(input: {
     customerId: input.customerId,
     channel: "whatsapp",
     state: "awaiting_mode_selection",
+    automationEnabled: true,
     context: {},
     clarificationAttempts: 0,
     expiresAt: getConversationExpiration(now).toISOString(),
@@ -127,6 +128,88 @@ export async function updateConversationState(input: {
       },
     }),
   );
+}
+
+export async function pauseConversationAutomation(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversation: Conversation;
+  manualReason: string;
+  changedBy?: string;
+}): Promise<Conversation> {
+  const now = new Date().toISOString();
+  const resumeState = input.conversation.state === "manual"
+    ? (input.conversation.automationResumeState ?? "awaiting_mode_selection")
+    : input.conversation.state;
+
+  return mapConversationRow(await updateConversationRow({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversation.id,
+    patch: {
+      state: "manual",
+      manual_reason: input.manualReason,
+      automation_enabled: false,
+      automation_resume_state: resumeState,
+      automation_changed_at: now,
+      automation_changed_by: input.changedBy ?? null,
+      automation_change_reason: input.manualReason,
+      updated_at: now,
+    },
+  }));
+}
+
+export async function changeConversationAutomation(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  enabled: boolean;
+  expectedUpdatedAt: string;
+  changedBy: string;
+}): Promise<Conversation> {
+  const currentRow = await selectConversationById({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversationId,
+  });
+  if (!currentRow) throw new Error("conversation.not_found");
+  const current = mapConversationRow(currentRow);
+  if (["completed", "expired"].includes(current.state)) throw new Error("conversation.terminal");
+  if (current.updatedAt !== input.expectedUpdatedAt) throw new Error("conversation.stale");
+
+  const now = new Date().toISOString();
+  const resumeState = current.automationResumeState ?? "awaiting_mode_selection";
+  const patch = input.enabled
+    ? {
+      state: current.state === "manual" ? resumeState : current.state,
+      manual_reason: null,
+      automation_enabled: true,
+      automation_resume_state: null,
+      automation_changed_at: now,
+      automation_changed_by: input.changedBy,
+      automation_change_reason: "restaurant_resumed",
+      clarification_attempts: 0,
+      updated_at: now,
+    }
+    : {
+      state: "manual",
+      manual_reason: "restaurant_paused",
+      automation_enabled: false,
+      automation_resume_state: current.state === "manual" ? resumeState : current.state,
+      automation_changed_at: now,
+      automation_changed_by: input.changedBy,
+      automation_change_reason: "restaurant_paused",
+      updated_at: now,
+    };
+
+  const updated = await updateConversationRow({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversationId,
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    patch,
+  });
+  return mapConversationRow(updated);
 }
 
 export async function updateConversationContext(input: {

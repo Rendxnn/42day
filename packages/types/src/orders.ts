@@ -1,4 +1,5 @@
 import type { ProductOptionType } from "./menu";
+import type { ConversationAutomation } from "./conversation";
 
 export const draftOrderStatuses = [
   "draft",
@@ -286,6 +287,7 @@ export type OpenOrderSummary = {
   linkedOrderId?: string;
   conversationId?: string;
   conversationState?: string;
+  conversationAutomation?: ConversationAutomation;
   customerId: string;
   customerPhone?: string;
   customerName?: string;
@@ -313,6 +315,7 @@ export type OrderDetail = OrderSummary & {
   deliveryAddressId?: string;
   items: OrderLineItem[];
   paymentProof?: PaymentProofSummary;
+  conversationAutomation?: ConversationAutomation;
 };
 
 export type OrdersDashboardPayload = {

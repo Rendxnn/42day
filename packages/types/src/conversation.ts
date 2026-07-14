@@ -32,8 +32,27 @@ export type Conversation = {
   clarificationAttempts: number;
   currentDraftOrderId?: string;
   manualReason?: string;
+  automationEnabled: boolean;
+  automationResumeState?: ConversationState;
+  automationChangedAt?: string;
+  automationChangedBy?: string;
+  automationChangeReason?: string;
   lastInboundAt?: string;
   expiresAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ConversationAutomation = {
+  conversationId: string;
+  enabled: boolean;
+  effectiveEnabled: boolean;
+  state: ConversationState;
+  resumeState?: ConversationState;
+  manualReason?: string;
+  changedAt?: string;
+  changedBy?: string;
+  changeReason?: string;
+  updatedAt: string;
+  terminal: boolean;
 };

@@ -10,6 +10,7 @@ import {
   listOrders,
   rejectOrderOutOfStock,
   retryOrderCustomerNotification,
+  updateConversationAutomation,
   updateOrderStatus,
 } from "./api";
 import {
@@ -268,6 +269,23 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
 
   const selectedSummary = filteredOrders.find((order) => order.id === selectedOrderId)
     ?? allOrders.find((order) => order.id === selectedOrderId);
+
+  async function handleConversationAutomation(enabled: boolean) {
+    const automation = selectedOrder?.conversationAutomation;
+    if (!automation || !tenantSlug) return;
+    setActionKey(`automation:${automation.conversationId}`);
+    try {
+      const updated = await updateConversationAutomation(tenantSlug, automation.conversationId, enabled, automation.updatedAt);
+      setSelectedOrder((current) => current ? { ...current, conversationAutomation: updated, conversationId: updated.conversationId } : current);
+      void loadOrders();
+      onNotify(enabled ? (locale === "en" ? "Automation resumed for this conversation." : "Automatizacion reactivada para esta conversacion.") : (locale === "en" ? "Automation paused for this conversation." : "Automatizacion pausada para esta conversacion."));
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not update conversation automation." : "No se pudo actualizar la automatizacion de la conversacion.", locale));
+      if (selectedOrder) void loadOrderDetail(selectedOrder.id);
+    } finally {
+      setActionKey("");
+    }
+  }
 
   async function refreshAfterMutation(targetOrderId?: string) {
     await loadOrders("refresh");
@@ -713,6 +731,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
               onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
+              onToggleAutomation={(enabled) => void handleConversationAutomation(enabled)}
               order={selectedOrder}
               selectedSummary={selectedSummary}
             />
@@ -743,6 +762,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                 onOpenRejectModal={() => setModalOrder(selectedOrder)}
                 onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
                 onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
+                onToggleAutomation={(enabled) => void handleConversationAutomation(enabled)}
                 order={selectedOrder}
                 selectedSummary={selectedSummary}
               />
@@ -1066,6 +1086,7 @@ function OrderDetailPanel({
   onOpenRejectModal,
   onRetry,
   onViewPaymentProof,
+  onToggleAutomation,
   order,
   selectedSummary,
 }: {
@@ -1081,6 +1102,7 @@ function OrderDetailPanel({
   onOpenRejectModal: () => void;
   onRetry: () => void;
   onViewPaymentProof: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
   order: OrderDetail;
   selectedSummary?: OrderSummary;
 }) {
@@ -1095,6 +1117,7 @@ function OrderDetailPanel({
   const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
   const whatsappUrl = selectedSummary?.whatsappUrl ?? order.whatsappUrl;
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
+  const automation = order.conversationAutomation;
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
   const advanceLabel = order.fulfillmentType === "delivery"
     ? (locale === "en" ? "Mark as 30 min delivery" : "Marcar delivery 30 min")
@@ -1121,6 +1144,7 @@ function OrderDetailPanel({
               <OrderStatusBadge locale={locale} status={order.status} />
               {notificationFailed && <NotificationBadge locale={locale} status="failed" />}
               {selectedSummary?.customerNotificationStatus === "sent" && <NotificationBadge locale={locale} status="sent" />}
+              {automation && !automation.effectiveEnabled ? <span className="inline-flex rounded-full bg-[rgba(197,123,87,0.14)] px-3 py-1 text-xs font-bold text-[var(--warning)]">{locale === "en" ? "Human intervention required" : "Requiere intervencion humana"}</span> : null}
             </div>
             <h3 className="app-display mt-4 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.6rem]">
               {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Order without visible customer" : "Pedido sin cliente visible")}
@@ -1133,6 +1157,20 @@ function OrderDetailPanel({
               <OrderProgressRail fulfillmentType={order.fulfillmentType} locale={locale} status={order.status} />
             ) : null}
           </div>
+
+          {automation ? (
+            <div className="mt-4 rounded-[18px] border border-[rgba(118,93,71,0.14)] bg-[var(--surface-muted)] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-strong)]">{locale === "en" ? "Conversation automation" : "Automatizacion de la conversacion"}</p>
+                  <p className="mt-1 text-xs text-[var(--text-soft)]">{automation.terminal ? (locale === "en" ? "This conversation is closed." : "Esta conversacion esta cerrada.") : automation.effectiveEnabled ? (locale === "en" ? "Bot replies to the next customer message." : "El bot respondera el proximo mensaje del cliente.") : (automation.manualReason || (locale === "en" ? "Paused for staff review." : "Pausada para revision del restaurante."))}</p>
+                </div>
+                <button className="rounded-full px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={automation.terminal || actionKey === `automation:${automation.conversationId}`} onClick={() => onToggleAutomation(!automation.enabled)} type="button">
+                  {automation.enabled ? (locale === "en" ? "Turn off" : "Desactivar") : (locale === "en" ? "Turn on" : "Activar")}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
             {whatsappUrl ? (

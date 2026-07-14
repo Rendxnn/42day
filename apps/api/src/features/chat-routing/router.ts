@@ -43,7 +43,7 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     normalizedTextLength: normalizedText.length,
   });
 
-  if (input.conversation.state === "manual") {
+  if (!input.conversation.automationEnabled || input.conversation.state === "manual") {
     console.info("conversation.manual_auto_reply_skipped", {
       tenantId: input.tenant.id,
       conversationId: input.conversation.id,
