@@ -16,6 +16,7 @@ type DeliveryCoverageViewProps = {
 };
 
 export function DeliveryCoverageSection({ locale, onNotify, tenantSlug }: DeliveryCoverageViewProps) {
+  const googleMapsEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY?.trim() ?? "";
   const [settings, setSettings] = useState<DeliveryCoverageSettings | null>(null);
   const [form, setForm] = useState<UpdateDeliveryCoverageSettingsRequest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -199,6 +200,38 @@ export function DeliveryCoverageSection({ locale, onNotify, tenantSlug }: Delive
             </div>
             <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "Calculated in a straight line. It does not represent road distance or travel time." : "Este radio se calcula en linea recta. No representa distancia por calles ni tiempo de viaje."}</p>
           </div>
+
+          {coordinatesReady && googleMapsEmbedApiKey ? (
+            <div className="mt-6 border-t border-[rgba(118,93,71,0.12)] pt-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--text-strong)]">{locale === "en" ? "Google Maps preview" : "Vista previa en Google Maps"}</h4>
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-soft)]">
+                    {locale === "en"
+                      ? "Read-only preview centered on the restaurant location."
+                      : "Vista de solo lectura centrada en la ubicacion del restaurante."}
+                  </p>
+                </div>
+                <a
+                  className="inline-flex min-h-10 items-center justify-center rounded-[12px] border border-[rgba(118,93,71,0.14)] px-3 text-xs font-semibold text-[var(--text-strong)] transition hover:bg-white"
+                  href={`https://www.google.com/maps?q=${form.latitude},${form.longitude}`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {locale === "en" ? "Open" : "Abrir"}
+                </a>
+              </div>
+              <div className="mt-3 overflow-hidden rounded-[16px] border border-[rgba(118,93,71,0.14)]">
+                <iframe
+                  className="h-[220px] w-full border-0"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  src={`https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(googleMapsEmbedApiKey)}&center=${encodeURIComponent(`${form.latitude},${form.longitude}`)}&zoom=14&maptype=roadmap`}
+                  title={locale === "en" ? "Google Maps preview" : "Vista previa en Google Maps"}
+                />
+              </div>
+            </div>
+          ) : null}
         </section>
       </div>
 
@@ -214,9 +247,9 @@ export function DeliveryCoverageSection({ locale, onNotify, tenantSlug }: Delive
           <MessageField label={locale === "en" ? "Out-of-coverage message" : "Mensaje fuera de cobertura"} onChange={(outOfCoverageMessage) => patchForm({ outOfCoverageMessage })} value={form.outOfCoverageMessage} />
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <SwitchRow checked={form.allowWrittenAddressReference} description={locale === "en" ? "The written address is saved for the driver, but coverage still requires an exact location." : "La direccion se guarda para el domiciliario, pero la cobertura requiere ubicacion exacta."} label={locale === "en" ? "Allow written address as reference" : "Permitir direccion escrita como referencia"} onChange={(allowWrittenAddressReference) => patchForm({ allowWrittenAddressReference })} />
-          <SwitchRow checked={form.tryGeocodeWrittenAddresses} description={locale === "en" ? "Keep this off for the MVP; written addresses can be ambiguous." : "Para el MVP se recomienda dejarlo apagado; las direcciones pueden ser ambiguas."} label={locale === "en" ? "Try to validate written addresses" : "Intentar validar direcciones escritas"} onChange={(tryGeocodeWrittenAddresses) => patchForm({ tryGeocodeWrittenAddresses })} />
+        <div className="mt-6 rounded-[18px] border border-[rgba(118,93,71,0.12)] bg-[rgba(255,255,255,0.45)]">
+          <CompactSwitchRow checked={form.allowWrittenAddressReference} description={locale === "en" ? "Save the written address for the driver even if final coverage later requires exact location." : "Guarda la direccion escrita para el domiciliario aunque la cobertura final luego requiera ubicacion exacta."} label={locale === "en" ? "Save written address as reference" : "Guardar direccion escrita como referencia"} onChange={(allowWrittenAddressReference) => patchForm({ allowWrittenAddressReference })} />
+          <CompactSwitchRow checked={form.tryGeocodeWrittenAddresses} description={locale === "en" ? "Use Google Geocoding to try validating written addresses before asking for WhatsApp location." : "Usa Google Geocoding para intentar validar direcciones escritas antes de pedir la ubicacion por WhatsApp."} label={locale === "en" ? "Validate written addresses automatically" : "Validar direcciones escritas automaticamente"} onChange={(tryGeocodeWrittenAddresses) => patchForm({ tryGeocodeWrittenAddresses })} />
         </div>
       </section>
 
@@ -235,8 +268,21 @@ function SwitchField({ checked, label, onChange }: { checked: boolean; label: st
   return <label className="inline-flex cursor-pointer items-center gap-3 text-sm font-semibold text-[var(--text-strong)]"><input checked={checked} className="peer sr-only" onChange={(event) => onChange(event.target.checked)} type="checkbox" /><span className="relative h-7 w-12 rounded-full bg-[rgba(118,93,71,0.2)] transition after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition peer-checked:bg-[var(--success)] peer-checked:after:translate-x-5" />{label}</label>;
 }
 
-function SwitchRow({ checked, description, label, onChange }: { checked: boolean; description: string; label: string; onChange: (checked: boolean) => void }) {
-  return <label className="flex cursor-pointer items-start justify-between gap-4 rounded-[16px] border border-[rgba(118,93,71,0.12)] px-4 py-4"><span><span className="block text-sm font-semibold text-[var(--text-strong)]">{label}</span><span className="mt-1 block text-xs leading-5 text-[var(--text-soft)]">{description}</span></span><input checked={checked} className="mt-1 h-5 w-5 shrink-0 accent-[var(--success)]" onChange={(event) => onChange(event.target.checked)} type="checkbox" /></label>;
+function CompactSwitchRow({ checked, description, label, onChange }: { checked: boolean; description: string; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-4 px-4 py-4 first:rounded-t-[18px] last:rounded-b-[18px] [&+&]:border-t [&+&]:border-[rgba(118,93,71,0.12)]">
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-[var(--text-strong)]">{label}</span>
+        <span className="mt-1 block text-xs leading-5 text-[var(--text-soft)]">{description}</span>
+      </span>
+      <span className="shrink-0 pt-0.5">
+        <span className="inline-flex items-center">
+          <input checked={checked} className="peer sr-only" onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+          <span className="relative h-7 w-12 rounded-full bg-[rgba(118,93,71,0.2)] transition after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition peer-checked:bg-[var(--success)] peer-checked:after:translate-x-5" />
+        </span>
+      </span>
+    </label>
+  );
 }
 
 function NumberField({ label, max, min, onChange, value }: { label: string; max: number; min: number; onChange: (value?: number) => void; value?: number }) {

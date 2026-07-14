@@ -10,6 +10,7 @@ import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { persistConfirmedOrder } from "../../orders/service";
 import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
+import { buildCoverageRequestMessage } from "./address-prompts";
 
 export async function tryHandleConfirmation(input: RouteInboundMessageInput, signals: {
   confirmation?: "yes" | "no" | "change" | null;
@@ -58,7 +59,10 @@ export async function tryHandleConfirmation(input: RouteInboundMessageInput, sig
         state: "awaiting_address",
         resetClarificationAttempts: true,
       }).catch(() => undefined);
-      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      await sendAndLogText(input, buildCoverageRequestMessage({
+        requestLocationMessage: settings?.requestLocationMessage ?? buildDeliveryAddressPrompt(),
+        tryGeocodeWrittenAddresses: settings?.tryGeocodeWrittenAddresses,
+      }));
       return true;
     }
   }

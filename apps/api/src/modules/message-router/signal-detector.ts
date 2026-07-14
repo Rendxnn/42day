@@ -1,5 +1,6 @@
 import type { Conversation, DraftOrder, NormalizedInboundMessage, PaymentMethod } from "@42day/types";
 import { hasNearToken, includesAny, normalizeText } from "./message-normalizer.ts";
+import { classifyDeliveryAddressText } from "../../features/delivery-coverage/address-text.ts";
 
 export type DetectedSignals = {
   normalizedText: string;
@@ -13,6 +14,7 @@ export type DetectedSignals = {
   wantsElectronicBilling: boolean;
   billingDataChanged: boolean;
   looksLikeAddress: boolean;
+  cannotShareLocation: boolean;
   hasTransferProofCandidate: boolean;
   shouldTrySemanticOrder: boolean;
   doneAddingItems: boolean;
@@ -27,6 +29,7 @@ export function detectSignals(input: {
   const fulfillmentType = parseFulfillmentSelection(text, input.state);
   const confirmation = parseConfirmation(text);
   const doneAddingItems = parseDoneAddingItems(text);
+  const deliveryAddressKind = classifyDeliveryAddressText(text);
 
   return {
     normalizedText: text,
@@ -39,12 +42,13 @@ export function detectSignals(input: {
     confirmation,
     wantsElectronicBilling: wantsElectronicBilling(text),
     billingDataChanged: wantsBillingDataChange(text),
-    looksLikeAddress: looksLikeAddressText(text, {
+    looksLikeAddress: looksLikeAddressText(deliveryAddressKind, {
       fulfillmentType,
       paymentMethod,
       confirmation,
       doneAddingItems,
     }),
+    cannotShareLocation: deliveryAddressKind === "location_limitation",
     hasTransferProofCandidate: input.message.type === "image" || input.message.type === "document" || includesAny(text, ["comprobante", "ya pague", "pago listo"]),
     shouldTrySemanticOrder: shouldTrySemanticOrder(text),
     doneAddingItems,
@@ -201,18 +205,14 @@ function parseDoneAddingItems(text: string): boolean {
 }
 
 function looksLikeAddressText(
-  text: string,
+  deliveryAddressKind: ReturnType<typeof classifyDeliveryAddressText>,
   parsed: Pick<DetectedSignals, "fulfillmentType" | "paymentMethod" | "confirmation" | "doneAddingItems">,
 ): boolean {
-  if (!text) {
-    return false;
-  }
-
   if (parsed.fulfillmentType || parsed.paymentMethod || parsed.confirmation || parsed.doneAddingItems) {
     return false;
   }
 
-  return text.length >= 8;
+  return deliveryAddressKind === "structured_address";
 }
 
 function parseNumericSelection(text: string): number | null {

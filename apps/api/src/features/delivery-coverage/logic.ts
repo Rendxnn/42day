@@ -1,4 +1,4 @@
-import type { DeliveryCoverageSettings, UpdateDeliveryCoverageSettingsRequest } from "@42day/types";
+import type { CoverageValidationMethod, DeliveryCoverageSettings, UpdateDeliveryCoverageSettingsRequest } from "@42day/types";
 
 export type DeliveryCoverageValidation = {
   isInsideCoverage: boolean;
@@ -47,6 +47,14 @@ export function evaluateDeliveryCoverage(settings: DeliveryCoverageSettings | un
     validationMethod: "whatsapp_location",
     confidence: "high",
   };
+}
+
+export function hasValidatedDeliveryCoverage(input: {
+  coverageValidationMethod?: CoverageValidationMethod;
+  isInsideDeliveryCoverage?: boolean;
+}) {
+  return input.isInsideDeliveryCoverage === true
+    && (input.coverageValidationMethod === "whatsapp_location" || input.coverageValidationMethod === "geocoded_address");
 }
 
 export function isValidLatitude(value: number) {

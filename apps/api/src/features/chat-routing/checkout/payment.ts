@@ -5,6 +5,7 @@ import { loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
+import { buildCoverageRequestMessage } from "./address-prompts";
 import { startBillingStep } from "./billing";
 
 export async function tryHandlePaymentMethod(input: RouteInboundMessageInput, signals: {
@@ -46,7 +47,10 @@ export async function tryHandlePaymentMethod(input: RouteInboundMessageInput, si
         state: "awaiting_address",
         resetClarificationAttempts: true,
       }).catch(() => undefined);
-      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      await sendAndLogText(input, buildCoverageRequestMessage({
+        requestLocationMessage: settings?.requestLocationMessage ?? buildDeliveryAddressPrompt(),
+        tryGeocodeWrittenAddresses: settings?.tryGeocodeWrittenAddresses,
+      }));
       return true;
     }
   }

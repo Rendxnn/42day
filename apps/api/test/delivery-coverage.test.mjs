@@ -4,6 +4,7 @@ import {
   DeliveryCoverageConfigurationError,
   evaluateDeliveryCoverage,
   getDeliveryCoverageSettings,
+  hasValidatedDeliveryCoverage,
   haversineDistanceKm,
   parseDeliveryCoverageSettingsUpdate,
 } from "../src/features/delivery-coverage/service.ts";
@@ -39,6 +40,18 @@ test("rechaza una ubicacion de WhatsApp fuera del radio", () => {
   const result = evaluateDeliveryCoverage(baseSettings, 6.3044, -75.5724);
   assert.equal(result.isInsideCoverage, false);
   assert.ok(result.distanceKm > result.deliveryRadiusKm);
+});
+
+test("acepta cobertura validada por direccion geocodificada", () => {
+  assert.equal(hasValidatedDeliveryCoverage({
+    coverageValidationMethod: "geocoded_address",
+    isInsideDeliveryCoverage: true,
+  }), true);
+
+  assert.equal(hasValidatedDeliveryCoverage({
+    coverageValidationMethod: "written_address_reference",
+    isInsideDeliveryCoverage: true,
+  }), false);
 });
 
 test("falla si el restaurante no tiene coordenadas", () => {

@@ -29,3 +29,15 @@ test("detecta intencion de cambio de datos de facturacion", () => {
   const signals = detect("hay cambios en la factura");
   assert.equal(signals.billingDataChanged, true);
 });
+
+test("detecta cuando el cliente no puede compartir ubicacion", () => {
+  const signals = detect("no puedo enviarla porque no tengo ubicacion en el celular", "awaiting_address");
+  assert.equal(signals.cannotShareLocation, true);
+  assert.equal(signals.looksLikeAddress, false);
+});
+
+test("detecta direccion escrita estructurada", () => {
+  const signals = detect("calle 74 sur # 35-145, sabaneta", "awaiting_address");
+  assert.equal(signals.looksLikeAddress, true);
+  assert.equal(signals.cannotShareLocation, false);
+});

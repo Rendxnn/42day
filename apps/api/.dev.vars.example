@@ -19,3 +19,4 @@ GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_API_KEY=replace-me
 OPENROUTER_MODEL=openrouter/auto
 AI_CONFIG_ENCRYPTION_KEY=replace-me
+GOOGLE_MAPS_GEOCODING_API_KEY=replace-me

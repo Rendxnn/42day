@@ -20,4 +20,5 @@ export type ApiBindings = {
   OPENROUTER_API_KEY?: string;
   OPENROUTER_MODEL?: string;
   AI_CONFIG_ENCRYPTION_KEY?: string;
+  GOOGLE_MAPS_GEOCODING_API_KEY?: string;
 };
