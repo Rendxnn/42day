@@ -23,6 +23,8 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 
 ## Principios
 
+- La interpretacion de toda intencion textual del cliente es semantica durante el experimento actual; no se usa deteccion deterministica de intencion para interferir esa decision.
+- Lo deterministico permanece en la capa de negocio: media/ubicacion, resolucion de catalogo y opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
 - El modelo no calcula precios.
 - El modelo no decide disponibilidad final.
 - El modelo no devuelve IDs canonicos ni crea entidades.
@@ -51,7 +53,7 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 | Pagos | Efectivo y transferencia |
 | Transferencia | Se pide solo despues de que el restaurante acepta disponibilidad |
 | Confirmacion operativa | Siempre manual por restaurante |
-| Conversacion natural | Deterministico primero, LLM solo como parser acotado |
+| Conversacion natural | Experimento temporal: LLM interpreta todo texto; backend valida y aplica deterministamente |
 | LLM inicial | Gemini via `packages/t-router` |
 | Timeout | 30 minutos |
 | Dashboard data access | Solo via `apps/api`, no directo a Supabase desde frontend |
@@ -70,6 +72,8 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 
 ## Estado real actual
 
+Ultima actualizacion documental: 2026-07-13.
+
 Ya implementado:
 
 - webhook de WhatsApp,
@@ -84,6 +88,7 @@ Ya implementado:
 - dashboard para pedidos, agotados y progreso operativo,
 - consola admin de restaurantes y miembros,
 - refactor estructural en progreso de `chat-routing` y del dashboard API hacia submodulos por responsabilidad,
+- routing semantico para texto completo, con extraccion conjunta de items y hechos de checkout (fulfillment, direccion, billing y pago),
 - suite API inicial para billing y compatibilidad temporal con tenants legacy en lecturas de `locations`.
 
 Todavia incompleto:
@@ -119,6 +124,13 @@ Nota operativa importante:
 
 - `tenant_template` debe mantenerse limpio y estructural, sin uso operativo diario.
 - `tenant_demo` puede seguir usandose para pruebas funcionales mientras no se convierta otra vez en template.
+
+## Fuentes de verdad documentales
+
+- Este archivo define producto, alcance y decisiones vigentes.
+- [Estado actual](./docs/planning/current-status.md) define estado funcional y operativo.
+- `docs/architecture/*` define arquitectura; [migraciones](./docs/architecture/database-migrations.md) define el workflow de schema.
+- `docs/runbooks/*` define procedimientos ejecutables. Ningun documento debe duplicar una regla contradictoria.
 
 ## Estados de conversacion
 

@@ -47,13 +47,7 @@ supabase
   .subscribe();
 ```
 
-Para que esto funcione, las tablas `orders` deben estar en la publication `supabase_realtime`. Se agrego una migracion:
-
-```txt
-packages/db/migrations/0018_realtime_order_notifications.sql
-```
-
-Esa migracion:
+Para que esto funcione, las tablas `orders` deben estar en la publication `supabase_realtime`. Las migraciones canonicas en `supabase/migrations` aseguran este requisito para template y rollout. Estas migraciones:
 
 - Habilita RLS en `orders`.
 - Crea una policy de lectura para usuarios autenticados miembros del tenant.

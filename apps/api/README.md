@@ -10,7 +10,7 @@ El API ya soporta el flujo principal `demo-ready`:
 - resolucion de tenant por canal,
 - persistencia de customers, conversations, messages, draft orders y orders,
 - menu real desde Supabase,
-- pedido guiado y pedido natural simple con fallback LLM acotado,
+- pedido guiado y natural con interpretacion semantica de todo texto durante el experimento vigente,
 - configurables con resolucion deterministica contra `product_options`,
 - checkout basico,
 - orden pendiente de revision del restaurante,
@@ -105,18 +105,9 @@ No deben agregarse nuevos comportamientos live de dashboard al router legacy sal
 
 `validation-engine` y `pricing-engine` siguen existiendo sobre todo por compatibilidad y no representan una capa de dominio fuerte por si solas.
 
-### 4. Flujo de migraciones Supabase aun no estandarizado
+### 4. Migraciones multi-tenant
 
-El repo ya tiene migraciones SQL versionadas en `packages/db/migrations`, incluida la de configuracion de pagos, pero todavia no existe un workflow oficial de Supabase CLI para aplicar solo migraciones pendientes.
-
-Pendiente explicito:
-
-- inicializar y linkear un proyecto Supabase CLI en el repo,
-- decidir la carpeta canonica de migraciones,
-- bootstrapear `supabase_migrations.schema_migrations`,
-- agregar scripts operativos para `status`, `dry-run` y `push`.
-
-Mientras eso no exista, aplicar cambios de schema sigue siendo un paso manual y debe tratarse con cuidado.
+`supabase/migrations` es la carpeta canonica. Cada cambio debe mantener `control` y `tenant_template`, y hacer rollout a los `tenant_*` existentes cuando corresponda. `packages/db/migrations` y sus seeds son referencia legacy y no reciben migraciones nuevas. El workflow detallado vive en `docs/architecture/database-migrations.md`.
 
 ### 5. Deuda fuerte en frontend que impacta el producto completo
 
@@ -142,7 +133,7 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 - falta bandeja visual dedicada de alertas y timeline humano en dashboard,
 - si la automatizacion esta apagada, el sistema todavia no deja siempre una alerta operativa consistente,
 - falta rechazo formal de comprobante con pedido de reenvio,
-- falta explotar mejor `addressText`, `confirmationText` y `questions` del parser,
+- `addressText` ya se aplica a direccion escrita; falta explotar mejor `confirmationText` y `questions`,
 - falta suite conversacional automatizada mas amplia,
 - falta formalizar el sistema de migraciones Supabase para dejar de depender de ejecucion manual SQL.
 

@@ -39,18 +39,11 @@ El usuario puede seguir por:
 
 ## Flow B: seleccion de productos
 
-### Interpretacion deterministica seguida de fallback semantico
+### Interpretacion semantica temporal
 
-El router intenta primero un match deterministico **solo** cuando es una respuesta cerrada, exacta y valida para el estado actual: seleccion numerica, palabra mapeada de pago, confirmacion o fulfillment. Un match deterministico puede terminar el turno solo si resuelve todo el mensaje sin ambiguedad.
+La politica vigente es un experimento temporal de routing semantico total: todo mensaje textual procesable llega al parser LLM. No se usa deteccion deterministica de intencion del cliente para adelantar, bloquear o reemplazar esa interpretacion.
 
-Para cualquier no-match, ambiguedad, frase mixta o mensaje que el handler no puede completar, el parser semantico se invoca obligatoriamente antes de aclarar o derivar a humano. No existe un camino textual que use solo reglas como fallback final.
-
-El camino deterministico resuelve:
-
-- seleccion numerica,
-- match por texto o alias,
-- cantidades simples,
-- frases multi-item simples separadas por `y`, `ademas`, `tambien` o coma.
+Las ramas no textuales o de seguridad siguen antes o fuera del parser: conversacion en `manual`, media/comprobante y ubicacion WhatsApp. Despues del parser, el backend resuelve datos canonicos y valida productos, opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
 
 Cuando agrega item:
 
@@ -61,16 +54,14 @@ Cuando agrega item:
 5. deja la conversacion en `awaiting_more_items`,
 6. pregunta si desea agregar algo mas o seguir con entrega.
 
-### Camino semantico de fallback
+### Camino semantico vigente
 
-Cuando el match deterministico no es suficiente:
-
-1. el router intenta parser semantico con el estado de conversacion,
+1. el router intenta parser semantico con el estado y el ultimo prompt de conversacion,
 2. el parser devuelve textos, cantidades, posibles opciones y confianza,
 3. el backend intenta resolver eso contra el menu real y contra configurables reales,
 4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
 5. si puede aplicar el cambio, actualiza el draft,
-6. si no puede, vuelve a aclaracion o handoff; no intenta una regla amplia como segundo fallback.
+6. si no puede, vuelve a aclaracion o handoff; no reinterpreta la intencion con reglas deterministicas amplias.
 
 El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
 
@@ -84,7 +75,7 @@ Estado actual implementado:
 4. si completa todas las opciones requeridas, agrega el item al draft con precio final resuelto,
 5. si supera el umbral de aclaraciones, deriva a `manual`.
 
-Si la respuesta no resuelve la opcion pendiente de forma deterministica, tambien se intenta interpretacion semantica antes de repetir la aclaracion.
+La respuesta se interpreta semanticamente; el valor propuesto se valida contra la opcion pendiente antes de repetir la aclaracion.
 
 ## Flow C: checkout
 
@@ -93,10 +84,11 @@ Secuencia actual:
 1. `awaiting_more_items`
 2. `awaiting_fulfillment_type`
 3. `awaiting_address` si es delivery
-4. `awaiting_payment_method`
-5. `awaiting_confirmation`
-6. crear `order`
-7. pasar a `awaiting_restaurant_confirmation`
+4. billing: `awaiting_billing_reuse_confirmation`, `awaiting_normal_billing_info` o `awaiting_electronic_billing_info`
+5. `awaiting_payment_method`
+6. `awaiting_confirmation`
+7. crear `order`
+8. pasar a `awaiting_restaurant_confirmation`
 
 El backend intenta capturar multiples senales en un mismo mensaje cuando son claras.
 
@@ -221,8 +213,12 @@ awaiting_product_configuration
 awaiting_more_items
 awaiting_fulfillment_type
 awaiting_address
+awaiting_billing_reuse_confirmation
+awaiting_normal_billing_info
+awaiting_electronic_billing_info
 awaiting_payment_method
 awaiting_transfer_proof
+awaiting_transfer_fallback_payment_method
 awaiting_confirmation
 awaiting_restaurant_confirmation
 awaiting_replacement_selection
@@ -231,25 +227,23 @@ completed
 expired
 ```
 
-## Politica deterministica vs IA
+## Politica semantica temporal y validacion de negocio
 
-Deterministico, antes de IA y solo con alta confianza:
-
-- saludo,
-- menu,
-- fulfillment,
-- pago,
-- confirmacion,
-- ubicacion,
-- comprobante por tipo de mensaje,
-- producto por numero o alias exacto en el contexto activo.
-
-IA, como fallback obligatorio para texto no resuelto:
+IA para toda intencion textual:
 
 - pedido libre multi-producto,
 - edicion libre del draft,
 - opciones y notas expresadas en lenguaje natural,
-- frases mixtas o cualquier respuesta que no pueda cerrarse con una regla valida para el estado.
+- frases mixtas y respuestas breves interpretadas contra el estado y ultimo prompt.
+
+Deterministico solo para aplicar y proteger negocio:
+
+- detectar tipo de media/ubicacion y respetar `manual`,
+- resolver IDs de producto/opcion y disponibilidad real,
+- calcular precio, cobertura y total,
+- validar billing, configurables y transiciones permitidas.
+
+El experimento se revisara solo con metricas de precision, coste y latencia, pruebas conversacionales representativas y una decision explicita de producto para reintroducir deteccion deterministica de intencion.
 
 Humano:
 

@@ -8,7 +8,7 @@ El repo ya tiene:
 - dashboard operativo,
 - persistencia conversacional,
 - flujo guiado,
-- fallback LLM acotado,
+- routing semantico temporal para texto del cliente, con backend deterministico para validacion de negocio,
 - modulo de pedidos y agotados.
 
 ## Requisitos recomendados

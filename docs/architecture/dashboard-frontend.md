@@ -42,6 +42,7 @@ Hoy el dashboard está en una etapa intermedia.
 ### Ya alineado con la dirección objetivo
 
 - `features/configuration/*` ya es un ejemplo real del patrón esperado,
+- `features/orders/*` ya concentra la vista y componentes operativos de pedidos,
 - `Configuración` ya concentra `Subida`, pagos y cobertura de domicilios como un solo feature,
 - la lógica de integración de pagos ya salió del cuerpo principal de `App.tsx`,
 - el backend del dashboard ya usa router modular como camino live.
@@ -49,7 +50,7 @@ Hoy el dashboard está en una etapa intermedia.
 ### Todavía con deuda estructural importante
 
 - `apps/dashboard/src/App.tsx` sigue siendo demasiado grande y mezcla shell con varias áreas funcionales,
-- `apps/dashboard/src/orders.tsx` sigue concentrando mucha lógica operativa y UI,
+- todavía quedan areas de menu, catalogo y admin acopladas al shell,
 - la consola admin todavía vive mayormente dentro de `App.tsx`,
 - menú y catálogo todavía siguen demasiado acoplados al shell,
 - `apps/dashboard/src/api.ts` sigue centralizado, lo cual es aceptable por ahora, pero debe mantenerse bajo control.

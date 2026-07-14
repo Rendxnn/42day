@@ -6,7 +6,7 @@ Esta guia deja el camino completo para probar por primera vez:
 WhatsApp demo Meta -> Cloudflare Worker -> Supabase -> respuesta automatica WhatsApp
 ```
 
-## Estado actual del codigo
+## Estado y verificacion externa
 
 Ya existe:
 
@@ -19,20 +19,7 @@ Ya existe:
 - resolucion temporal del tenant demo por `META_PHONE_NUMBER_ID`,
 - respuesta outbound basica por WhatsApp.
 
-Estado real validado:
-
-- Worker staging desplegado en `https://42day-api-staging.42day.workers.dev`,
-- Meta webhook conectado,
-- mensajes WhatsApp entrantes guardados en `control.webhook_events`,
-- respuesta automatica basica entregada por WhatsApp.
-
-Todavia no existe:
-
-- guardado del mensaje normalizado en `tenant_demo.messages`,
-- flujo conversacional completo,
-- descarga/subida real de comprobantes,
-- parser semantico,
-- dashboard API.
+Ultimo estado reportado: Worker staging, webhook Meta y persistencia estan configurados. Antes de una demo, validar `/health`, secrets, webhook, tenant con menu publicado, buckets y Realtime. El codigo actual ya incluye flujo conversacional, parser semantico, dashboard API y comprobantes persistidos.
 
 ## 0. Precondiciones locales
 
@@ -104,33 +91,11 @@ Regla importante:
 - `SUPABASE_ANON_KEY` puede vivir en frontend si hay RLS.
 - `SUPABASE_SERVICE_ROLE_KEY` solo backend. Nunca en dashboard/frontend.
 
-## 3. Ejecutar migraciones SQL
+## 3. Aplicar schema vigente
 
-En Supabase:
+La fuente canonica es `supabase/migrations`, no `packages/db/migrations`. Antes de aplicar en un ambiente, revisar [Arquitectura de migraciones](../architecture/database-migrations.md), confirmar el proyecto linkeado y usar el flujo Supabase CLI del equipo. Una migracion tenant debe mantener `control` y `tenant_template`, y hacer rollout a tenants existentes cuando corresponda.
 
-1. Ir a `SQL Editor`.
-2. Click en `New query`.
-3. Abrir en tu editor local el primer archivo:
-
-```txt
-packages/db/migrations/0001_control_schema.sql
-```
-
-4. Copiar todo el contenido.
-5. Pegar en SQL Editor.
-6. Click en `Run`.
-7. Confirmar que no hay errores.
-
-Repetir en este orden exacto:
-
-```txt
-packages/db/migrations/0001_control_schema.sql
-packages/db/migrations/0002_tenant_demo_schema.sql
-packages/db/migrations/0003_tenant_demo_orders_and_messages.sql
-packages/db/migrations/0004_api_grants_storage_bucket.sql
-packages/db/migrations/0005_foreign_key_indexes.sql
-packages/db/seeds/tenant_demo.sql
-```
+No ejecutes archivos legacy ni seeds historicos desde SQL Editor como procedimiento normal.
 
 ## 4. Verificar que la DB quedo creada
 
@@ -194,39 +159,9 @@ Segun la documentacion oficial de Supabase, los custom schemas deben agregarse e
 
 ## 6. Aplicar grants para Data API
 
-Estos grants ya viven en:
+Los grants y RLS deben provenir de las migraciones canonicas aplicadas. Verifica permisos efectivos y RLS del ambiente; no copies grants legacy amplios como procedimiento normal.
 
-```txt
-packages/db/migrations/0004_api_grants_storage_bucket.sql
-```
-
-Si se ejecutaron las migraciones en orden, este paso ya quedo aplicado.
-
-Referencia del SQL aplicado:
-
-```sql
-grant usage on schema control to anon, authenticated, service_role;
-grant all on all tables in schema control to anon, authenticated, service_role;
-grant all on all routines in schema control to anon, authenticated, service_role;
-grant all on all sequences in schema control to anon, authenticated, service_role;
-alter default privileges for role postgres in schema control grant all on tables to anon, authenticated, service_role;
-alter default privileges for role postgres in schema control grant all on routines to anon, authenticated, service_role;
-alter default privileges for role postgres in schema control grant all on sequences to anon, authenticated, service_role;
-
-grant usage on schema tenant_demo to anon, authenticated, service_role;
-grant all on all tables in schema tenant_demo to anon, authenticated, service_role;
-grant all on all routines in schema tenant_demo to anon, authenticated, service_role;
-grant all on all sequences in schema tenant_demo to anon, authenticated, service_role;
-alter default privileges for role postgres in schema tenant_demo grant all on tables to anon, authenticated, service_role;
-alter default privileges for role postgres in schema tenant_demo grant all on routines to anon, authenticated, service_role;
-alter default privileges for role postgres in schema tenant_demo grant all on sequences to anon, authenticated, service_role;
-```
-
-Nota de seguridad:
-
-- Esto es suficiente para staging usando `service_role`.
-- Antes de permitir dashboard directo con `anon`, hay que definir RLS.
-- Para operaciones sensibles, el dashboard deberia consumir nuestro API.
+Nota de seguridad: RLS debe estar activo para tablas expuestas y las policies deben respetar el modelo real de acceso. El dashboard usa API para datos y mutaciones de negocio; Auth y Realtime directo son excepciones controladas. Nunca expongas `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## 7. Crear bucket de comprobantes
 
@@ -251,7 +186,7 @@ Resultado esperado:
 - bucket `payment-proofs` existe,
 - no es publico.
 
-La subida real de comprobantes aun no esta implementada, pero la DB y el bucket quedan listos.
+El Worker ya descarga comprobantes desde Meta, los almacena en este bucket y los deja en revision humana. Confirma la configuracion con una prueba controlada antes de una demo.
 
 ## 8. Preparar variables locales
 

@@ -152,11 +152,7 @@ Las migraciones nuevas deben vivir en:
 
 - `supabase/migrations`
 
-La carpeta:
-
-- `packages/db/migrations`
-
-queda como archivo historico legacy de la etapa anterior y no deberia seguir recibiendo nuevas migraciones canonicas.
+La carpeta `packages/db/migrations` queda como referencia legacy de la etapa anterior y no recibe nuevas migraciones canonicas. Sus archivos no son instrucciones operativas para ambientes nuevos.
 
 ### Baseline inicial Supabase CLI
 
@@ -200,7 +196,7 @@ Estado actual:
 
 - todavia no existe un seed canonico del proyecto integrado al flujo normal de Supabase CLI,
 - `supabase/seed.sql` existe solo como placeholder tecnico minimo,
-- los datos demo/legacy siguen fuera de ese flujo y viven en `packages/db/seeds/`.
+- los datos demo/legacy siguen fuera de ese flujo y viven en `packages/db/seeds/` solo como referencia; no deben ejecutarse como provisioning actual.
 
 Decision por ahora:
 

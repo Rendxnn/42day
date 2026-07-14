@@ -2,12 +2,12 @@
 
 > Nota: este archivo describe estado funcional y operativo. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
 
-Ultima actualizacion: 2026-06-26.
+Ultima actualizacion: 2026-07-13.
 
-Nota operativa reciente:
+Estado externo reportado (requiere verificacion manual antes de una demo):
 
 - el numero nuevo de WhatsApp que se estaba probando fue reasignado temporalmente a `tenant_demo`, porque `tenant_thaledon` no tiene menu operativo publicado en su schema;
-- el fallback semantico `gemini -> openrouter` ya quedo implementado en codigo, pero requiere secret y deploy para quedar activo en `staging`;
+- el respaldo semantico `gemini -> openrouter` esta implementado, pero su disponibilidad depende de secretos y deploy del ambiente;
 - detalle: [WhatsApp routing y fallback LLM](../runbooks/whatsapp-routing-and-llm-fallback-2026-06-26.md)
 
 ## Resumen ejecutivo
@@ -92,6 +92,7 @@ Eso significa poder:
 - soporte de agotados y reemplazos,
 - metadata de routing por outbound,
 - fallback LLM via `t-router`, con Gemini como primario y OpenRouter como respaldo cuando el ambiente tenga el secret configurado.
+- experimento de routing semantico: todo inbound textual llega al parser; media, ubicacion y conversacion manual siguen siendo ramas previas, y el backend mantiene las validaciones de negocio.
 
 ### Dashboard restaurante
 
@@ -140,9 +141,9 @@ cliente escribe por WhatsApp
 
 ## IA: estado actual
 
-La IA no maneja las reglas de negocio. Hoy actua como interpretador semantico de fallback:
+La IA no maneja las reglas de negocio. Durante el experimento actual actua como interpretador semantico de todo mensaje textual:
 
-- se invoca para todo mensaje textual que no quede resuelto completamente por un match deterministico estricto y valido para el estado,
+- se invoca para todo mensaje textual procesable; no hay deteccion deterministica de intencion del cliente antes de ella,
 - devuelve textos, cantidades, opciones y confianza,
 - puede extraer `optionTexts`, pero no resuelve IDs finales,
 - no calcula precios,
@@ -158,6 +159,7 @@ Validado localmente o por script:
 
 - `npm run test --prefix apps/api`
 - `corepack pnpm typecheck:direct`
+- `pnpm --filter @42day/dashboard build`
 - script E2E `scripts/e2e_order_confirmation_phase5.py`
 
 Las pruebas automatizadas nuevas ya cubren al menos:
@@ -238,3 +240,10 @@ Para el alcance cerrado y el plan de cierre demo-ready:
 - [Scope congelado demo-ready](./business-decisions.md)
 - [Gap analysis demo-ready](./demo-ready-gap-analysis.md)
 - [Conversacion natural e integracion IA](./natural-conversation-implementation-plan.md)
+
+## Checklist externo antes de una demo
+
+- Worker staging desplegado y `GET /health` disponible.
+- Secrets de Gemini/OpenRouter, Meta y Supabase presentes en el ambiente que se usara.
+- Webhook y tester de Meta asociados al tenant con menu publicado.
+- `control`, `tenant_template` y tenant demo expuestos/configurados segun el runbook vigente; buckets y Realtime verificados.

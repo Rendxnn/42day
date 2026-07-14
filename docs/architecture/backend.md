@@ -72,7 +72,7 @@ Piezas con avance parcial de separacion:
 
 Piezas que siguen claramente transicionales o incompletas:
 
-- `routes/dashboard.ts`, que sigue siendo grande y activa,
+- `routes/dashboard.ts`, que permanece como fachada de compatibilidad; el router modular es el camino live,
 - `features/dashboard/router.ts`, que ya compone subrouters pero todavia concentra bastante logica y helpers,
 - `draft-orders` y `orders`, donde todavia hay mezcla de aplicacion, mapping y acceso a datos,
 - handlers del flujo conversacional, donde aun queda coordinacion pesada en pocos puntos.
@@ -125,8 +125,8 @@ Sigue siendo el centro funcional del flujo conversacional, pero ya no todo vive 
 
 Responsable de:
 
-- detectar senales cerradas,
-- ejecutar interpretacion deterministica estricta y, si no resuelve por completo, fallback semantico,
+- delegar texto al parser semantico durante el experimento vigente,
+- mantener ramas previas para `manual`, media/comprobante y ubicacion,
 - operar el draft,
 - avanzar de estado,
 - mover a `manual`,
@@ -141,7 +141,7 @@ Estado de refactor:
 
 ### `semantic_parser`
 
-Es el fallback obligatorio para todo inbound textual que no haya sido resuelto por una regla deterministica estricta y valida para el estado actual. No es solo para pedidos o ediciones libres.
+Es el interprete obligatorio para todo inbound textual procesable durante el experimento vigente. No es solo para pedidos o ediciones libres; el backend conserva la validacion y aplicacion deterministica.
 
 Reglas:
 
@@ -237,13 +237,10 @@ La IA no reemplaza la state machine.
 
 Secuencia actual:
 
-1. `message_router` intenta una regla deterministica cerrada y state-scoped.
-2. Si no resuelve el mensaje completo, intenta `semantic_parser`.
-3. Si el parser devuelve baja confianza o no puede resolverse contra datos canonicos, el flujo aclara o deriva; no vuelve a matcher amplio.
-4. Cada outbound registra si fue:
-   - `deterministic`
-   - `llm`
-   - `deterministic_after_llm_fallback`
+1. `message_router` maneja primero ramas no textuales y de seguridad.
+2. Todo texto procesable pasa a `semantic_parser` con estado y contexto.
+3. El backend valida y resuelve la propuesta contra datos canonicos; si falla, aclara o deriva sin matcher amplio de intencion.
+4. Los diagnosticos registran proveedor, resultado semantico y razon de aplicacion/fallback.
 
 ## Idempotencia
 

@@ -10,9 +10,9 @@ Este flujo vive en la API del dashboard y se consume desde la pantalla admin del
 
 ## Componentes
 
-- `apps/api/src/routes/dashboard.ts`: endpoints admin y validacion de permisos.
+- `apps/api/src/features/dashboard/routes/admin.ts`: endpoints admin y validacion de permisos.
 - `apps/api/src/lib/supabase-rest.ts`: cliente REST con soporte RPC para funciones Postgres.
-- `packages/db/migrations/0021_admin_restaurant_management.sql`: funcion `control.provision_restaurant_tenant(...)` para crear el tenant y su schema operativo.
+- `supabase/migrations/*`: define y evoluciona `control.provision_restaurant_tenant(...)` para crear el tenant y su schema operativo.
 - `control.get_tenant_admin_snapshot(...)`: RPC para leer sede y metricas de un tenant sin depender de que su schema este expuesto en Data API.
 - `control.update_tenant_primary_location(...)`: RPC para editar la sede principal de un tenant sin depender de que su schema este expuesto en Data API.
 - `apps/dashboard/src/App.tsx`: consola admin para crear restaurantes, editar estado/datos y gestionar usuarios.
@@ -41,7 +41,7 @@ La funcion:
 - Crea una sede principal y un menu publicado para la fecha actual.
 La funcion no intenta actualizar `pgrst.db_schemas` en runtime. Supabase bloquea `ALTER ROLE authenticator SET pgrst.db_schemas` cuando se ejecuta desde una RPC PostgREST, incluso con `service_role`. Por eso la consola admin usa RPCs en `control` para leer/editar sede y metricas de schemas nuevos.
 
-Antes de usar el alta de restaurantes en un ambiente real, la migracion `0021_admin_restaurant_management.sql` debe estar aplicada en Supabase.
+Antes de usar el alta de restaurantes en un ambiente real, las migraciones canonicas vigentes deben estar aplicadas y el template debe estar limpio.
 
 ## Nota sobre Data API y schemas nuevos
 
