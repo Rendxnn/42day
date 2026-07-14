@@ -77,14 +77,24 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       });
     }
 
-    const writtenAddressValidation = writtenAddressText
-      ? await validateDeliveryCoverageFromWrittenAddress({
+    let writtenAddressValidation = null;
+    if (writtenAddressText) {
+      try {
+        writtenAddressValidation = await validateDeliveryCoverageFromWrittenAddress({
           env: input.env,
           schemaName: input.tenant.schemaName,
           locationId: draft.locationId ?? menu.location?.id,
           addressText: writtenAddressText,
-        })
-      : null;
+        });
+      } catch (error) {
+        // A geocoding outage must not block checkout when the restaurant has
+        // enabled written addresses as a delivery reference.
+        console.warn("delivery_coverage.written_address_geocoding_failed", {
+          conversationId: input.conversation.id,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     if (writtenAddressValidation) {
       const validatedDraft = await updateDraftOrderCoverage({
@@ -133,6 +143,43 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
           writtenAddressValidation.isInsideCoverage
             ? "Perfecto, validamos tu direccion y esta dentro de cobertura."
             : "Perfecto, validamos tu direccion. Continuemos con el pedido.",
+        ),
+      });
+      return true;
+    }
+
+    // A written address is still useful when Google is unavailable or cannot
+    // resolve the exact rooftop. Keep it as the delivery reference instead of
+    // trapping the customer in an address/location loop. Coverage can be
+    // reviewed by the restaurant when the order is received.
+    if (writtenAddressText && settings?.allowWrittenAddressReference !== false) {
+      const referenceDraft = await updateDraftOrderCoverage({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        draftOrderId: draft.id,
+        customerAddressText: address?.addressText ?? writtenAddressText,
+        deliveryAddressId: address?.id,
+        validationMethod: "written_address_reference",
+        confidence: "low",
+        deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+      });
+
+      const draftWithPayment = signals.paymentMethod
+        ? await updateDraftOrderPaymentMethod({
+            env: input.env,
+            schemaName: input.tenant.schemaName,
+            draftOrderId: referenceDraft.id,
+            paymentMethod: signals.paymentMethod,
+            deliveryFeeFixed: menu.location?.deliveryFeeFixed,
+          })
+        : referenceDraft;
+
+      await startBillingStep(input, {
+        menu,
+        draft: draftWithPayment,
+        prefix: buildAddressSavedPrompt(
+          address?.addressText ?? writtenAddressText,
+          "Guardamos esta dirección como referencia. El restaurante verificará la cobertura al revisar el pedido.",
         ),
       });
       return true;

@@ -15,6 +15,11 @@ export type ApiBindings = {
   DATABASE_URL?: string;
 
   OPENAI_API_KEY?: string;
+  OPENAI_TRANSCRIPTION_MODEL?: string;
+  AUDIO_TRANSCRIPTION_PROVIDER?: "openai" | "huggingface";
+  HUGGINGFACE_API_KEY?: string;
+  HUGGINGFACE_TRANSCRIPTION_MODEL?: string;
+  HUGGINGFACE_TRANSCRIPTION_URL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   OPENROUTER_API_KEY?: string;

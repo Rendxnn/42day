@@ -16,6 +16,7 @@ import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaym
 import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
 import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./guided/product-configuration";
 import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements/selection";
+import { getPendingCustomerReplacementOrder } from "../orders/service";
 import { tryHandleGuidedSelection } from "./guided/selection";
 import { tryHandleSemanticOrder } from "./semantic/order";
 import { handleClarification, moveToManual } from "./manual/handoff";
@@ -69,6 +70,24 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
       responseText: buildManualHandoffMessage(),
     });
     return;
+  }
+
+  // Dashboard notifications can arrive while the persisted conversation state
+  // is briefly stale. If there is an actual replacement order waiting for the
+  // customer, honor a numeric/name selection before generic menu handling.
+  if (input.conversation.state !== "awaiting_replacement_selection") {
+    const pendingReplacement = await getPendingCustomerReplacementOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      currentDraftOrderId: input.conversation.currentDraftOrderId,
+    }).catch(() => undefined);
+    if (pendingReplacement) {
+      const handledReplacement = await tryHandleReplacementSelectionBranch(input, signals);
+      if (handledReplacement) {
+        return;
+      }
+    }
   }
 
   if (input.conversation.state === "awaiting_transfer_proof") {
