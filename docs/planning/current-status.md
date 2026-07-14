@@ -2,7 +2,7 @@
 
 > Nota: este archivo describe estado funcional y operativo. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
 
-Ultima actualizacion: 2026-07-13.
+Ultima actualizacion: 2026-07-14.
 
 Estado externo reportado (requiere verificacion manual antes de una demo):
 
@@ -95,6 +95,10 @@ Eso significa poder:
 - experimento de routing semantico: todo inbound textual llega al parser; media, ubicacion y conversacion manual siguen siendo ramas previas, y el backend mantiene las validaciones de negocio.
 
 ### Dashboard restaurante
+
+- control de automatizacion por conversacion para `encargado` y `trabajador`, disponible tanto en detalle de pedido como en cada conversacion abierta, con confirmacion antes de pausar;
+- la operacion usa RPC transaccional del schema tenant y rechaza estado terminal o una version obsoleta sin escrituras parciales;
+- las tarjetas abiertas muestran el estado pausado y permiten abrir un detalle compacto aun cuando no exista pedido.
 
 - vista de pedidos operativa,
 - detalle de pedido,
@@ -193,13 +197,14 @@ El script E2E actual cubre:
 ### Operacion humana
 
 - la API de alertas existe,
-- pero falta una bandeja visual dedicada de alertas y timeline de conversacion,
-- falta contexto humano mas completo para conversaciones `manual`.
+- las alertas nuevas abiertas producen una sola notificacion (sonido, toast y Browser Notification cuando esta permitido) por ID, incluyendo handoff, pago y confirmacion;
+- falta una bandeja visual dedicada, timeline y compositor de respuesta para operar conversaciones `manual` con contexto completo.
 
 ### Automatizacion
 
 - si la automatizacion esta apagada, el sistema deja de responder,
-- pero todavia no deja siempre una alerta operativa consistente por mensaje pendiente.
+- se puede pausar/reanudar de forma segura por conversacion; al reanudar solo se resuelven alertas de handoff de routing, no revisiones de pago ni confirmaciones pendientes,
+- sigue pendiente definir una alerta para cada mensaje nuevo recibido mientras una conversacion ya esta pausada.
 
 ### Eventos de dominio y notificaciones realtime
 
@@ -209,7 +214,7 @@ Estado actual:
 - el payload de Realtime no se usa directamente: dispara una nueva consulta HTTP de pedidos,
 - existe polling de respaldo cada 30 segundos para reconstruir el estado de la campana,
 - el historial de la campana consulta un subconjunto fijo de `app_events` mediante `/notifications`,
-- el sonido, toast y Browser Notification se disparan solamente cuando aparece un nuevo pedido en estados notificables,
+- el sonido, toast y Browser Notification se disparan cuando aparece un pedido nuevo notificable o una alerta humana abierta no vista; la carga inicial solo establece la linea base,
 - `app_events`, `messages` y `human_intervention_alerts` son modelos separados,
 - el estado de lectura de notificaciones vive solo en memoria del navegador.
 

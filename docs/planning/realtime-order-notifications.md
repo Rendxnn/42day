@@ -1,8 +1,8 @@
-# Notificaciones en tiempo real de pedidos
+# Notificaciones en tiempo real de pedidos y handoffs
 
 ## Que se implemento
 
-Se agrego una campanita global en el dashboard para avisar cuando llegan pedidos nuevos o cuando un pedido queda esperando decision del restaurante/cliente. La notificacion incluye:
+Se agrego una campanita global en el dashboard para avisar cuando llegan pedidos nuevos o aparece una alerta humana abierta. La notificacion incluye:
 
 - Contador visual de pedidos nuevos.
 - Panel desplegable con las ultimas alertas.
@@ -33,7 +33,7 @@ pending_restaurant_confirmation
 needs_customer_replacement
 ```
 
-La primera carga solo establece una linea base para no sonar por pedidos antiguos. Despues de eso, si aparece un pedido notificable que el dashboard no habia visto, se agrega al panel, aumenta el contador, muestra toast, reproduce sonido y dispara notificacion del navegador si esta autorizada.
+La primera carga solo establece una linea base para no sonar por datos antiguos. Despues de eso, si aparece un pedido notificable o una alerta humana abierta cuyo ID no habia visto la sesion, se agrega al panel, aumenta el contador, muestra toast, reproduce sonido y dispara notificacion del navegador si esta autorizada. Polling y reconexion no repiten el aviso para el mismo ID.
 
 ## Realtime usado
 
@@ -52,6 +52,8 @@ Para que esto funcione, las tablas `orders` deben estar en la publication `supab
 - Habilita RLS en `orders`.
 - Crea una policy de lectura para usuarios autenticados miembros del tenant.
 - Agrega cada tabla `orders` existente a `supabase_realtime`.
+
+`human_intervention_alerts` sigue el mismo patron: tiene policy de lectura para miembros activos del tenant, se publica en `supabase_realtime` y se escucha solo para `INSERT`. El provisionamiento futuro instala esta configuracion junto con la RPC de automatizacion conversacional.
 
 ## Refresco y fallback
 
@@ -102,9 +104,9 @@ Antes, la bandeja de pedidos hacia polling propio cada 20 segundos. Ahora la cam
 
 La implementacion actual debe entenderse como un mecanismo de deteccion de pedidos, no como un sistema general de eventos de dominio:
 
-- `orders` es la fuente realtime observada por WebSocket.
+- `orders` y `human_intervention_alerts` son las fuentes realtime observadas por WebSocket.
 - `app_events` es un historial persistido consultado por HTTP, con un allowlist fijo de nombres de evento.
-- `human_intervention_alerts` es una cola separada para casos de handoff.
+- `human_intervention_alerts` es una cola separada para handoff y decisiones operativas; todos sus tipos abiertos tienen copia de notificacion explicita.
 - `messages` registra el transporte inbound/outbound de WhatsApp.
 - el frontend combina Realtime, polling y estado local para decidir cuando mostrar o sonar una alerta.
 

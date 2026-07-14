@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
+import type { ConversationAutomation, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
@@ -90,6 +90,8 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   const [modalOrder, setModalOrder] = useState<OrderDetail | null>(null);
   const [cancelOrderCandidate, setCancelOrderCandidate] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [openConversationDetail, setOpenConversationDetail] = useState<OpenOrderSummary | null>(null);
+  const [automationConfirmation, setAutomationConfirmation] = useState<ConversationAutomation | null>(null);
   const [deliveryRadiusKm, setDeliveryRadiusKm] = useState<number | undefined>();
 
   const loadOrders = useCallback(
@@ -270,21 +272,40 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   const selectedSummary = filteredOrders.find((order) => order.id === selectedOrderId)
     ?? allOrders.find((order) => order.id === selectedOrderId);
 
-  async function handleConversationAutomation(enabled: boolean) {
-    const automation = selectedOrder?.conversationAutomation;
-    if (!automation || !tenantSlug) return;
+  async function applyConversationAutomation(automation: ConversationAutomation, enabled: boolean) {
+    if (!tenantSlug) return;
     setActionKey(`automation:${automation.conversationId}`);
     try {
       const updated = await updateConversationAutomation(tenantSlug, automation.conversationId, enabled, automation.updatedAt);
       setSelectedOrder((current) => current ? { ...current, conversationAutomation: updated, conversationId: updated.conversationId } : current);
+      setOpenConversationDetail((current) => current ? { ...current, conversationAutomation: updated, conversationId: updated.conversationId, conversationState: updated.state, updatedAt: updated.updatedAt } : current);
+      setPayload((current) => current ? { ...current, openOrders: current.openOrders.map((entry) => entry.conversationId === updated.conversationId ? { ...entry, conversationAutomation: updated, conversationState: updated.state, updatedAt: updated.updatedAt } : entry) } : current);
       void loadOrders();
       onNotify(enabled ? (locale === "en" ? "Automation resumed for this conversation." : "Automatizacion reactivada para esta conversacion.") : (locale === "en" ? "Automation paused for this conversation." : "Automatizacion pausada para esta conversacion."));
     } catch (error) {
+      if (error instanceof DashboardApiError && error.backendError === "conversation_stale") {
+        onNotify(locale === "en"
+          ? "The customer or another operator changed this conversation. Review the latest state."
+          : "El cliente u otro operador cambio esta conversacion. Revisa el estado mas reciente.");
+      } else {
       onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not update conversation automation." : "No se pudo actualizar la automatizacion de la conversacion.", locale));
-      if (selectedOrder) void loadOrderDetail(selectedOrder.id);
+      }
+      if (selectedOrder?.conversationId === automation.conversationId) {
+        void loadOrderDetail(selectedOrder.id);
+      }
+      void loadOrders("refresh");
     } finally {
       setActionKey("");
     }
+  }
+
+  function requestConversationAutomation(automation: ConversationAutomation | undefined, enabled: boolean) {
+    if (!automation) return;
+    if (!enabled) {
+      setAutomationConfirmation(automation);
+      return;
+    }
+    void applyConversationAutomation(automation, true);
   }
 
   async function refreshAfterMutation(targetOrderId?: string) {
@@ -534,9 +555,12 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
             <div className="app-scrollbar max-h-none space-y-3 overflow-y-auto p-3 sm:p-4 xl:max-h-[780px]">
               {openOrders.map((order) => (
                 <OpenConversationCard
+                  actionKey={actionKey}
                   key={order.id}
                   locale={locale}
+                  onOpenDetail={() => setOpenConversationDetail(order)}
                   onOpenLinkedOrder={order.linkedOrderId ? () => openLinkedOrderFromOpenStage(order) : undefined}
+                  onToggleAutomation={(enabled) => requestConversationAutomation(order.conversationAutomation, enabled)}
                   order={order}
                 />
               ))}
@@ -731,7 +755,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
               onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
-              onToggleAutomation={(enabled) => void handleConversationAutomation(enabled)}
+              onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
               order={selectedOrder}
               selectedSummary={selectedSummary}
             />
@@ -762,11 +786,38 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                 onOpenRejectModal={() => setModalOrder(selectedOrder)}
                 onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
                 onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
-                onToggleAutomation={(enabled) => void handleConversationAutomation(enabled)}
+                onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
                 order={selectedOrder}
                 selectedSummary={selectedSummary}
               />
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {openConversationDetail ? (
+        <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.58)] p-3 backdrop-blur-sm sm:place-items-center" onClick={() => setOpenConversationDetail(null)}>
+          <div className="app-panel w-full max-w-xl rounded-[28px] p-5" onClick={(event) => event.stopPropagation()}>
+            <OpenConversationDetailPanel
+              actionKey={actionKey}
+              locale={locale}
+              onClose={() => setOpenConversationDetail(null)}
+              onToggleAutomation={(enabled) => requestConversationAutomation(openConversationDetail.conversationAutomation, enabled)}
+              order={openConversationDetail}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {automationConfirmation ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(14,11,9,0.58)] p-4 backdrop-blur-sm">
+          <div className="app-panel w-full max-w-md rounded-[28px] p-6">
+            <p className="app-display text-2xl text-[var(--text-strong)]">{locale === "en" ? "Pause bot replies?" : "¿Pausar respuestas del bot?"}</p>
+            <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">{locale === "en" ? "The bot will not respond to the customer’s next messages until staff turns automation back on." : "El bot no respondera los proximos mensajes del cliente hasta que el equipo reactive la automatizacion."}</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button className="rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 py-2 text-sm font-semibold text-[var(--text-soft)]" onClick={() => setAutomationConfirmation(null)} type="button">{locale === "en" ? "Cancel" : "Cancelar"}</button>
+              <button className="rounded-2xl bg-[var(--warning)] px-4 py-2 text-sm font-bold text-white" onClick={() => { const automation = automationConfirmation; setAutomationConfirmation(null); void applyConversationAutomation(automation, false); }} type="button">{locale === "en" ? "Pause automation" : "Pausar automatizacion"}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -852,14 +903,21 @@ function ClosedOrdersFilter({
 }
 
 function OpenConversationCard({
+  actionKey,
   locale,
+  onOpenDetail,
   onOpenLinkedOrder,
+  onToggleAutomation,
   order,
 }: {
+  actionKey: string;
   locale: "en" | "es";
+  onOpenDetail: () => void;
   onOpenLinkedOrder?: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
   order: OpenOrderSummary;
 }) {
+  const automation = order.conversationAutomation;
   return (
     <article className="rounded-[20px] border border-[rgba(137,164,196,0.18)] bg-[rgba(255,251,246,0.92)] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -870,6 +928,11 @@ function OpenConversationCard({
           {order.conversationState ? (
             <span className="inline-flex items-center rounded-full bg-[rgba(118,93,71,0.08)] px-3 py-1 text-xs font-semibold text-[var(--text-soft)]">
               {getConversationStateLabel(order.conversationState, locale)}
+            </span>
+          ) : null}
+          {automation && !automation.effectiveEnabled ? (
+            <span className="inline-flex items-center rounded-full bg-[rgba(197,123,87,0.14)] px-3 py-1 text-xs font-bold text-[var(--warning)]">
+              {locale === "en" ? "Human review" : "Revision humana"}
             </span>
           ) : null}
         </div>
@@ -899,6 +962,22 @@ function OpenConversationCard({
             : (locale === "en" ? "Conversation started" : "Conversacion iniciada")}
         </span>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {automation ? (
+            <AutomationSwitch
+              busy={actionKey === `automation:${automation.conversationId}`}
+              enabled={automation.enabled}
+              locale={locale}
+              onToggle={() => onToggleAutomation(!automation.enabled)}
+            />
+          ) : null}
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.14)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]"
+            onClick={onOpenDetail}
+            type="button"
+          >
+            <ClipboardList size={15} />
+            {locale === "en" ? "Details" : "Detalle"}
+          </button>
           {onOpenLinkedOrder ? (
             <button
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.14)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]"
@@ -1139,7 +1218,7 @@ function OrderDetailPanel({
           </div>
         ) : null}
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
+          <div className="min-w-0 xl:flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <OrderStatusBadge locale={locale} status={order.status} />
               {notificationFailed && <NotificationBadge locale={locale} status="failed" />}
@@ -1158,41 +1237,18 @@ function OrderDetailPanel({
             ) : null}
           </div>
 
-          {automation ? (
-            <div className="mt-4 rounded-[18px] border border-[rgba(118,93,71,0.14)] bg-[var(--surface-muted)] px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--text-strong)]">{locale === "en" ? "Conversation automation" : "Automatizacion de la conversacion"}</p>
-                  <p className="mt-1 text-xs text-[var(--text-soft)]">{automation.terminal ? (locale === "en" ? "This conversation is closed." : "Esta conversacion esta cerrada.") : automation.effectiveEnabled ? (locale === "en" ? "Bot replies to the next customer message." : "El bot respondera el proximo mensaje del cliente.") : (automation.manualReason || (locale === "en" ? "Paused for staff review." : "Pausada para revision del restaurante."))}</p>
-                </div>
-                <button className="rounded-full px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={automation.terminal || actionKey === `automation:${automation.conversationId}`} onClick={() => onToggleAutomation(!automation.enabled)} type="button">
-                  {automation.enabled ? (locale === "en" ? "Turn off" : "Desactivar") : (locale === "en" ? "Turn on" : "Activar")}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
-            {whatsappUrl ? (
-              <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
-                href={whatsappUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <ExternalLink size={16} />
-                {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
-              </a>
-            ) : (
-              <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
-                disabled
-                type="button"
-              >
-                <ExternalLink size={16} />
-                {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
-              </button>
-            )}
+          <div className="flex w-full flex-col gap-4 xl:w-[238px] xl:shrink-0 xl:items-end">
+            {automation ? (
+              <AutomationSwitch
+                busy={actionKey === `automation:${automation.conversationId}`}
+                className="w-full"
+                disabled={automation.terminal}
+                enabled={automation.enabled}
+                locale={locale}
+                onToggle={() => onToggleAutomation(!automation.enabled)}
+              />
+            ) : null}
+            <div className="flex w-full flex-col gap-2 xl:items-stretch xl:[&>button]:!w-full">
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -1200,32 +1256,6 @@ function OrderDetailPanel({
                 label={actionKey === `accept:${order.id}` ? (locale === "en" ? "Confirming..." : "Confirmando...") : (locale === "en" ? "Confirm order" : "Confirmar pedido")}
                 onClick={onAccept}
                 variant="primary"
-              />
-            )}
-            {canReject && (
-              <ActionButton
-                icon={MessageSquareWarning}
-                label={locale === "en" ? "Report out of stock" : "Reportar agotado"}
-                onClick={onOpenRejectModal}
-                variant="secondary"
-              />
-            )}
-            {canRetry && (
-              <ActionButton
-                active={actionKey === `retry:${order.id}`}
-                icon={RefreshCcw}
-                label={actionKey === `retry:${order.id}` ? (locale === "en" ? "Sending again..." : "Reenviando...") : (locale === "en" ? "Retry WhatsApp" : "Reenviar WhatsApp")}
-                onClick={onRetry}
-                variant="warning"
-              />
-            )}
-            {order.paymentProof && (
-              <ActionButton
-                active={actionKey === `proof:view:${order.id}`}
-                icon={ClipboardList}
-                label={actionKey === `proof:view:${order.id}` ? (locale === "en" ? "Opening..." : "Abriendo...") : (locale === "en" ? "View proof" : "Ver comprobante")}
-                onClick={onViewPaymentProof}
-                variant="secondary"
               />
             )}
             {canConfirmPaymentProof && (
@@ -1255,15 +1285,64 @@ function OrderDetailPanel({
                 variant="primary"
               />
             )}
-            {canCancel && (
+            {canReject && (
               <ActionButton
-                active={actionKey === `status:${order.id}:cancelled`}
-                icon={X}
-                label={actionKey === `status:${order.id}:cancelled` ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Cancel order" : "Cancelar pedido")}
-                onClick={onCancel}
+                icon={MessageSquareWarning}
+                label={locale === "en" ? "Report out of stock" : "Reportar agotado"}
+                onClick={onOpenRejectModal}
+                variant="secondary"
+              />
+            )}
+            {whatsappUrl ? (
+              <a
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+                href={whatsappUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+              </a>
+            ) : (
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
+                disabled
+                type="button"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
+              </button>
+            )}
+            {canRetry && (
+              <ActionButton
+                active={actionKey === `retry:${order.id}`}
+                icon={RefreshCcw}
+                label={actionKey === `retry:${order.id}` ? (locale === "en" ? "Sending again..." : "Reenviando...") : (locale === "en" ? "Retry WhatsApp" : "Reenviar WhatsApp")}
+                onClick={onRetry}
                 variant="warning"
               />
             )}
+            {order.paymentProof && (
+              <ActionButton
+                active={actionKey === `proof:view:${order.id}`}
+                icon={ClipboardList}
+                label={actionKey === `proof:view:${order.id}` ? (locale === "en" ? "Opening..." : "Abriendo...") : (locale === "en" ? "View proof" : "Ver comprobante")}
+                onClick={onViewPaymentProof}
+                variant="secondary"
+              />
+            )}
+            {canCancel && (
+              <div className="mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2 xl:[&>button]:!w-full">
+                <ActionButton
+                  active={actionKey === `status:${order.id}:cancelled`}
+                  icon={X}
+                  label={actionKey === `status:${order.id}:cancelled` ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Cancel order" : "Cancelar pedido")}
+                  onClick={onCancel}
+                  variant="warning"
+                />
+              </div>
+            )}
+            </div>
           </div>
         </div>
       </div>
@@ -1371,6 +1450,72 @@ function OrderDetailPanel({
         </aside>
       </div>
 
+    </div>
+  );
+}
+
+function AutomationSwitch({
+  busy,
+  className,
+  disabled = false,
+  enabled,
+  locale,
+  onToggle,
+}: {
+  busy: boolean;
+  className?: string;
+  disabled?: boolean;
+  enabled: boolean;
+  locale: "en" | "es";
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      aria-checked={enabled}
+      className={`inline-flex h-10 items-center justify-between gap-3 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-white/80 px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${className ?? ""}`}
+      disabled={disabled || busy}
+      onClick={onToggle}
+      role="switch"
+      type="button"
+    >
+      <span>{enabled ? (locale === "en" ? "Bot active" : "Bot activo") : (locale === "en" ? "Human review" : "Revision humana")}</span>
+      <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition ${enabled ? "bg-[var(--success)]" : "bg-[rgba(118,93,71,0.22)]"}`}>
+        {busy ? <Loader2 className="absolute left-1 top-1 animate-spin text-white" size={16} /> : null}
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(49,41,35,0.18)] transition ${enabled ? "left-[22px]" : "left-0.5"}`} />
+      </span>
+    </button>
+  );
+}
+
+function OpenConversationDetailPanel({
+  actionKey,
+  locale,
+  onClose,
+  onToggleAutomation,
+  order,
+}: {
+  actionKey: string;
+  locale: "en" | "es";
+  onClose: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
+  order: OpenOrderSummary;
+}) {
+  const automation = order.conversationAutomation;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Open conversation" : "Conversacion abierta"}</p>
+          <h3 className="app-display mt-2 text-3xl text-[var(--text-strong)]">{order.customerName || order.customerPhone || (locale === "en" ? "Customer" : "Cliente")}</h3>
+        </div>
+        <button aria-label={locale === "en" ? "Close conversation details" : "Cerrar detalle de conversacion"} className="grid h-10 w-10 place-items-center rounded-full border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)]" onClick={onClose} type="button"><X size={18} /></button>
+      </div>
+      <div className="mt-5 grid gap-3 rounded-[20px] bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-soft)]">
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "State:" : "Estado:"}</strong> {order.conversationState ? getConversationStateLabel(order.conversationState, locale) : "-"}</p>
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Draft:" : "Borrador:"}</strong> {order.draftOrderId ? `#${getOrderReceiptCode(order.draftOrderId)}` : (locale === "en" ? "Not started" : "Aun no iniciado")}</p>
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Items:" : "Items:"}</strong> {getOrderItemsSummary(order.items ?? [], locale)}</p>
+      </div>
+      {automation ? <div className="mt-4 flex justify-end"><AutomationSwitch busy={actionKey === `automation:${automation.conversationId}`} disabled={automation.terminal} enabled={automation.enabled} locale={locale} onToggle={() => onToggleAutomation(!automation.enabled)} /></div> : null}
     </div>
   );
 }
@@ -1737,10 +1882,8 @@ function DeliveryCoverageDetail({
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <SummaryRow label={locale === "en" ? "Method" : "Metodo"} value={method} />
         <SummaryRow label={locale === "en" ? "Distance" : "Distancia"} value={order.deliveryDistanceKm !== undefined ? `${order.deliveryDistanceKm.toFixed(1)} km` : (locale === "en" ? "Not calculated" : "Sin calcular")} />
-        <SummaryRow label={locale === "en" ? "Allowed radius" : "Radio permitido"} value={deliveryRadiusKm !== undefined ? `${deliveryRadiusKm} km` : (locale === "en" ? "Not available" : "No disponible")} />
         <SummaryRow label={locale === "en" ? "Coordinates" : "Coordenadas"} value={hasExactLocation ? `${customerLatitude.toFixed(6)}, ${customerLongitude.toFixed(6)}` : (locale === "en" ? "Not received" : "No recibidas")} />
       </div>
-      {order.customerAddressText ? <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Customer reference:" : "Referencia del cliente:"}</span> {order.customerAddressText}</p> : null}
       {requiresLocation ? (
         <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
           <AlertCircle className="mt-0.5 shrink-0" size={16} />

@@ -93,10 +93,9 @@ Ya implementado:
 
 Todavia incompleto:
 
-- consola humana de alertas y timeline de conversacion,
-- alertas consistentes cuando la automatizacion esta apagada,
+- consola humana con bandeja, timeline y compositor de respuesta,
 - pruebas automatizadas conversacionales amplias,
-- workflow canonico de migraciones Supabase desde el repo.
+- verificacion automatizada de migraciones y del rollout remoto por tenant.
 
 ## Modulos backend
 
@@ -153,6 +152,12 @@ Nota operativa importante:
 - `manual`
 - `completed`
 - `expired`
+
+## Automatizacion por conversacion
+
+Cada conversacion abierta puede pausarse o reanudarse por un `encargado` o `trabajador` desde el detalle operativo de pedido o desde la tarjeta de conversaciones abiertas, incluso antes de crear un pedido. Pausar deja el estado en `manual`, conserva el estado de reanudacion y evita la siguiente respuesta automatica; reanudar restaura ese estado y reinicia las aclaraciones.
+
+El cambio es una unica operacion transaccional en el schema del tenant: bloquea la conversacion, valida `updated_at` para evitar escrituras obsoletas, actualiza la conversacion y registra el evento. Al reanudar resuelve solo alertas de handoff de routing (`support_requested`, parser/validacion/error tecnico/cambio de pedido); pagos por transferencia y confirmaciones operativas permanecen abiertos. La brecha humana restante es una bandeja/timeline completa, no el control basico de pausa.
 
 ## Estados de draft order
 

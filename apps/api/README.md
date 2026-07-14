@@ -109,6 +109,8 @@ No deben agregarse nuevos comportamientos live de dashboard al router legacy sal
 
 `supabase/migrations` es la carpeta canonica. Cada cambio debe mantener `control` y `tenant_template`, y hacer rollout a los `tenant_*` existentes cuando corresponda. `packages/db/migrations` y sus seeds son referencia legacy y no reciben migraciones nuevas. El workflow detallado vive en `docs/architecture/database-migrations.md`.
 
+Las columnas de automatizacion conversacional viven en `conversations` de `tenant_template` y de cada tenant. La mutacion `change_conversation_automation` es una RPC tenant-local transaccional: bloquea la conversacion, comprueba `expectedUpdatedAt`, actualiza estado/evento y resuelve solo alertas de handoff de routing al reanudar. La API permite la accion a miembros `encargado` y `trabajador`; el frontend no tiene acceso directo a esa mutacion.
+
 ### 5. Deuda fuerte en frontend que impacta el producto completo
 
 Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
@@ -131,11 +133,11 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 ## Gaps reales que siguen abiertos
 
 - falta bandeja visual dedicada de alertas y timeline humano en dashboard,
-- si la automatizacion esta apagada, el sistema todavia no deja siempre una alerta operativa consistente,
+- si la automatizacion esta apagada, sigue pendiente una alerta por cada mensaje nuevo que llegue durante la pausa; el control seguro de pausar/reanudar ya existe,
 - falta rechazo formal de comprobante con pedido de reenvio,
 - `addressText` ya se aplica a direccion escrita; falta explotar mejor `confirmationText` y `questions`,
 - falta suite conversacional automatizada mas amplia,
-- falta formalizar el sistema de migraciones Supabase para dejar de depender de ejecucion manual SQL.
+- falta automatizar la verificacion de migraciones y rollout remoto por tenant.
 
 ## Testing actual
 

@@ -1,6 +1,7 @@
 import { getConversationExpiration, isConversationExpired } from "@42day/core";
 import type { Conversation, ConversationContext, ConversationState } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
+import { createSupabaseRestClient } from "../../lib/supabase-rest";
 import { mapConversationRow } from "./mappers";
 import {
   expireConversation,
@@ -167,49 +168,17 @@ export async function changeConversationAutomation(input: {
   expectedUpdatedAt: string;
   changedBy: string;
 }): Promise<Conversation> {
-  const currentRow = await selectConversationById({
-    env: input.env,
-    schemaName: input.schemaName,
-    conversationId: input.conversationId,
+  const row = await createSupabaseRestClient(input.env).rpc<Record<string, unknown>>({
+    schema: input.schemaName,
+    functionName: "change_conversation_automation",
+    args: {
+      p_conversation_id: input.conversationId,
+      p_enabled: input.enabled,
+      p_expected_updated_at: input.expectedUpdatedAt,
+      p_changed_by: input.changedBy,
+    },
   });
-  if (!currentRow) throw new Error("conversation.not_found");
-  const current = mapConversationRow(currentRow);
-  if (["completed", "expired"].includes(current.state)) throw new Error("conversation.terminal");
-  if (current.updatedAt !== input.expectedUpdatedAt) throw new Error("conversation.stale");
-
-  const now = new Date().toISOString();
-  const resumeState = current.automationResumeState ?? "awaiting_mode_selection";
-  const patch = input.enabled
-    ? {
-      state: current.state === "manual" ? resumeState : current.state,
-      manual_reason: null,
-      automation_enabled: true,
-      automation_resume_state: null,
-      automation_changed_at: now,
-      automation_changed_by: input.changedBy,
-      automation_change_reason: "restaurant_resumed",
-      clarification_attempts: 0,
-      updated_at: now,
-    }
-    : {
-      state: "manual",
-      manual_reason: "restaurant_paused",
-      automation_enabled: false,
-      automation_resume_state: current.state === "manual" ? resumeState : current.state,
-      automation_changed_at: now,
-      automation_changed_by: input.changedBy,
-      automation_change_reason: "restaurant_paused",
-      updated_at: now,
-    };
-
-  const updated = await updateConversationRow({
-    env: input.env,
-    schemaName: input.schemaName,
-    conversationId: input.conversationId,
-    expectedUpdatedAt: input.expectedUpdatedAt,
-    patch,
-  });
-  return mapConversationRow(updated);
+  return mapConversationRow(row as Parameters<typeof mapConversationRow>[0]);
 }
 
 export async function updateConversationContext(input: {

@@ -25,14 +25,14 @@ Hoy el repo ya tiene:
 - webhook de WhatsApp funcionando sobre Cloudflare Workers,
 - persistencia de customers, conversations, messages, draft orders y orders en Supabase,
 - router conversacional en experimento temporal de interpretacion semantica para todo texto del cliente, con validacion deterministica de negocio,
-- dashboard operativo para menu, catalogo, pedidos, aceptacion y agotados,
+- dashboard operativo para menu, catalogo, pedidos, aceptacion, agotados y control de automatizacion por conversacion,
 - consola admin para provisionar restaurantes y miembros,
 - notificaciones operativas basicas por pedidos.
 
 Los huecos principales para el siguiente tramo son:
 
 - consola humana de alertas/conversacion,
-- alertas consistentes cuando la automatizacion esta apagada,
+- alerta por cada mensaje nuevo recibido mientras una conversacion ya esta pausada,
 - rechazo formal de comprobantes con solicitud de reenvio,
 - pruebas automatizadas conversacionales mas amplias.
 

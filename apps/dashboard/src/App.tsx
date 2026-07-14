@@ -847,17 +847,17 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       try {
         const alerts = await listAlerts(tenantSlug, "open");
         if (!active) return;
-        const fresh = alerts.filter((alert) => alert.type === "support_requested" && !seenSupportAlertIdsRef.current.has(alert.id));
+        const fresh = alerts.filter((alert) => !seenSupportAlertIdsRef.current.has(alert.id));
         alerts.forEach((alert) => seenSupportAlertIdsRef.current.add(alert.id));
         if (!notifyNew || fresh.length === 0) return;
-        const first = fresh[0];
+        const nextNotifications = fresh.map((alert) => toSupportAlertNotification(alert, locale));
+        const first = nextNotifications[0];
         if (!first) return;
-        const notification = { id: first.id, title: locale === "en" ? "Customer requests an advisor" : "Cliente solicita asesor", detail: first.description ?? (locale === "en" ? "Human intervention is required." : "Requiere intervencion humana."), conversationId: first.conversationId, orderId: first.orderId, createdAt: first.createdAt };
-        setNotifications((current) => mergeNotifications([notification], current).slice(0, 12));
+        setNotifications((current) => mergeNotifications(nextNotifications, current).slice(0, 12));
         setUnreadNotificationCount((current) => current + fresh.length);
-        notify(notification.title);
+        notify(first.title);
         playNotificationSound();
-        showBrowserNotification(notification.title, notification.detail);
+        showBrowserNotification(first.title, first.detail, () => handleNotificationSelect(first));
       } catch {
         // Alerts are retried through the same interval as order notifications.
       }
@@ -1195,6 +1195,29 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       {toast && <Toast message={toast} />}
     </div>
   );
+}
+
+function toSupportAlertNotification(alert: import("@42day/types").HumanInterventionAlert, locale: "en" | "es"): DashboardNotification {
+  const copy: Record<typeof alert.type, { en: string; es: string }> = {
+    order_pending_confirmation: { en: "Order awaiting restaurant decision", es: "Pedido espera decision del restaurante" },
+    support_requested: { en: "Customer requests an advisor", es: "Cliente solicita asesor" },
+    transfer_payment_review: { en: "Transfer payment needs review", es: "Transferencia pendiente de revision" },
+    parser_failed: { en: "Conversation needs manual review", es: "Conversacion requiere revision humana" },
+    validation_failed_repeatedly: { en: "Customer needs assistance", es: "Cliente necesita asistencia" },
+    technical_error: { en: "Conversation technical issue", es: "Problema tecnico en conversacion" },
+    order_change_requested: { en: "Customer requested an order change", es: "Cliente solicito cambio de pedido" },
+    automation_disabled: { en: "Automation is disabled", es: "La automatizacion esta desactivada" },
+  };
+  const title = copy[alert.type][locale];
+  return {
+    id: alert.id,
+    title,
+    detail: alert.description ?? (locale === "en" ? "Human intervention is required." : "Requiere intervencion humana."),
+    conversationId: alert.conversationId,
+    orderId: alert.orderId,
+    draftOrderId: alert.draftOrderId,
+    createdAt: alert.createdAt,
+  };
 }
 
 function PublicCartaPage() {

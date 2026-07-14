@@ -195,6 +195,8 @@ La conversacion pasa a `manual` cuando:
 - hay error tecnico,
 - el caso operativo ya no debe seguir automatico.
 
+Tambien puede pausarla manualmente un `encargado` o `trabajador` desde el dashboard. El control aparece tanto en el detalle de pedido como en conversaciones abiertas sin pedido. Al pausar, el proximo mensaje entrante no obtiene respuesta automatica; al reanudar se restaura el estado conversacional guardado. La mutacion usa una RPC transaccional con control de version para no sobrescribir un cambio concurrente.
+
 ## Timeout
 
 Si pasan 30 minutos sin respuesta:
