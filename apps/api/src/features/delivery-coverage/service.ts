@@ -1,12 +1,14 @@
 import type { DeliveryCoverageSettings } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { SupabaseRestError, createSupabaseRestClient } from "../../lib/supabase-rest.ts";
+import { geocodeAddressWithGoogleMaps } from "./google-maps.ts";
 import { evaluateDeliveryCoverage } from "./logic.ts";
 import type { DeliveryCoverageValidation } from "./logic.ts";
 
 export {
   DeliveryCoverageConfigurationError,
   evaluateDeliveryCoverage,
+  hasValidatedDeliveryCoverage,
   haversineDistanceKm,
   isValidDeliveryRadius,
   isValidLatitude,
@@ -69,6 +71,46 @@ export async function validateDeliveryCoverageFromWhatsappLocation(input: {
 }): Promise<DeliveryCoverageValidation> {
   const settings = await getDeliveryCoverageSettings(input);
   return evaluateDeliveryCoverage(settings, input.customerLatitude, input.customerLongitude);
+}
+
+export async function validateDeliveryCoverageFromWrittenAddress(input: {
+  env: ApiBindings;
+  schemaName: string;
+  locationId?: string;
+  addressText: string;
+}): Promise<{
+  formattedAddress: string;
+  latitude: number;
+  longitude: number;
+  isInsideCoverage: boolean;
+  distanceKm: number;
+  deliveryRadiusKm: number;
+  validationMethod: "geocoded_address";
+  confidence: "high" | "medium" | "low";
+} | null> {
+  const settings = await getDeliveryCoverageSettings(input);
+  const geocoded = await geocodeAddressWithGoogleMaps({
+    env: input.env,
+    addressText: input.addressText,
+    city: settings?.restaurantCity,
+    department: settings?.restaurantDepartment,
+    country: settings?.restaurantCountry,
+  });
+  if (!geocoded || geocoded.confidence === "failed") {
+    return null;
+  }
+
+  const validation = evaluateDeliveryCoverage(settings, geocoded.latitude, geocoded.longitude);
+  return {
+    formattedAddress: geocoded.formattedAddress,
+    latitude: geocoded.latitude,
+    longitude: geocoded.longitude,
+    isInsideCoverage: validation.isInsideCoverage,
+    distanceKm: validation.distanceKm,
+    deliveryRadiusKm: validation.deliveryRadiusKm,
+    validationMethod: "geocoded_address",
+    confidence: geocoded.confidence,
+  };
 }
 
 function mapDeliveryCoverageSettings(row: DeliveryCoverageLocationRow): DeliveryCoverageSettings {

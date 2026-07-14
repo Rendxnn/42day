@@ -128,6 +128,8 @@ export async function parseFreeFormOrder(input: {
       "Para cambios como 'quitemos la sopa por 2 limonadas', devuelve remove/replace/add con targetText y productText como textos del usuario.",
       "Si hay opciones o notas como sin cebolla, sopa de frijoles, jugo de mora, preservalas como textos.",
       "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
+      "Cuando una cantidad mayor a 1 del mismo producto comparte las mismas opciones, devuelve un solo item con esa quantity y sus optionTexts; no dupliques el producto ni repartas opciones entre unidades salvo que el usuario describa configuraciones distintas.",
+      "Los productos adicionales mencionados aparte (por ejemplo huevos o caldo) deben salir como items independientes si existen en el menu.",
       "No conviertas una nota libre en valor de catalogo si el usuario no lo dijo claramente.",
     ].join("\n"),
     input: [

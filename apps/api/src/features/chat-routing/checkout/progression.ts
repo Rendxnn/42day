@@ -13,7 +13,8 @@ import {
 import { buildGuidedContext, loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
+import { getDeliveryCoverageSettings, hasValidatedDeliveryCoverage } from "../../delivery-coverage/service";
+import { buildCoverageRequestMessage } from "./address-prompts";
 import { startBillingStep } from "./billing";
 import { applyDraftFacts } from "./draft-facts";
 
@@ -116,7 +117,7 @@ export async function proceedToNextOrderStep(input: RouteInboundMessageInput, pa
 
   if (
     draft.fulfillmentType === "delivery"
-    && (draft.coverageValidationMethod !== "whatsapp_location" || draft.isInsideDeliveryCoverage !== true)
+    && !hasValidatedDeliveryCoverage(draft)
   ) {
     const settings = await getDeliveryCoverageSettings({
       env: input.env,
@@ -133,7 +134,10 @@ export async function proceedToNextOrderStep(input: RouteInboundMessageInput, pa
         resetClarificationAttempts: true,
       }).catch(() => undefined);
 
-      await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+      await sendAndLogText(input, buildCoverageRequestMessage({
+        requestLocationMessage: settings?.requestLocationMessage ?? buildDeliveryAddressPrompt(),
+        tryGeocodeWrittenAddresses: settings?.tryGeocodeWrittenAddresses,
+      }));
       return;
     }
   }

@@ -1,4 +1,5 @@
 import { normalizeText } from "../../modules/message-router/message-normalizer";
+import { classifyDeliveryAddressText } from "../delivery-coverage/address-text";
 import {
   buildClarificationPrompt,
   buildLocationCapturedForLaterMessage,
@@ -59,12 +60,18 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     }
   }
 
+  if (await trySemanticFallback(input)) {
+    return;
+  }
+
   if (
     input.conversation.state === "awaiting_address" ||
     (input.conversation.state === "awaiting_confirmation" && input.message.type === "location")
   ) {
+    const addressKind = classifyDeliveryAddressText(normalizedText);
     const handledAddress = await tryHandleDeliveryAddress(input, {
-      looksLikeAddress: true,
+      looksLikeAddress: input.message.type === "location" || addressKind === "structured_address",
+      cannotShareLocation: addressKind === "location_limitation",
       normalizedText,
     });
     if (handledAddress) {
@@ -77,10 +84,6 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
       input,
       buildLocationCapturedForLaterMessage(),
     );
-    return;
-  }
-
-  if (await trySemanticFallback(input)) {
     return;
   }
 

@@ -14,8 +14,13 @@ SUPABASE_SERVICE_ROLE_KEY=replace-me
 DATABASE_URL=postgresql://postgres:password@host:5432/postgres
 
 OPENAI_API_KEY=replace-me
+OPENAI_TRANSCRIPTION_MODEL=whisper-1
+AUDIO_TRANSCRIPTION_PROVIDER=huggingface
+HUGGINGFACE_API_KEY=replace-me
+HUGGINGFACE_TRANSCRIPTION_MODEL=openai/whisper-large-v3-turbo
 GEMINI_API_KEY=replace-me
 GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_API_KEY=replace-me
 OPENROUTER_MODEL=openrouter/auto
 AI_CONFIG_ENCRYPTION_KEY=replace-me
+GOOGLE_MAPS_GEOCODING_API_KEY=replace-me

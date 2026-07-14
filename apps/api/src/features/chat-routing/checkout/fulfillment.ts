@@ -6,6 +6,7 @@ import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
 import { proceedToNextOrderStep } from "./progression";
+import { buildCoverageRequestMessage } from "./address-prompts";
 import { startBillingStep } from "./billing";
 
 export async function tryHandleFulfillmentSelection(input: RouteInboundMessageInput, signals: {
@@ -77,7 +78,10 @@ export async function tryHandleFulfillmentSelection(input: RouteInboundMessageIn
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
-    await sendAndLogText(input, settings?.requestLocationMessage ?? buildDeliveryAddressPrompt());
+    await sendAndLogText(input, buildCoverageRequestMessage({
+      requestLocationMessage: settings?.requestLocationMessage ?? buildDeliveryAddressPrompt(),
+      tryGeocodeWrittenAddresses: settings?.tryGeocodeWrittenAddresses,
+    }));
     return true;
   }
 

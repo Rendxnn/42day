@@ -1,4 +1,5 @@
 import type { Conversation, DraftOrder, NormalizedInboundMessage, PaymentMethod } from "@42day/types";
+import { classifyDeliveryAddressText } from "../../features/delivery-coverage/address-text.ts";
 import { includesAny, normalizeText } from "./message-normalizer.ts";
 
 export type DetectedSignals = {
@@ -13,6 +14,7 @@ export type DetectedSignals = {
   wantsElectronicBilling: boolean;
   billingDataChanged: boolean;
   looksLikeAddress: boolean;
+  cannotShareLocation: boolean;
   hasTransferProofCandidate: boolean;
   doneAddingItems: boolean;
 };
@@ -26,6 +28,7 @@ export function detectSignals(input: {
   const fulfillmentType = parseFulfillmentSelection(text, input.state);
   const confirmation = parseConfirmation(text, input.state);
   const doneAddingItems = parseDoneAddingItems(text);
+  const deliveryAddressKind = classifyDeliveryAddressText(text);
 
   return {
     normalizedText: text,
@@ -38,12 +41,13 @@ export function detectSignals(input: {
     confirmation,
     wantsElectronicBilling: wantsElectronicBilling(text),
     billingDataChanged: wantsBillingDataChange(text),
-    looksLikeAddress: looksLikeAddressText(text, {
+    looksLikeAddress: looksLikeAddressText(deliveryAddressKind, {
       fulfillmentType,
       paymentMethod,
       confirmation,
       doneAddingItems,
     }),
+    cannotShareLocation: deliveryAddressKind === "location_limitation",
     hasTransferProofCandidate: input.message.type === "image" || input.message.type === "document" || includesAny(text, ["comprobante", "ya pague", "pago listo"]),
     doneAddingItems,
   };
@@ -216,18 +220,14 @@ function parseDoneAddingItems(text: string): boolean {
 }
 
 function looksLikeAddressText(
-  text: string,
+  deliveryAddressKind: ReturnType<typeof classifyDeliveryAddressText>,
   parsed: Pick<DetectedSignals, "fulfillmentType" | "paymentMethod" | "confirmation" | "doneAddingItems">,
 ): boolean {
-  if (!text) {
-    return false;
-  }
-
   if (parsed.fulfillmentType || parsed.paymentMethod || parsed.confirmation || parsed.doneAddingItems) {
     return false;
   }
 
-  return /^(?:calle|cl|carrera|cra|kr|avenida|av|diagonal|transversal)\s+\d+[\w\s#-]*\d$/i.test(text);
+  return deliveryAddressKind === "structured_address";
 }
 
 function parseNumericSelection(text: string): number | null {

@@ -121,20 +121,9 @@ export async function tryHandlePendingProductConfiguration(
       draft,
       selectedItem: lastSelectedItem,
       quantity: pending.quantity,
-      signals: payload?.signals ?? {
-        normalizedText: "",
-        numericSelection: null,
-        isGreeting: false,
-        wantsMenu: false,
-        humanRequested: false,
-        fulfillmentType: null,
-        paymentMethod: null,
-        confirmation: null,
-        wantsElectronicBilling: false,
-        billingDataChanged: false,
-        looksLikeAddress: false,
-        hasTransferProofCandidate: false,
-        doneAddingItems: false,
+      signals: {
+        fulfillmentType: payload?.signals?.fulfillmentType ?? null,
+        paymentMethod: payload?.signals?.paymentMethod ?? null,
       },
     });
     return true;

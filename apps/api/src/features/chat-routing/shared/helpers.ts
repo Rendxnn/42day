@@ -126,6 +126,7 @@ export function buildEmptyDetectedSignals(text: string | undefined): DetectedSig
     wantsElectronicBilling: false,
     billingDataChanged: false,
     looksLikeAddress: false,
+    cannotShareLocation: false,
     hasTransferProofCandidate: false,
     doneAddingItems: false,
   };
