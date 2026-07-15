@@ -1333,6 +1333,7 @@ function OrderDetailPanel({
               <div className="mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2">
                 <ActionButton
                   active={actionKey === `status:${order.id}:cancelled`}
+                  className="!w-full"
                   icon={X}
                   label={actionKey === `status:${order.id}:cancelled` ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Cancel order" : "Cancelar pedido")}
                   onClick={onCancel}
