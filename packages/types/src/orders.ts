@@ -31,7 +31,7 @@ export type CoverageValidationMethod = "whatsapp_location" | "written_address_re
 export type CoverageConfidence = "high" | "medium" | "low" | "failed";
 export type OrdersBucket = "pending_confirmation" | "active" | "history" | "all";
 export type CustomerNotificationStatus = "pending" | "sent" | "failed";
-export type OrderCustomerNotificationType = "accepted" | "out_of_stock";
+export type OrderCustomerNotificationType = "accepted" | "out_of_stock" | "order_status";
 export type OpenOrderStatus =
   | Exclude<DraftOrderStatus, "confirmed" | "cancelled" | "expired">
   | OrderStatus

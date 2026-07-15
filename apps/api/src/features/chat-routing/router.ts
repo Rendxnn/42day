@@ -20,6 +20,7 @@ import { getPendingCustomerReplacementOrder } from "../orders/service";
 import { tryHandleGuidedSelection } from "./guided/selection";
 import { tryHandleSemanticOrder } from "./semantic/order";
 import { handleClarification, moveToManual } from "./manual/handoff";
+import { handleCustomerOrderStatus } from "./order-status";
 import {
   proceedToNextOrderStep,
   tryHandleBillingReuseConfirmation,
@@ -51,6 +52,13 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     message: input.message,
     state: input.conversation.state,
   });
+
+  // Status lookups remain available even when a previous interaction was
+  // handed to a person: they are safe, read-only answers about the order.
+  if (signals.wantsOrderStatus) {
+    await handleCustomerOrderStatus(input);
+    return;
+  }
 
   if (input.conversation.state === "manual") {
     console.info("conversation.manual_auto_reply_skipped", {

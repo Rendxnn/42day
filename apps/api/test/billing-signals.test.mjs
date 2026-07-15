@@ -41,3 +41,9 @@ test("detecta direccion escrita estructurada", () => {
   assert.equal(signals.looksLikeAddress, true);
   assert.equal(signals.cannotShareLocation, false);
 });
+
+test("detecta preguntas sobre el estado del pedido", () => {
+  assert.equal(detect("como va mi pedido", "completed").wantsOrderStatus, true);
+  assert.equal(detect("donde va mi pedido", "completed").wantsOrderStatus, true);
+  assert.equal(detect("quiero ver el menu", "completed").wantsOrderStatus, false);
+});

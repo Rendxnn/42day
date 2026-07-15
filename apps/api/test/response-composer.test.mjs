@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildCustomerOrderStatusMessage, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -80,4 +80,17 @@ test("menciona el valor del domicilio cuando el pedido es delivery", () => {
 
   assert.match(message, /El valor del domicilio es de/);
   assert.match(message, /5\.000/);
+});
+
+test("explica que el pedido de delivery va en camino", () => {
+  const message = buildCustomerOrderStatusMessage({ status: "on_the_way", fulfillmentType: "delivery" });
+
+  assert.match(message, /salió en camino/i);
+  assert.match(message, /domicilio/i);
+});
+
+test("explica que el pedido para recoger está listo", () => {
+  const message = buildCustomerOrderStatusMessage({ status: "on_the_way", fulfillmentType: "pickup" });
+
+  assert.match(message, /listo para que lo recojas/i);
 });

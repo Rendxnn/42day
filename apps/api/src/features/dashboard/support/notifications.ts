@@ -37,6 +37,30 @@ export function buildOutOfStockMessage(itemName: string, replacementOptions: Arr
   ].join("\n\n");
 }
 
+export function buildOrderStatusNotification(order: Pick<OrderRow, "status" | "fulfillment_type">): string | null {
+  if (order.status === "preparing") {
+    return "Tu pedido ya está siendo preparado por nuestro increíble chef. En cuanto esté listo, te avisaremos por aquí.";
+  }
+
+  if (order.status === "on_the_way") {
+    return order.fulfillment_type === "delivery"
+      ? "Tu pedido ya salió en camino a tu domicilio. Dentro de poco podrás disfrutarlo. ¡Gracias por la espera!"
+      : "Tu pedido ya está listo para que lo recojas y lo disfrutes. ¡Te esperamos!";
+  }
+
+  if (order.status === "delivered") {
+    return order.fulfillment_type === "delivery"
+      ? "Tu pedido fue entregado. Esperamos que lo disfrutes. ¡Gracias por elegirnos!"
+      : "Tu pedido fue finalizado. Esperamos que lo hayas disfrutado. ¡Gracias por elegirnos!";
+  }
+
+  if (order.status === "cancelled") {
+    return "Tu pedido fue cancelado. Si necesitas ayuda, escríbenos por este chat.";
+  }
+
+  return null;
+}
+
 export function buildRetryNotificationMessage(
   type: OrderCustomerNotificationType,
   order: OrderRow,
@@ -71,6 +95,10 @@ export function buildRetryNotificationMessage(
     }
 
     return buildOutOfStockMessage(unavailableName, replacements);
+  }
+
+  if (type === "order_status") {
+    return buildOrderStatusNotification(order);
   }
 
   return null;

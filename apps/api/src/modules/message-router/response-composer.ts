@@ -1,4 +1,4 @@
-import type { DraftOrder, OrderLineItem, PaymentMethod, ProductOption, TodayMenuPayload } from "@42day/types";
+import type { DraftOrder, OrderLineItem, OrderStatus, PaymentMethod, ProductOption, TodayMenuPayload } from "@42day/types";
 
 const DEFAULT_ESTIMATED_MINUTES = 30;
 
@@ -155,6 +155,34 @@ export function buildTransferFallbackCashConfirmedMessage(): string {
 
 export function buildRestaurantReviewPendingMessage(): string {
   return "Tu pedido sigue en revisión por parte del restaurante 🙌 En cuanto lo confirmen, te escribiré por aquí.";
+}
+
+export function buildCustomerOrderStatusMessage(order: {
+  status: OrderStatus;
+  fulfillmentType: "delivery" | "pickup";
+}): string {
+  switch (order.status) {
+    case "pending_restaurant_confirmation":
+    case "new":
+      return "Tu pedido está siendo revisado por el restaurante. En cuanto confirmen la disponibilidad, te avisaré por aquí.";
+    case "needs_customer_replacement":
+      return "Estamos esperando que elijas una alternativa para continuar con tu pedido. Revisa las opciones que te enviamos por este chat.";
+    case "payment_pending_review":
+      return "Ya recibimos tu comprobante y el restaurante está validando el pago. Te avisaré apenas quede confirmado.";
+    case "accepted":
+    case "preparing":
+      return "Tu pedido ya está siendo preparado por nuestro increíble chef. En cuanto esté listo, te avisaré por aquí.";
+    case "on_the_way":
+      return order.fulfillmentType === "delivery"
+        ? "Tu pedido ya salió en camino a tu domicilio. Dentro de poco podrás disfrutarlo. ¡Gracias por la espera!"
+        : "Tu pedido ya está listo para que lo recojas y lo disfrutes. ¡Te esperamos!";
+    case "delivered":
+      return order.fulfillmentType === "delivery"
+        ? "Tu pedido fue entregado. Esperamos que lo disfrutes. ¡Gracias por elegirnos!"
+        : "Tu pedido fue finalizado. Esperamos que lo hayas disfrutado. ¡Gracias por elegirnos!";
+    case "cancelled":
+      return "Tu pedido fue cancelado. Si necesitas ayuda o deseas hacer un nuevo pedido, escríbeme y con gusto te ayudo.";
+  }
 }
 
 export function buildLocationCapturedForLaterMessage(): string {
