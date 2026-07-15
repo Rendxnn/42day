@@ -164,6 +164,8 @@ export type OrderLineItem = {
   comboId?: string;
   menuItemId?: string;
   categorySnapshot?: string;
+  productImageUrl?: string;
+  productEmoji?: string;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -182,6 +184,7 @@ export type DraftOrder = {
   deliveryAddress?: string;
   deliveryAddressId?: string;
   customerAddressText?: string;
+  resolvedDeliveryAddress?: string;
   customerLatitude?: number;
   customerLongitude?: number;
   deliveryDistanceKm?: number;
@@ -212,6 +215,7 @@ export type Order = {
   deliveryAddress?: string;
   deliveryAddressId?: string;
   customerAddressText?: string;
+  resolvedDeliveryAddress?: string;
   customerLatitude?: number;
   customerLongitude?: number;
   deliveryDistanceKm?: number;
@@ -251,6 +255,7 @@ export type OrderSummary = {
   serviceTiming: ServiceTiming;
   scheduledFor?: string;
   customerAddressText?: string;
+  resolvedDeliveryAddress?: string;
   customerLatitude?: number;
   customerLongitude?: number;
   deliveryDistanceKm?: number;
@@ -297,6 +302,7 @@ export type OpenOrderSummary = {
   serviceTiming?: ServiceTiming;
   scheduledFor?: string;
   customerAddressText?: string;
+  resolvedDeliveryAddress?: string;
   paymentMethod?: PaymentMethod;
   subtotal: number;
   deliveryFee: number;

@@ -7,7 +7,7 @@ export function applyBillingDefaults(
   if (billing.type === "normal" && draft.fulfillmentType === "delivery" && draft.deliveryAddress) {
     return {
       ...billing,
-      billingAddress: billing.billingAddress ?? draft.deliveryAddress,
+      billingAddress: billing.billingAddress ?? draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress,
     };
   }
 

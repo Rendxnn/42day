@@ -30,11 +30,6 @@ export async function geocodeAddressWithGoogleMaps(input: {
   department?: string;
   country?: string;
 }): Promise<GoogleMapsGeocodeResult | null> {
-  const apiKey = input.env.GOOGLE_MAPS_GEOCODING_API_KEY?.trim();
-  if (!apiKey) {
-    return null;
-  }
-
   const queryText = [
     input.addressText,
     input.city,
@@ -49,8 +44,39 @@ export async function geocodeAddressWithGoogleMaps(input: {
     return null;
   }
 
+  return requestGoogleGeocode(input.env, { address: queryText }, queryText);
+}
+
+export async function reverseGeocodeCoordinatesWithGoogleMaps(input: {
+  env: ApiBindings;
+  latitude: number;
+  longitude: number;
+}): Promise<string | null> {
+  if (!Number.isFinite(input.latitude) || !Number.isFinite(input.longitude)) {
+    return null;
+  }
+
+  const result = await requestGoogleGeocode(
+    input.env,
+    { latlng: `${input.latitude},${input.longitude}` },
+    "",
+  );
+
+  return result?.formattedAddress ?? null;
+}
+
+async function requestGoogleGeocode(
+  env: ApiBindings,
+  query: Record<"address" | "latlng", string> | Partial<Record<"address" | "latlng", string>>,
+  fallbackAddress: string,
+): Promise<GoogleMapsGeocodeResult | null> {
+  const apiKey = env.GOOGLE_MAPS_GEOCODING_API_KEY?.trim();
+  if (!apiKey) return null;
+
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-  url.searchParams.set("address", queryText);
+  for (const [key, value] of Object.entries(query)) {
+    if (value) url.searchParams.set(key, value);
+  }
   url.searchParams.set("key", apiKey);
   url.searchParams.set("language", "es");
 
@@ -88,7 +114,7 @@ export async function geocodeAddressWithGoogleMaps(input: {
   return {
     latitude,
     longitude,
-    formattedAddress: firstResult.formatted_address?.trim() || queryText,
+    formattedAddress: firstResult.formatted_address?.trim() || fallbackAddress,
     confidence: resolveGeocodingConfidence(locationType, partialMatch),
     partialMatch,
   };

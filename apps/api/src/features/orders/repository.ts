@@ -14,6 +14,7 @@ export type OrderRow = {
   delivery_address?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
+  resolved_delivery_address?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   delivery_distance_km?: number | null;
@@ -78,6 +79,7 @@ export type DraftOrderRow = {
   delivery_address?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
+  resolved_delivery_address?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   delivery_distance_km?: number | null;
@@ -161,7 +163,7 @@ export async function loadPendingCustomerReplacementOrderContext(input: {
     table: "orders",
     query: {
       select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,resolved_delivery_address,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
       draft_order_id: `in.(${Array.from(candidateDraftIds).join(",")})`,
       status: "eq.needs_customer_replacement",
       order: "updated_at.desc",
@@ -180,7 +182,7 @@ export async function loadPendingCustomerReplacementOrderContext(input: {
           table: "draft_orders",
           query: {
             select:
-              "id,conversation_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,validation_errors,expires_at,created_at,updated_at",
+              "id,conversation_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,resolved_delivery_address,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,validation_errors,expires_at,created_at,updated_at",
             id: `eq.${order.draft_order_id}`,
             limit: 1,
           },

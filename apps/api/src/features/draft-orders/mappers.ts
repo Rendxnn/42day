@@ -54,6 +54,7 @@ export function mapDraftOrder(row: DraftOrderRow, items: OrderLineItem[]): Draft
     deliveryAddress: row.delivery_address ?? undefined,
     deliveryAddressId: row.delivery_address_id ?? undefined,
     customerAddressText: row.customer_address_text ?? undefined,
+    resolvedDeliveryAddress: row.resolved_delivery_address ?? undefined,
     customerLatitude: row.customer_latitude ?? undefined,
     customerLongitude: row.customer_longitude ?? undefined,
     deliveryDistanceKm: row.delivery_distance_km ?? undefined,

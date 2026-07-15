@@ -198,6 +198,9 @@ img {
 .delivery-coverage-map {
   height: clamp(300px, 48vw, 440px);
   background: #e7ece8;
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
 }
 
 .delivery-coverage-map--compact {

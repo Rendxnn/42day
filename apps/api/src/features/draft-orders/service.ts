@@ -263,6 +263,7 @@ export async function updateDraftOrderFulfillment(input: {
     patch.delivery_address = null;
     patch.delivery_address_id = null;
     patch.customer_address_text = null;
+    patch.resolved_delivery_address = null;
     patch.customer_latitude = null;
     patch.customer_longitude = null;
     patch.delivery_distance_km = null;
@@ -303,6 +304,7 @@ export async function updateDraftOrderDeliveryAddress(input: {
       delivery_address: input.addressText,
       delivery_address_id: input.deliveryAddressId ?? null,
       customer_address_text: input.addressText,
+      resolved_delivery_address: input.addressText,
     },
   });
 
@@ -326,6 +328,7 @@ export async function updateDraftOrderCoverage(input: {
   confidence?: DraftOrder["coverageConfidence"] | null;
   checkedAt?: string | null;
   customerAddressText?: string | null;
+  resolvedDeliveryAddress?: string | null;
   deliveryAddressId?: string | null;
   deliveryFeeFixed?: number;
 }): Promise<DraftOrder> {
@@ -344,6 +347,9 @@ export async function updateDraftOrderCoverage(input: {
       ...(input.customerAddressText !== undefined ? {
         customer_address_text: input.customerAddressText,
         delivery_address: input.customerAddressText,
+      } : {}),
+      ...(input.resolvedDeliveryAddress !== undefined ? {
+        resolved_delivery_address: input.resolvedDeliveryAddress,
       } : {}),
       ...(input.deliveryAddressId !== undefined ? { delivery_address_id: input.deliveryAddressId } : {}),
     },

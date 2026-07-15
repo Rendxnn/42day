@@ -167,6 +167,7 @@ export type OrderRow = {
   delivery_address?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
+  resolved_delivery_address?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   delivery_distance_km?: number | null;
@@ -213,6 +214,7 @@ export type DraftOrderRow = {
   delivery_address?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
+  resolved_delivery_address?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   delivery_distance_km?: number | null;

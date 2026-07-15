@@ -12,6 +12,7 @@ import {
   validateDeliveryCoverageFromWrittenAddress,
   validateDeliveryCoverageFromWhatsappLocation,
 } from "../../delivery-coverage/service";
+import { reverseGeocodeCoordinatesWithGoogleMaps } from "../../delivery-coverage/google-maps";
 import { startBillingStep } from "./billing";
 import { buildAddressValidationRetryPrompt, buildWrittenAddressHelpPrompt } from "./address-prompts";
 
@@ -71,6 +72,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         schemaName: input.tenant.schemaName,
         draftOrderId: draft.id,
         customerAddressText: address?.addressText ?? writtenAddressText,
+        resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
         validationMethod: "written_address_reference",
         confidence: "low",
@@ -110,6 +112,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         confidence: writtenAddressValidation.confidence,
         checkedAt: new Date().toISOString(),
         customerAddressText: address?.addressText ?? writtenAddressValidation.formattedAddress,
+        resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
         deliveryFeeFixed: menu.location?.deliveryFeeFixed,
       });
@@ -159,6 +162,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         schemaName: input.tenant.schemaName,
         draftOrderId: draft.id,
         customerAddressText: address?.addressText ?? writtenAddressText,
+        resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
         validationMethod: "written_address_reference",
         confidence: "low",
@@ -221,6 +225,20 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
     return true;
   }
 
+  let resolvedDeliveryAddress = resolvedAddressText;
+  try {
+    resolvedDeliveryAddress = await reverseGeocodeCoordinatesWithGoogleMaps({
+      env: input.env,
+      latitude: input.message.location!.latitude,
+      longitude: input.message.location!.longitude,
+    }) ?? resolvedAddressText;
+  } catch (error) {
+    console.warn("delivery_coverage.reverse_geocoding_failed", {
+      conversationId: input.conversation.id,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   let updatedDraft: DraftOrder;
   try {
     const validation = await validateDeliveryCoverageFromWhatsappLocation({
@@ -242,6 +260,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       confidence: validation.confidence,
       checkedAt: new Date().toISOString(),
       customerAddressText: resolvedAddressText,
+      resolvedDeliveryAddress,
       deliveryAddressId: address?.id,
       deliveryFeeFixed: menu.location?.deliveryFeeFixed,
     });
@@ -270,6 +289,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       confidence: "failed",
       checkedAt: new Date().toISOString(),
       customerAddressText: resolvedAddressText,
+      resolvedDeliveryAddress,
       deliveryAddressId: address?.id,
       deliveryFeeFixed: menu.location?.deliveryFeeFixed,
     });
@@ -297,7 +317,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
   await startBillingStep(input, {
     menu,
     draft: draftWithPayment,
-    prefix: buildAddressSavedPrompt(resolvedAddressText, "Perfecto, tenemos cobertura para tu ubicacion."),
+    prefix: buildAddressSavedPrompt(resolvedDeliveryAddress, "Perfecto, tenemos cobertura para tu ubicacion."),
   });
   return true;
 }

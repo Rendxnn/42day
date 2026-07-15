@@ -1189,6 +1189,9 @@ function OrderDetailPanel({
   const advanceLabel = order.fulfillmentType === "delivery"
     ? (locale === "en" ? "Mark as 30 min delivery" : "Marcar delivery 30 min")
     : (locale === "en" ? "Mark as ready for pickup" : "Marcar listo para recoger");
+  const billingHeaderName = order.billing?.type === "electronic"
+    ? order.billing.legalName?.trim()
+    : order.billing?.fullName?.trim();
   return (
     <div className="flex min-h-[420px] flex-col sm:min-h-[620px]">
       <div className="border-b border-[rgba(118,93,71,0.12)] px-4 py-5 sm:px-6">
@@ -1213,12 +1216,15 @@ function OrderDetailPanel({
               {selectedSummary?.customerNotificationStatus === "sent" && <NotificationBadge locale={locale} status="sent" />}
               {automation && !automation.effectiveEnabled ? <span className="inline-flex rounded-full bg-[rgba(197,123,87,0.14)] px-3 py-1 text-xs font-bold text-[var(--warning)]">{locale === "en" ? "Human intervention required" : "Requiere intervencion humana"}</span> : null}
             </div>
-            <h3 className="app-display mt-4 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.6rem]">
-              {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Order without visible customer" : "Pedido sin cliente visible")}
-            </h3>
-            <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">
+            {billingHeaderName ? <h3 className="app-display mt-4 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.6rem]">{billingHeaderName}</h3> : null}
+            <p className="mt-3 text-[1.05rem] leading-7 text-[var(--text-soft)]">
               {order.customerPhone || (locale === "en" ? "No phone" : "Sin telefono")} - {formatDateTime(order.createdAt, locale)}
             </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <InfoChip icon={order.fulfillmentType === "delivery" ? Truck : Store} label={order.fulfillmentType === "delivery" ? (locale === "en" ? "Delivery" : "Domicilio") : (locale === "en" ? "Pickup" : "Recoge en local")} />
+              <InfoChip icon={ClipboardList} label={order.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"} />
+              <InfoChip icon={Clock} label={order.serviceTiming === "scheduled" && order.scheduledFor ? formatDateTime(order.scheduledFor, locale) : (locale === "en" ? "As soon as possible" : "Lo antes posible")} />
+            </div>
             {confirmedStatuses.includes(order.status) ? (
               <OrderProgressRail fulfillmentType={order.fulfillmentType} locale={locale} status={order.status} />
             ) : null}
@@ -1235,7 +1241,7 @@ function OrderDetailPanel({
                 onToggle={() => onToggleAutomation(!automation.enabled)}
               />
             ) : null}
-            <div className="grid w-full grid-cols-2 gap-2 xl:[&>button]:!w-full">
+            <div className="grid w-full grid-cols-1 gap-2">
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -1243,6 +1249,7 @@ function OrderDetailPanel({
                 label={actionKey === `accept:${order.id}` ? (locale === "en" ? "Confirming..." : "Confirmando...") : (locale === "en" ? "Confirm order" : "Confirmar pedido")}
                 onClick={onAccept}
                 variant="primary"
+                className="!w-full"
               />
             )}
             {canConfirmPaymentProof && (
@@ -1252,6 +1259,7 @@ function OrderDetailPanel({
                 label={actionKey === `proof:confirm:${order.id}` ? (locale === "en" ? "Confirming payment..." : "Confirmando pago...") : (locale === "en" ? "Confirm payment" : "Confirmar pago")}
                 onClick={onConfirmPaymentProof}
                 variant="primary"
+                className="!w-full"
               />
             )}
             {canAdvanceConfirmed && (
@@ -1261,6 +1269,7 @@ function OrderDetailPanel({
                 label={actionKey === `status:${order.id}:on_the_way` ? (locale === "en" ? "Updating..." : "Actualizando...") : advanceLabel}
                 onClick={onAdvanceConfirmed}
                 variant="primary"
+                className="!w-full"
               />
             )}
             {canFinalize && (
@@ -1270,10 +1279,12 @@ function OrderDetailPanel({
                 label={actionKey === `status:${order.id}:delivered` ? (locale === "en" ? "Finishing..." : "Finalizando...") : (locale === "en" ? "Complete order" : "Finalizar pedido")}
                 onClick={onFinalize}
                 variant="primary"
+                className="!w-full"
               />
             )}
             {canReject && (
               <ActionButton
+                className="!w-full"
                 icon={MessageSquareWarning}
                 label={locale === "en" ? "Report out of stock" : "Reportar agotado"}
                 onClick={onOpenRejectModal}
@@ -1282,7 +1293,7 @@ function OrderDetailPanel({
             )}
             {whatsappUrl ? (
               <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
                 href={whatsappUrl}
                 rel="noreferrer"
                 target="_blank"
@@ -1292,7 +1303,7 @@ function OrderDetailPanel({
               </a>
             ) : (
               <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
                 disabled
                 type="button"
               >
@@ -1319,7 +1330,7 @@ function OrderDetailPanel({
               />
             )}
             {canCancel && (
-              <div className="col-span-2 mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2 xl:[&>button]:!w-full">
+              <div className="mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2">
                 <ActionButton
                   active={actionKey === `status:${order.id}:cancelled`}
                   icon={X}
@@ -1337,10 +1348,16 @@ function OrderDetailPanel({
       <div className="grid min-h-0 xl:grid-cols-[minmax(0,1fr)_310px]">
         <div className="divide-y divide-[rgba(118,93,71,0.12)]">
           <section className="px-4 py-5 sm:px-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <InfoChip icon={order.fulfillmentType === "delivery" ? Truck : Store} label={order.fulfillmentType === "delivery" ? (locale === "en" ? "Delivery" : "Domicilio") : (locale === "en" ? "Pickup" : "Recoge en local")} />
-              <InfoChip icon={ClipboardList} label={order.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"} />
-              <InfoChip icon={Clock} label={order.serviceTiming === "scheduled" && order.scheduledFor ? formatDateTime(order.scheduledFor, locale) : (locale === "en" ? "As soon as possible" : "Lo antes posible")} />
+            <div className="mb-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">{locale === "en" ? "Order items" : "Items del pedido"}</h4>
+                <p className="text-xs text-[var(--text-faint)]">{order.items.length} {locale === "en" ? "products" : "productos"}</p>
+              </div>
+              <div className="space-y-3">
+                {order.items.map((item, index) => (
+                  <OrderItemCard item={item} key={getOrderItemKey(item, index)} menuItems={menuItems} />
+                ))}
+              </div>
             </div>
             {order.fulfillmentType === "delivery" ? (
               <DeliveryCoverageDetail locale={locale} order={order} />
@@ -1365,18 +1382,6 @@ function OrderDetailPanel({
               </div>
             )}
           </section>
-          <section className="px-4 py-5 sm:px-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">{locale === "en" ? "Order items" : "Items del pedido"}</h4>
-              <p className="text-xs text-[var(--text-faint)]">{order.items.length} {locale === "en" ? "products" : "productos"}</p>
-            </div>
-            <div className="space-y-3">
-              {order.items.map((item, index) => (
-                <OrderItemCard item={item} key={getOrderItemKey(item, index)} menuItems={menuItems} />
-              ))}
-            </div>
-          </section>
-
           {order.status === "needs_customer_replacement" && (
             <section className="px-4 py-5 sm:px-6">
               <div className="rounded-[24px] border border-[rgba(197,123,87,0.18)] bg-[rgba(197,123,87,0.08)] p-5">
@@ -1891,9 +1896,10 @@ function DeliveryCoverageDetail({
   );
 }
 
-function getDisplayDeliveryAddress(order: Pick<OrderDetail, "customerAddressText" | "deliveryAddress">): string | undefined {
-  const value = order.customerAddressText?.trim() || order.deliveryAddress?.trim();
-  return value && !parseSharedLocationCoordinates(value) ? value : undefined;
+function getDisplayDeliveryAddress(order: Pick<OrderDetail, "customerAddressText" | "deliveryAddress" | "resolvedDeliveryAddress">): string | undefined {
+  const writtenAddress = order.customerAddressText?.trim() || order.deliveryAddress?.trim();
+  if (writtenAddress && !parseSharedLocationCoordinates(writtenAddress)) return writtenAddress;
+  return order.resolvedDeliveryAddress?.trim() || undefined;
 }
 
 function parseSharedLocationCoordinates(value?: string) {
@@ -1911,6 +1917,7 @@ function OrderItemCard({ item, menuItems }: { item: OrderLineItem; menuItems: Me
   return (
     <article className="rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[rgba(255,251,246,0.86)] p-4">
       <div className="flex items-start justify-between gap-3">
+        <OrderItemVisual item={item} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-[var(--text-strong)]">
             {item.quantity} x {item.name}
@@ -1923,6 +1930,19 @@ function OrderItemCard({ item, menuItems }: { item: OrderLineItem; menuItems: Me
         <p className="shrink-0 text-sm font-semibold text-[var(--text-strong)]">{formatPrice(item.lineTotal, locale)}</p>
       </div>
     </article>
+  );
+}
+
+function OrderItemVisual({ item }: { item: OrderLineItem }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const emoji = item.productEmoji?.trim() || "🍽️";
+
+  return (
+    <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--surface-muted)] text-xl" role="img" aria-label={item.name}>
+      {item.productImageUrl && !imageFailed ? (
+        <img alt="" className="h-full w-full object-cover" onError={() => setImageFailed(true)} src={item.productImageUrl} />
+      ) : emoji}
+    </span>
   );
 }
 
@@ -2056,12 +2076,14 @@ function SummaryRow({ emphasis = false, label, value }: { emphasis?: boolean; la
 
 function ActionButton({
   active = false,
+  className,
   icon: Icon,
   label,
   onClick,
   variant,
 }: {
   active?: boolean;
+  className?: string;
   icon: LucideIcon;
   label: string;
   onClick: () => void;
@@ -2075,7 +2097,7 @@ function ActionButton({
 
   return (
     <button
-      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition sm:w-auto ${palette}`}
+      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition sm:w-auto ${palette} ${className ?? ""}`}
       disabled={active}
       onClick={onClick}
       type="button"

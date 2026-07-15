@@ -5,7 +5,7 @@ import type { ApiBindings } from "../../../../lib/bindings";
 import { isMissingTableError } from "../../../../shared/errors/supabase";
 import { getLatestPaymentProofForOrder } from "../../../payment-proofs/service";
 import { mapConversationAutomation, mapOrderLineItem, mapOrderSummary } from "../../support/orders";
-import type { ConversationRow, CustomerRow, DashboardVariables, DraftOrderRow, LocationRow, OrderItemRow, OrderRow } from "../../types";
+import type { ConversationRow, CustomerRow, DashboardVariables, DraftOrderRow, LocationRow, OrderItemRow, OrderRow, ProductRow } from "../../types";
 import { CONVERSATION_SELECT, CUSTOMER_SELECT, DRAFT_ORDER_SELECT, ORDER_ITEM_SELECT, ORDER_SELECT } from "./contracts";
 
 export function registerOrdersDetailRoute(routes: Hono<{
@@ -78,6 +78,15 @@ export function registerOrdersDetailRoute(routes: Hono<{
         },
       }).catch(() => [] as LocationRow[]) : Promise.resolve([] as LocationRow[]),
     ]);
+    const productIds = Array.from(new Set(items.flatMap((item) => item.product_id ? [item.product_id] : [])));
+    const products = productIds.length > 0
+      ? await supabase.select<Pick<ProductRow, "id" | "emoji" | "image_url">>({
+          schema: tenant.schema_name,
+          table: "products",
+          query: { select: "id,emoji,image_url", id: `in.(${productIds.join(",")})` },
+        }).catch(() => [] as Array<Pick<ProductRow, "id" | "emoji" | "image_url">>)
+      : [];
+    const visualsByProductId = new Map(products.map((product) => [product.id, product]));
     const draftOrder = draftOrders[0];
     const conversations = draftOrder?.conversation_id
       ? await supabase.select<ConversationRow>({
@@ -100,7 +109,14 @@ export function registerOrdersDetailRoute(routes: Hono<{
         : undefined,
       deliveryAddress: order.delivery_address ?? undefined,
       deliveryAddressId: order.delivery_address_id ?? undefined,
-      items: items.map(mapOrderLineItem),
+      items: items.map((item) => {
+        const product = item.product_id ? visualsByProductId.get(item.product_id) : undefined;
+        return {
+          ...mapOrderLineItem(item),
+          productImageUrl: product?.image_url ?? undefined,
+          productEmoji: product?.emoji ?? undefined,
+        };
+      }),
       paymentProof,
       conversationId: conversations[0]?.id,
       conversationAutomation: conversations[0] ? mapConversationAutomation(conversations[0]) : undefined,

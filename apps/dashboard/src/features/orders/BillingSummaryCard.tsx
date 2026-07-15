@@ -8,6 +8,7 @@ export function BillingSummaryCard({
   order: OrderDetail;
 }) {
   const billing = order.billing;
+  const billingAddress = getBillingAddress(order);
 
   return (
     <>
@@ -31,12 +32,31 @@ export function BillingSummaryCard({
         ) : (
           <>
             <SummaryRow label={locale === "en" ? "Full name" : "Nombre completo"} value={billing?.fullName || "-"} />
-            <SummaryRow label={locale === "en" ? "Address" : "Direccion"} value={billing?.billingAddress || "-"} />
+            <SummaryRow label={locale === "en" ? "Address" : "Direccion"} value={billingAddress || "-"} />
           </>
         )}
       </div>
     </>
   );
+}
+
+function getBillingAddress(order: OrderDetail): string | undefined {
+  const explicitBillingAddress = order.billing?.billingAddress?.trim();
+  if (explicitBillingAddress && !looksLikeCoordinateAddress(explicitBillingAddress)) {
+    return explicitBillingAddress;
+  }
+
+  const writtenDeliveryAddress = order.customerAddressText?.trim();
+  if (writtenDeliveryAddress && !looksLikeCoordinateAddress(writtenDeliveryAddress)) {
+    return writtenDeliveryAddress;
+  }
+
+  return order.resolvedDeliveryAddress?.trim() || undefined;
+}
+
+function looksLikeCoordinateAddress(value: string): boolean {
+  return /ubicaci[oó]n compartida\s*:\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?/i.test(value)
+    || /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value);
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {

@@ -26,6 +26,7 @@ type OrderRow = {
   delivery_address?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
+  resolved_delivery_address?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   delivery_distance_km?: number | null;
@@ -143,6 +144,7 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
       delivery_address: input.draft.deliveryAddress ?? null,
       delivery_address_id: input.draft.deliveryAddressId ?? null,
       customer_address_text: input.draft.customerAddressText ?? input.draft.deliveryAddress ?? null,
+      resolved_delivery_address: input.draft.resolvedDeliveryAddress ?? input.draft.customerAddressText ?? input.draft.deliveryAddress ?? null,
       customer_latitude: input.draft.customerLatitude ?? null,
       customer_longitude: input.draft.customerLongitude ?? null,
       delivery_distance_km: input.draft.deliveryDistanceKm ?? null,

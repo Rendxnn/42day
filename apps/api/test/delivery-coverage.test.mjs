@@ -9,6 +9,7 @@ import {
   parseDeliveryCoverageSettingsUpdate,
   validateDeliveryCoverageFromWrittenAddress,
 } from "../src/features/delivery-coverage/service.ts";
+import { reverseGeocodeCoordinatesWithGoogleMaps } from "../src/features/delivery-coverage/google-maps.ts";
 
 const baseSettings = {
   locationId: "location-1",
@@ -160,6 +161,34 @@ test("no geocodifica direcciones escritas cuando el restaurante lo desactiva", a
     });
     assert.equal(result, null);
     assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resuelve y devuelve una direccion legible para una ubicacion compartida", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({
+      status: "OK",
+      results: [{
+        formatted_address: "Carrera 43A # 61 Sur-44, Sabaneta, Antioquia, Colombia",
+        geometry: { location: { lat: 6.1512, lng: -75.6167 }, location_type: "ROOFTOP" },
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const address = await reverseGeocodeCoordinatesWithGoogleMaps({
+      env: { GOOGLE_MAPS_GEOCODING_API_KEY: "google-key" },
+      latitude: 6.1512,
+      longitude: -75.6167,
+    });
+    assert.equal(address, "Carrera 43A # 61 Sur-44, Sabaneta, Antioquia, Colombia");
+    assert.match(requestedUrl, /latlng=6.1512%2C-75.6167/);
+    assert.doesNotMatch(requestedUrl, /address=/);
   } finally {
     globalThis.fetch = originalFetch;
   }
