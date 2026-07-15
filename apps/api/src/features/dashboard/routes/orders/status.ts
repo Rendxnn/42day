@@ -3,9 +3,9 @@ import type { OrderStatus } from "@42day/types";
 import { createSupabaseRestClient } from "../../../../lib/supabase-rest";
 import type { ApiBindings } from "../../../../lib/bindings";
 import { isMissingTableError } from "../../../../shared/errors/supabase";
-import { mapOrderSummary } from "../../support/orders";
-import type { CustomerRow, DashboardVariables, OrderRow } from "../../types";
-import { CUSTOMER_SELECT } from "./contracts";
+import { loadOrderNotificationContext, mapOrderSummary } from "../../support/orders";
+import { buildOrderStatusNotification, sendOrderCustomerNotification } from "../../support/notifications";
+import type { DashboardVariables, OrderRow } from "../../types";
 
 export function registerOrdersStatusRoute(routes: Hono<{
   Bindings: ApiBindings;
@@ -18,6 +18,10 @@ export function registerOrdersStatusRoute(routes: Hono<{
       restaurantConfirmed?: boolean;
       paymentConfirmed?: boolean;
     }>();
+    const currentContext = await loadOrderNotificationContext(c.env, tenant.schema_name, c.req.param("orderId"));
+    if (!currentContext) {
+      return c.json({ error: "order_not_found" }, 404);
+    }
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
       updated_at: now,
@@ -64,16 +68,19 @@ export function registerOrdersStatusRoute(routes: Hono<{
       return c.json({ error: "order_not_found" }, 404);
     }
 
-    const [customer] = await createSupabaseRestClient(c.env).select<CustomerRow>({
-      schema: tenant.schema_name,
-      table: "customers",
-      query: {
-        select: CUSTOMER_SELECT,
-        id: `eq.${order.customer_id}`,
-        limit: 1,
-      },
-    });
+    const notification = body.status && body.status !== currentContext.order.status
+      ? buildOrderStatusNotification(order)
+      : null;
+    const finalOrder = notification
+      ? await sendOrderCustomerNotification({
+          env: c.env,
+          schemaName: tenant.schema_name,
+          context: { ...currentContext, order },
+          notification: { kind: "text", text: notification },
+          notificationType: "order_status",
+        })
+      : order;
 
-    return c.json(mapOrderSummary(order, customer));
+    return c.json(mapOrderSummary(finalOrder, currentContext.customer));
   });
 }

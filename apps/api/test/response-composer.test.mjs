@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildCustomerOrderStatusMessage, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -101,4 +101,17 @@ test("la confirmacion incluye entrega, facturacion y pago acumulados", () => {
   assert.match(message, /Samuel Rendon/);
   assert.match(message, /Dirección de facturación: Carrera 7 # 12-34/);
   assert.match(message, /Pago: efectivo/);
+});
+
+test("explica que el pedido de delivery va en camino", () => {
+  const message = buildCustomerOrderStatusMessage({ status: "on_the_way", fulfillmentType: "delivery" });
+
+  assert.match(message, /salió en camino/i);
+  assert.match(message, /domicilio/i);
+});
+
+test("explica que el pedido para recoger está listo", () => {
+  const message = buildCustomerOrderStatusMessage({ status: "on_the_way", fulfillmentType: "pickup" });
+
+  assert.match(message, /listo para que lo recojas/i);
 });

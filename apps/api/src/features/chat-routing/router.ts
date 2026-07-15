@@ -1,4 +1,5 @@
 import { normalizeText } from "../../modules/message-router/message-normalizer";
+import { detectSignals } from "../../modules/message-router/signal-detector";
 import { classifyDeliveryAddressText } from "../delivery-coverage/address-text";
 import {
   buildClarificationPrompt,
@@ -12,6 +13,7 @@ import {
 import { handleTransferProofClarification, tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
 import { tryHandleSemanticOrder } from "./semantic/order";
 import { handleClarification } from "./manual/handoff";
+import { handleCustomerOrderStatus } from "./order-status";
 import { logRoutingDiagnostic } from "./shared/tracing";
 import {
   tryHandleDeliveryAddress,
@@ -50,6 +52,15 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
       conversationId: input.conversation.id,
       providerMessageId: input.message.providerMessageId,
     });
+    return;
+  }
+
+  const signals = detectSignals({
+    message: input.message,
+    state: input.conversation.state,
+  });
+  if (signals.wantsOrderStatus) {
+    await handleCustomerOrderStatus(input);
     return;
   }
 

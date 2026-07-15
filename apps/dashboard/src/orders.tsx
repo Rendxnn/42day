@@ -2312,7 +2312,6 @@ function openWhatsAppConversation(whatsappUrl?: string) {
 }
 
 function getConversationStateLabel(state: string, locale: "en" | "es") {
-  const normalized = state.replace(/_/g, " ");
   const labels: Record<string, string> = {
     browsing: locale === "en" ? "Browsing" : "Explorando",
     collecting_order: locale === "en" ? "Taking order" : "Tomando pedido",
@@ -2320,8 +2319,18 @@ function getConversationStateLabel(state: string, locale: "en" | "es") {
     collecting_payment: locale === "en" ? "Payment" : "Pago",
     waiting_customer: locale === "en" ? "Waiting customer" : "Esperando cliente",
     manual_intervention: locale === "en" ? "Manual review" : "Revision manual",
+    awaiting_restaurant_confirmation: locale === "en" ? "Restaurant review" : "En revisión del restaurante",
+    awaiting_replacement_selection: locale === "en" ? "Choosing replacement" : "Eligiendo alternativa",
+    awaiting_product_configuration: locale === "en" ? "Choosing product options" : "Eligiendo opciones",
+    awaiting_more_items: locale === "en" ? "Adding products" : "Agregando productos",
+    awaiting_fulfillment_type: locale === "en" ? "Choosing delivery" : "Definiendo entrega",
+    awaiting_address: locale === "en" ? "Confirming address" : "Confirmando dirección",
+    awaiting_payment_method: locale === "en" ? "Choosing payment" : "Eligiendo pago",
+    awaiting_confirmation: locale === "en" ? "Confirming order" : "Confirmando pedido",
+    awaiting_transfer_proof: locale === "en" ? "Awaiting proof" : "Esperando comprobante",
+    completed: locale === "en" ? "Order completed" : "Pedido finalizado",
   };
-  return labels[state] ?? normalized;
+  return labels[state] ?? (locale === "en" ? "Conversation in progress" : "Conversación en curso");
 }
 
 function matchesFilter(order: OrderSummary, filter: OrdersFilter) {

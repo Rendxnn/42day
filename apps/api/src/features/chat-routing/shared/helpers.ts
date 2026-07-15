@@ -119,6 +119,7 @@ export function buildEmptyDetectedSignals(text: string | undefined): DetectedSig
     numericSelection: null,
     isGreeting: false,
     wantsMenu: false,
+    wantsOrderStatus: false,
     humanRequested: false,
     fulfillmentType: null,
     paymentMethod: null,

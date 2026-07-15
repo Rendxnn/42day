@@ -7,6 +7,7 @@ export type DetectedSignals = {
   numericSelection: number | null;
   isGreeting: boolean;
   wantsMenu: boolean;
+  wantsOrderStatus: boolean;
   humanRequested: boolean;
   fulfillmentType: DraftOrder["fulfillmentType"] | null;
   paymentMethod: PaymentMethod | null;
@@ -35,6 +36,7 @@ export function detectSignals(input: {
     numericSelection: parseNumericSelection(text),
     isGreeting: matchesGreeting(text),
     wantsMenu: wantsMenu(text),
+    wantsOrderStatus: wantsOrderStatus(text),
     humanRequested: wantsHuman(text),
     fulfillmentType,
     paymentMethod,
@@ -228,6 +230,17 @@ function looksLikeAddressText(
   }
 
   return deliveryAddressKind === "structured_address";
+}
+
+function wantsOrderStatus(text: string): boolean {
+  return [
+    /como va (mi |el )?pedido/,
+    /como va (mi |la )?orden/,
+    /estado (de )?(mi |el )?pedido/,
+    /donde va (mi |el )?pedido/,
+    /cuando (llega|sale) (mi |el )?pedido/,
+    /mi pedido (ya )?(salio|llego|esta listo|va en camino)/,
+  ].some((pattern) => pattern.test(text));
 }
 
 function parseNumericSelection(text: string): number | null {
