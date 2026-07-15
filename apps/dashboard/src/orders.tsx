@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import type { ConversationAutomation, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
   DashboardApiError,
-  getDeliveryCoverageSettings,
   getOrder,
   getOrderPaymentProof,
   listOrders,
   rejectOrderOutOfStock,
   retryOrderCustomerNotification,
+  updateConversationAutomation,
   updateOrderStatus,
 } from "./api";
 import {
   AlertCircle,
   Check,
+  Clock,
   ChevronRight,
   ClipboardList,
   ExternalLink,
@@ -29,6 +30,11 @@ import type { LucideIcon } from "lucide-react";
 import { BillingSummaryCard } from "./features/orders/BillingSummaryCard";
 import { OrderMetaCard } from "./features/orders/OrderMetaCard";
 import { formatDashboardDateTime, formatDashboardPrice } from "./i18n";
+
+const DeliveryCoverageMap = lazy(async () => {
+  const module = await import("./features/configuration/DeliveryCoverageMap");
+  return { default: module.DeliveryCoverageMap };
+});
 
 type OrdersViewProps = {
   locale: "en" | "es";
@@ -89,7 +95,8 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   const [modalOrder, setModalOrder] = useState<OrderDetail | null>(null);
   const [cancelOrderCandidate, setCancelOrderCandidate] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [deliveryRadiusKm, setDeliveryRadiusKm] = useState<number | undefined>();
+  const [openConversationDetail, setOpenConversationDetail] = useState<OpenOrderSummary | null>(null);
+  const [automationConfirmation, setAutomationConfirmation] = useState<ConversationAutomation | null>(null);
 
   const loadOrders = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
@@ -172,18 +179,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
       window.clearInterval(intervalId);
     };
   }, [loadOrders, tenantSlug]);
-
-  useEffect(() => {
-    let active = true;
-    getDeliveryCoverageSettings(tenantSlug)
-      .then((settings) => {
-        if (active) setDeliveryRadiusKm(settings.deliveryRadiusKm);
-      })
-      .catch(() => {
-        if (active) setDeliveryRadiusKm(undefined);
-      });
-    return () => { active = false; };
-  }, [tenantSlug]);
 
   const allOrders = payload?.orders ?? [];
   const openOrders = payload?.openOrders ?? [];
@@ -268,6 +263,42 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
 
   const selectedSummary = filteredOrders.find((order) => order.id === selectedOrderId)
     ?? allOrders.find((order) => order.id === selectedOrderId);
+
+  async function applyConversationAutomation(automation: ConversationAutomation, enabled: boolean) {
+    if (!tenantSlug) return;
+    setActionKey(`automation:${automation.conversationId}`);
+    try {
+      const updated = await updateConversationAutomation(tenantSlug, automation.conversationId, enabled, automation.updatedAt);
+      setSelectedOrder((current) => current ? { ...current, conversationAutomation: updated, conversationId: updated.conversationId } : current);
+      setOpenConversationDetail((current) => current ? { ...current, conversationAutomation: updated, conversationId: updated.conversationId, conversationState: updated.state, updatedAt: updated.updatedAt } : current);
+      setPayload((current) => current ? { ...current, openOrders: current.openOrders.map((entry) => entry.conversationId === updated.conversationId ? { ...entry, conversationAutomation: updated, conversationState: updated.state, updatedAt: updated.updatedAt } : entry) } : current);
+      void loadOrders();
+      onNotify(enabled ? (locale === "en" ? "Automation resumed for this conversation." : "Automatizacion reactivada para esta conversacion.") : (locale === "en" ? "Automation paused for this conversation." : "Automatizacion pausada para esta conversacion."));
+    } catch (error) {
+      if (error instanceof DashboardApiError && error.backendError === "conversation_stale") {
+        onNotify(locale === "en"
+          ? "The customer or another operator changed this conversation. Review the latest state."
+          : "El cliente u otro operador cambio esta conversacion. Revisa el estado mas reciente.");
+      } else {
+      onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not update conversation automation." : "No se pudo actualizar la automatizacion de la conversacion.", locale));
+      }
+      if (selectedOrder?.conversationId === automation.conversationId) {
+        void loadOrderDetail(selectedOrder.id);
+      }
+      void loadOrders("refresh");
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  function requestConversationAutomation(automation: ConversationAutomation | undefined, enabled: boolean) {
+    if (!automation) return;
+    if (!enabled) {
+      setAutomationConfirmation(automation);
+      return;
+    }
+    void applyConversationAutomation(automation, true);
+  }
 
   async function refreshAfterMutation(targetOrderId?: string) {
     await loadOrders("refresh");
@@ -516,9 +547,12 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
             <div className="app-scrollbar max-h-none space-y-3 overflow-y-auto p-3 sm:p-4 xl:max-h-[780px]">
               {openOrders.map((order) => (
                 <OpenConversationCard
+                  actionKey={actionKey}
                   key={order.id}
                   locale={locale}
+                  onOpenDetail={() => setOpenConversationDetail(order)}
                   onOpenLinkedOrder={order.linkedOrderId ? () => openLinkedOrderFromOpenStage(order) : undefined}
+                  onToggleAutomation={(enabled) => requestConversationAutomation(order.conversationAutomation, enabled)}
                   order={order}
                 />
               ))}
@@ -651,7 +685,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                         <p className="mt-1 text-xs leading-5 text-[var(--text-faint)]">
                           {formatDateTime(order.createdAt, locale)}
                         </p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{getFulfillmentLabel(order, locale)}</p>
+                        <OrderSummaryIconChips locale={locale} order={order} />
                         {filter === "confirmed" ? (
                           <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                             acceptedStage
@@ -703,7 +737,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
           ) : selectedOrder ? (
             <OrderDetailPanel
               actionKey={actionKey}
-              deliveryRadiusKm={deliveryRadiusKm}
               menuItems={menuItems}
               onAccept={() => void handleAccept(selectedOrder.id)}
               onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -713,6 +746,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
               onOpenRejectModal={() => setModalOrder(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
               onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
+              onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
               order={selectedOrder}
               selectedSummary={selectedSummary}
             />
@@ -732,7 +766,6 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
             ) : selectedOrder ? (
               <OrderDetailPanel
                 actionKey={actionKey}
-                deliveryRadiusKm={deliveryRadiusKm}
                 menuItems={menuItems}
                 onAccept={() => void handleAccept(selectedOrder.id)}
                 onAdvanceConfirmed={() => void handleAdvanceConfirmed(selectedOrder)}
@@ -743,10 +776,38 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                 onOpenRejectModal={() => setModalOrder(selectedOrder)}
                 onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
                 onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
+                onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
                 order={selectedOrder}
                 selectedSummary={selectedSummary}
               />
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {openConversationDetail ? (
+        <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.58)] p-3 backdrop-blur-sm sm:place-items-center" onClick={() => setOpenConversationDetail(null)}>
+          <div className="app-panel w-full max-w-xl rounded-[28px] p-5" onClick={(event) => event.stopPropagation()}>
+            <OpenConversationDetailPanel
+              actionKey={actionKey}
+              locale={locale}
+              onClose={() => setOpenConversationDetail(null)}
+              onToggleAutomation={(enabled) => requestConversationAutomation(openConversationDetail.conversationAutomation, enabled)}
+              order={openConversationDetail}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {automationConfirmation ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(14,11,9,0.58)] p-4 backdrop-blur-sm">
+          <div className="app-panel w-full max-w-md rounded-[28px] p-6">
+            <p className="app-display text-2xl text-[var(--text-strong)]">{locale === "en" ? "Pause bot replies?" : "¿Pausar respuestas del bot?"}</p>
+            <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">{locale === "en" ? "The bot will not respond to the customer’s next messages until staff turns automation back on." : "El bot no respondera los proximos mensajes del cliente hasta que el equipo reactive la automatizacion."}</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button className="rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 py-2 text-sm font-semibold text-[var(--text-soft)]" onClick={() => setAutomationConfirmation(null)} type="button">{locale === "en" ? "Cancel" : "Cancelar"}</button>
+              <button className="rounded-2xl bg-[var(--warning)] px-4 py-2 text-sm font-bold text-white" onClick={() => { const automation = automationConfirmation; setAutomationConfirmation(null); void applyConversationAutomation(automation, false); }} type="button">{locale === "en" ? "Pause automation" : "Pausar automatizacion"}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -832,14 +893,21 @@ function ClosedOrdersFilter({
 }
 
 function OpenConversationCard({
+  actionKey,
   locale,
+  onOpenDetail,
   onOpenLinkedOrder,
+  onToggleAutomation,
   order,
 }: {
+  actionKey: string;
   locale: "en" | "es";
+  onOpenDetail: () => void;
   onOpenLinkedOrder?: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
   order: OpenOrderSummary;
 }) {
+  const automation = order.conversationAutomation;
   return (
     <article className="rounded-[20px] border border-[rgba(137,164,196,0.18)] bg-[rgba(255,251,246,0.92)] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -850,6 +918,11 @@ function OpenConversationCard({
           {order.conversationState ? (
             <span className="inline-flex items-center rounded-full bg-[rgba(118,93,71,0.08)] px-3 py-1 text-xs font-semibold text-[var(--text-soft)]">
               {getConversationStateLabel(order.conversationState, locale)}
+            </span>
+          ) : null}
+          {automation && !automation.effectiveEnabled ? (
+            <span className="inline-flex items-center rounded-full bg-[rgba(197,123,87,0.14)] px-3 py-1 text-xs font-bold text-[var(--warning)]">
+              {locale === "en" ? "Human review" : "Revision humana"}
             </span>
           ) : null}
         </div>
@@ -879,6 +952,22 @@ function OpenConversationCard({
             : (locale === "en" ? "Conversation started" : "Conversacion iniciada")}
         </span>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {automation ? (
+            <AutomationSwitch
+              busy={actionKey === `automation:${automation.conversationId}`}
+              enabled={automation.enabled}
+              locale={locale}
+              onToggle={() => onToggleAutomation(!automation.enabled)}
+            />
+          ) : null}
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.14)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]"
+            onClick={onOpenDetail}
+            type="button"
+          >
+            <ClipboardList size={15} />
+            {locale === "en" ? "Details" : "Detalle"}
+          </button>
           {onOpenLinkedOrder ? (
             <button
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.14)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]"
@@ -968,7 +1057,7 @@ function OperationalOrderCard({
       <p className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-[var(--text-strong)]">
         {getOrderItemsSummary(order.items, locale)}
       </p>
-      <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{getOperationalFulfillmentLabel(order, locale)}</p>
+      <OrderSummaryIconChips locale={locale} order={order} />
       {closedStatuses.includes(order.status) ? (
         <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
           {locale === "en" ? "Closed" : "Cerrado"}: {formatDateTime(order.updatedAt, locale)}
@@ -1055,7 +1144,6 @@ function OperationalOrderCard({
 
 function OrderDetailPanel({
   actionKey,
-  deliveryRadiusKm,
   menuItems,
   onAccept,
   onAdvanceConfirmed,
@@ -1066,11 +1154,11 @@ function OrderDetailPanel({
   onOpenRejectModal,
   onRetry,
   onViewPaymentProof,
+  onToggleAutomation,
   order,
   selectedSummary,
 }: {
   actionKey: string;
-  deliveryRadiusKm?: number;
   menuItems: MenuItem[];
   onAccept: () => void;
   onAdvanceConfirmed: () => void;
@@ -1081,6 +1169,7 @@ function OrderDetailPanel({
   onOpenRejectModal: () => void;
   onRetry: () => void;
   onViewPaymentProof: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
   order: OrderDetail;
   selectedSummary?: OrderSummary;
 }) {
@@ -1095,6 +1184,7 @@ function OrderDetailPanel({
   const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
   const whatsappUrl = selectedSummary?.whatsappUrl ?? order.whatsappUrl;
   const replacementOptions = order.restaurantReviewMetadata?.replacementMenuItems ?? [];
+  const automation = order.conversationAutomation;
   const unavailableItems = order.restaurantReviewMetadata?.unavailableItems ?? [];
   const advanceLabel = order.fulfillmentType === "delivery"
     ? (locale === "en" ? "Mark as 30 min delivery" : "Marcar delivery 30 min")
@@ -1116,11 +1206,12 @@ function OrderDetailPanel({
           </div>
         ) : null}
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
+          <div className="min-w-0 xl:flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <OrderStatusBadge locale={locale} status={order.status} />
               {notificationFailed && <NotificationBadge locale={locale} status="failed" />}
               {selectedSummary?.customerNotificationStatus === "sent" && <NotificationBadge locale={locale} status="sent" />}
+              {automation && !automation.effectiveEnabled ? <span className="inline-flex rounded-full bg-[rgba(197,123,87,0.14)] px-3 py-1 text-xs font-bold text-[var(--warning)]">{locale === "en" ? "Human intervention required" : "Requiere intervencion humana"}</span> : null}
             </div>
             <h3 className="app-display mt-4 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.6rem]">
               {order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Order without visible customer" : "Pedido sin cliente visible")}
@@ -1128,33 +1219,23 @@ function OrderDetailPanel({
             <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">
               {order.customerPhone || (locale === "en" ? "No phone" : "Sin telefono")} - {formatDateTime(order.createdAt, locale)}
             </p>
-            <p className="mt-1 text-sm leading-7 text-[var(--text-soft)]">{getFulfillmentLabel(order, locale)}</p>
             {confirmedStatuses.includes(order.status) ? (
               <OrderProgressRail fulfillmentType={order.fulfillmentType} locale={locale} status={order.status} />
             ) : null}
           </div>
 
-          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
-            {whatsappUrl ? (
-              <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
-                href={whatsappUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <ExternalLink size={16} />
-                {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
-              </a>
-            ) : (
-              <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
-                disabled
-                type="button"
-              >
-                <ExternalLink size={16} />
-                {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
-              </button>
-            )}
+          <div className="flex w-full flex-col gap-4 xl:w-[300px] xl:shrink-0 xl:items-end">
+            {automation ? (
+              <AutomationSwitch
+                busy={actionKey === `automation:${automation.conversationId}`}
+                className="w-full"
+                disabled={automation.terminal}
+                enabled={automation.enabled}
+                locale={locale}
+                onToggle={() => onToggleAutomation(!automation.enabled)}
+              />
+            ) : null}
+            <div className="grid w-full grid-cols-2 gap-2 xl:[&>button]:!w-full">
             {canAccept && (
               <ActionButton
                 active={actionKey === `accept:${order.id}`}
@@ -1162,32 +1243,6 @@ function OrderDetailPanel({
                 label={actionKey === `accept:${order.id}` ? (locale === "en" ? "Confirming..." : "Confirmando...") : (locale === "en" ? "Confirm order" : "Confirmar pedido")}
                 onClick={onAccept}
                 variant="primary"
-              />
-            )}
-            {canReject && (
-              <ActionButton
-                icon={MessageSquareWarning}
-                label={locale === "en" ? "Report out of stock" : "Reportar agotado"}
-                onClick={onOpenRejectModal}
-                variant="secondary"
-              />
-            )}
-            {canRetry && (
-              <ActionButton
-                active={actionKey === `retry:${order.id}`}
-                icon={RefreshCcw}
-                label={actionKey === `retry:${order.id}` ? (locale === "en" ? "Sending again..." : "Reenviando...") : (locale === "en" ? "Retry WhatsApp" : "Reenviar WhatsApp")}
-                onClick={onRetry}
-                variant="warning"
-              />
-            )}
-            {order.paymentProof && (
-              <ActionButton
-                active={actionKey === `proof:view:${order.id}`}
-                icon={ClipboardList}
-                label={actionKey === `proof:view:${order.id}` ? (locale === "en" ? "Opening..." : "Abriendo...") : (locale === "en" ? "View proof" : "Ver comprobante")}
-                onClick={onViewPaymentProof}
-                variant="secondary"
               />
             )}
             {canConfirmPaymentProof && (
@@ -1217,15 +1272,64 @@ function OrderDetailPanel({
                 variant="primary"
               />
             )}
-            {canCancel && (
+            {canReject && (
               <ActionButton
-                active={actionKey === `status:${order.id}:cancelled`}
-                icon={X}
-                label={actionKey === `status:${order.id}:cancelled` ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Cancel order" : "Cancelar pedido")}
-                onClick={onCancel}
+                icon={MessageSquareWarning}
+                label={locale === "en" ? "Report out of stock" : "Reportar agotado"}
+                onClick={onOpenRejectModal}
+                variant="secondary"
+              />
+            )}
+            {whatsappUrl ? (
+              <a
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(79,122,97,0.2)] px-4 text-sm font-semibold text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]"
+                href={whatsappUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"}
+              </a>
+            ) : (
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-faint)]"
+                disabled
+                type="button"
+              >
+                <ExternalLink size={16} />
+                {locale === "en" ? "No WhatsApp" : "Sin WhatsApp"}
+              </button>
+            )}
+            {canRetry && (
+              <ActionButton
+                active={actionKey === `retry:${order.id}`}
+                icon={RefreshCcw}
+                label={actionKey === `retry:${order.id}` ? (locale === "en" ? "Sending again..." : "Reenviando...") : (locale === "en" ? "Retry WhatsApp" : "Reenviar WhatsApp")}
+                onClick={onRetry}
                 variant="warning"
               />
             )}
+            {order.paymentProof && (
+              <ActionButton
+                active={actionKey === `proof:view:${order.id}`}
+                icon={ClipboardList}
+                label={actionKey === `proof:view:${order.id}` ? (locale === "en" ? "Opening..." : "Abriendo...") : (locale === "en" ? "View proof" : "Ver comprobante")}
+                onClick={onViewPaymentProof}
+                variant="secondary"
+              />
+            )}
+            {canCancel && (
+              <div className="col-span-2 mt-2 border-t border-[rgba(118,93,71,0.12)] pt-2 xl:[&>button]:!w-full">
+                <ActionButton
+                  active={actionKey === `status:${order.id}:cancelled`}
+                  icon={X}
+                  label={actionKey === `status:${order.id}:cancelled` ? (locale === "en" ? "Cancelling..." : "Cancelando...") : (locale === "en" ? "Cancel order" : "Cancelar pedido")}
+                  onClick={onCancel}
+                  variant="warning"
+                />
+              </div>
+            )}
+            </div>
           </div>
         </div>
       </div>
@@ -1236,14 +1340,10 @@ function OrderDetailPanel({
             <div className="flex flex-wrap items-center gap-3">
               <InfoChip icon={order.fulfillmentType === "delivery" ? Truck : Store} label={order.fulfillmentType === "delivery" ? (locale === "en" ? "Delivery" : "Domicilio") : (locale === "en" ? "Pickup" : "Recoge en local")} />
               <InfoChip icon={ClipboardList} label={order.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"} />
+              <InfoChip icon={Clock} label={order.serviceTiming === "scheduled" && order.scheduledFor ? formatDateTime(order.scheduledFor, locale) : (locale === "en" ? "As soon as possible" : "Lo antes posible")} />
             </div>
-            {order.deliveryAddress && (
-              <p className="mt-5 text-sm leading-7 text-[var(--text-soft)]">
-                <span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {order.deliveryAddress}
-              </p>
-            )}
             {order.fulfillmentType === "delivery" ? (
-              <DeliveryCoverageDetail deliveryRadiusKm={deliveryRadiusKm} locale={locale} order={order} />
+              <DeliveryCoverageDetail locale={locale} order={order} />
             ) : null}
             {order.restaurantReviewNote && (
               <p className="mt-4 text-sm leading-7 text-[var(--text-soft)]">
@@ -1333,6 +1433,72 @@ function OrderDetailPanel({
         </aside>
       </div>
 
+    </div>
+  );
+}
+
+function AutomationSwitch({
+  busy,
+  className,
+  disabled = false,
+  enabled,
+  locale,
+  onToggle,
+}: {
+  busy: boolean;
+  className?: string;
+  disabled?: boolean;
+  enabled: boolean;
+  locale: "en" | "es";
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      aria-checked={enabled}
+      className={`inline-flex h-10 items-center justify-between gap-3 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-white/80 px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${className ?? ""}`}
+      disabled={disabled || busy}
+      onClick={onToggle}
+      role="switch"
+      type="button"
+    >
+      <span>{enabled ? (locale === "en" ? "Bot active" : "Bot activo") : (locale === "en" ? "Human review" : "Revision humana")}</span>
+      <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition ${enabled ? "bg-[var(--success)]" : "bg-[rgba(118,93,71,0.22)]"}`}>
+        {busy ? <Loader2 className="absolute left-1 top-1 animate-spin text-white" size={16} /> : null}
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(49,41,35,0.18)] transition ${enabled ? "left-[22px]" : "left-0.5"}`} />
+      </span>
+    </button>
+  );
+}
+
+function OpenConversationDetailPanel({
+  actionKey,
+  locale,
+  onClose,
+  onToggleAutomation,
+  order,
+}: {
+  actionKey: string;
+  locale: "en" | "es";
+  onClose: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
+  order: OpenOrderSummary;
+}) {
+  const automation = order.conversationAutomation;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Open conversation" : "Conversacion abierta"}</p>
+          <h3 className="app-display mt-2 text-3xl text-[var(--text-strong)]">{order.customerName || order.customerPhone || (locale === "en" ? "Customer" : "Cliente")}</h3>
+        </div>
+        <button aria-label={locale === "en" ? "Close conversation details" : "Cerrar detalle de conversacion"} className="grid h-10 w-10 place-items-center rounded-full border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)]" onClick={onClose} type="button"><X size={18} /></button>
+      </div>
+      <div className="mt-5 grid gap-3 rounded-[20px] bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-soft)]">
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "State:" : "Estado:"}</strong> {order.conversationState ? getConversationStateLabel(order.conversationState, locale) : "-"}</p>
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Draft:" : "Borrador:"}</strong> {order.draftOrderId ? `#${getOrderReceiptCode(order.draftOrderId)}` : (locale === "en" ? "Not started" : "Aun no iniciado")}</p>
+        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Items:" : "Items:"}</strong> {getOrderItemsSummary(order.items ?? [], locale)}</p>
+      </div>
+      {automation ? <div className="mt-4 flex justify-end"><AutomationSwitch busy={actionKey === `automation:${automation.conversationId}`} disabled={automation.terminal} enabled={automation.enabled} locale={locale} onToggle={() => onToggleAutomation(!automation.enabled)} /></div> : null}
     </div>
   );
 }
@@ -1658,11 +1824,9 @@ function OutOfStockModal({
 }
 
 function DeliveryCoverageDetail({
-  deliveryRadiusKm,
   locale,
   order,
 }: {
-  deliveryRadiusKm?: number;
   locale: "en" | "es";
   order: OrderDetail;
 }) {
@@ -1670,9 +1834,11 @@ function DeliveryCoverageDetail({
   const customerLatitude = order.customerLatitude ?? legacyCoordinates?.latitude;
   const customerLongitude = order.customerLongitude ?? legacyCoordinates?.longitude;
   const hasExactLocation = customerLatitude !== undefined && customerLongitude !== undefined;
+  const restaurantLocation = order.restaurantLocation;
+  const canShowMap = hasExactLocation && restaurantLocation !== undefined;
+  const addressText = getDisplayDeliveryAddress(order);
   const requiresLocation = order.coverageValidationMethod === "written_address_reference"
     && !hasExactLocation;
-  const validationPending = hasExactLocation && order.isInsideDeliveryCoverage === undefined;
   const status = requiresLocation
     ? (locale === "en" ? "Location required" : "Requiere ubicacion")
     : order.isInsideDeliveryCoverage === true
@@ -1683,45 +1849,56 @@ function DeliveryCoverageDetail({
   const statusClass = order.isInsideDeliveryCoverage === true
     ? "bg-[rgba(79,122,97,0.12)] text-[var(--success)]"
     : "bg-[rgba(197,123,87,0.12)] text-[var(--warning)]";
-  const method = {
-    whatsapp_location: locale === "en" ? "WhatsApp location" : "Ubicacion de WhatsApp",
-    written_address_reference: locale === "en" ? "Written address reference" : "Direccion escrita como referencia",
-    geocoded_address: locale === "en" ? "Geocoded address" : "Direccion geocodificada",
-    not_validated: locale === "en" ? "Not validated" : "No validado",
-  }[order.coverageValidationMethod ?? "not_validated"];
+  const isApproximate = order.coverageValidationMethod === "geocoded_address" && order.coverageConfidence === "low";
 
   return (
     <div className="mt-5 border-t border-[rgba(118,93,71,0.12)] pt-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">{locale === "en" ? "Delivery" : "Domicilio"}</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">{locale === "en" ? "Delivery location" : "Ubicacion de entrega"}</h4>
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{status}</span>
       </div>
-      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <SummaryRow label={locale === "en" ? "Method" : "Metodo"} value={method} />
-        <SummaryRow label={locale === "en" ? "Distance" : "Distancia"} value={order.deliveryDistanceKm !== undefined ? `${order.deliveryDistanceKm.toFixed(1)} km` : (locale === "en" ? "Not calculated" : "Sin calcular")} />
-        <SummaryRow label={locale === "en" ? "Allowed radius" : "Radio permitido"} value={deliveryRadiusKm !== undefined ? `${deliveryRadiusKm} km` : (locale === "en" ? "Not available" : "No disponible")} />
-        <SummaryRow label={locale === "en" ? "Coordinates" : "Coordenadas"} value={hasExactLocation ? `${customerLatitude.toFixed(6)}, ${customerLongitude.toFixed(6)}` : (locale === "en" ? "Not received" : "No recibidas")} />
-      </div>
-      {order.customerAddressText ? <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Customer reference:" : "Referencia del cliente:"}</span> {order.customerAddressText}</p> : null}
+      {addressText ? <p className="mt-4 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {addressText}</p> : null}
+      {canShowMap ? (
+        <div className="mt-4">
+          <Suspense fallback={<div className="grid h-[220px] place-items-center rounded-[18px] bg-[var(--surface-base)]"><Loader2 className="animate-spin text-[var(--text-soft)]" size={20} /></div>}>
+            <DeliveryCoverageMap
+              compact
+              customerLatitude={customerLatitude}
+              customerLongitude={customerLongitude}
+              draggableMarker={false}
+              latitude={restaurantLocation.latitude}
+              longitude={restaurantLocation.longitude}
+              onLocationChange={() => undefined}
+              radiusKm={restaurantLocation.deliveryRadiusKm ?? 0.1}
+            />
+          </Suspense>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-medium text-[var(--text-soft)]">
+            <span>{locale === "en" ? "Green: restaurant" : "Verde: restaurante"}</span>
+            <span aria-hidden="true">·</span>
+            <span>{locale === "en" ? "Orange: customer" : "Naranja: cliente"}</span>
+            {isApproximate ? <span className="rounded-full bg-[rgba(197,123,87,0.12)] px-2 py-1 font-semibold text-[var(--warning)]">{locale === "en" ? "Approximate location" : "Ubicacion aproximada"}</span> : null}
+          </div>
+        </div>
+      ) : null}
       {requiresLocation ? (
         <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
           <AlertCircle className="mt-0.5 shrink-0" size={16} />
           {locale === "en" ? "The customer wrote an address, but coverage has not been validated with an exact location yet." : "El cliente escribio una direccion, pero todavia no se valido cobertura con ubicacion exacta."}
         </div>
       ) : null}
-      {validationPending ? (
-        <div className="mt-4 flex items-start gap-2 rounded-[14px] bg-[rgba(197,123,87,0.1)] px-3 py-3 text-sm leading-6 text-[var(--warning)]">
-          <AlertCircle className="mt-0.5 shrink-0" size={16} />
-          {locale === "en" ? "The exact location was received, but delivery coverage has not been validated yet." : "La ubicacion exacta fue recibida, pero la cobertura de domicilio aun no ha sido validada."}
-        </div>
-      ) : null}
+      {!canShowMap && !requiresLocation ? <p className="mt-3 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "The map is unavailable because this order does not have both locations." : "El mapa no esta disponible porque esta orden no tiene ambas ubicaciones."}</p> : null}
     </div>
   );
 }
 
+function getDisplayDeliveryAddress(order: Pick<OrderDetail, "customerAddressText" | "deliveryAddress">): string | undefined {
+  const value = order.customerAddressText?.trim() || order.deliveryAddress?.trim();
+  return value && !parseSharedLocationCoordinates(value) ? value : undefined;
+}
+
 function parseSharedLocationCoordinates(value?: string) {
   if (!value) return undefined;
-  const match = value.match(/(?:ubicaci[oó]n\s+compartida\s*:\s*)?(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/i);
+  const match = value.match(/^\s*(?:ubicaci[oó]n\s+compartida\s*:\s*)?(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/i);
   if (!match) return undefined;
   const latitude = Number(match[1]);
   const longitude = Number(match[2]);
@@ -2007,6 +2184,36 @@ function InfoChip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   );
 }
 
+function OrderSummaryIconChips({ locale, order }: { locale: "en" | "es"; order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming"> }) {
+  const fulfillment = order.fulfillmentType === "delivery"
+    ? (locale === "en" ? "Delivery" : "Domicilio")
+    : (locale === "en" ? "Pickup" : "Recoge en local");
+  const payment = order.paymentMethod === "transfer"
+    ? (locale === "en" ? "Bank transfer" : "Transferencia")
+    : (locale === "en" ? "Cash" : "Efectivo");
+  const timing = order.serviceTiming === "scheduled" && order.scheduledFor
+    ? formatDateTime(order.scheduledFor, locale)
+    : (locale === "en" ? "As soon as possible" : "Lo antes posible");
+  const fulfillmentIcon = order.fulfillmentType === "delivery" ? Truck : Store;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 text-[var(--text-soft)]">
+      <SummaryIconChip icon={fulfillmentIcon} label={fulfillment} />
+      <SummaryIconChip icon={ClipboardList} label={payment} />
+      <SummaryIconChip icon={Clock} label={timing} />
+    </div>
+  );
+}
+
+function SummaryIconChip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+  return (
+    <span aria-label={label} className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[rgba(118,93,71,0.08)]" title={label}>
+      <Icon aria-hidden="true" size={14} />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
 function LoadingBlock({ copy }: { copy: string }) {
   return (
     <div className="grid min-h-[380px] place-items-center px-5 py-10 sm:min-h-[620px]">
@@ -2236,36 +2443,6 @@ function getDashboardErrorMessage(error: unknown, fallback: string, locale: "en"
   }
 
   return fallback;
-}
-
-function getFulfillmentLabel(order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming">, locale: "en" | "es") {
-  const fulfillment = order.fulfillmentType === "delivery"
-    ? (locale === "en" ? "Delivery" : "Domicilio")
-    : locale === "en" ? "Pickup" : "Recoge en local";
-  const payment = order.paymentMethod === "transfer"
-    ? (locale === "en" ? "bank transfer" : "transferencia")
-    : (locale === "en" ? "cash" : "efectivo");
-  const serviceTiming = order.serviceTiming === "scheduled" && order.scheduledFor
-    ? `${locale === "en" ? "scheduled" : "programado"} ${formatDateTime(order.scheduledFor, locale)}`
-    : locale === "en" ? "as soon as possible" : "lo antes posible";
-  return `${fulfillment} - ${payment} - ${serviceTiming}`;
-}
-
-function getOperationalFulfillmentLabel(
-  order: Pick<OrderSummary, "fulfillmentType" | "paymentMethod" | "scheduledFor" | "serviceTiming">,
-  locale: "en" | "es",
-) {
-  const fulfillment = order.fulfillmentType === "delivery"
-    ? (locale === "en" ? "Delivery" : "Domicilio")
-    : (locale === "en" ? "Pickup" : "Recoge en local");
-  const payment = order.paymentMethod === "transfer"
-    ? (locale === "en" ? "Bank transfer" : "Transferencia")
-    : (locale === "en" ? "Cash" : "Efectivo");
-  const timing = order.serviceTiming === "scheduled" && order.scheduledFor
-    ? formatDateTime(order.scheduledFor, locale)
-    : (locale === "en" ? "As soon as possible" : "Lo antes posible");
-
-  return `${fulfillment} · ${payment} · ${timing}`;
 }
 
 function getOrderItemsSummary(items: OrderLineItem[] | undefined, locale: "en" | "es") {

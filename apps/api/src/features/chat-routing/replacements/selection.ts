@@ -22,6 +22,9 @@ import type { DetectedSignals } from "../../../modules/message-router/signal-det
 export async function tryHandleReplacementSelection(
   input: RouteInboundMessageInput,
   signals: DetectedSignals,
+  payload?: {
+    selectionText?: string | null;
+  },
 ): Promise<boolean> {
   const pendingReplacement = await getPendingCustomerReplacementOrder({
     env: input.env,
@@ -62,8 +65,8 @@ export async function tryHandleReplacementSelection(
   }
 
   const selectedReplacement = resolveReplacementOptionSelection({
-    normalizedText: signals.normalizedText,
-    numericSelection: signals.numericSelection,
+    normalizedText: payload?.selectionText ?? signals.normalizedText,
+    numericSelection: null,
     replacementOptions: pendingReplacement.replacementOptions,
   });
 

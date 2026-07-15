@@ -200,6 +200,10 @@ img {
   background: #e7ece8;
 }
 
+.delivery-coverage-map--compact {
+  height: 220px;
+}
+
 .delivery-coverage-map .leaflet-container {
   font-family: "Inter", sans-serif;
   background: #e7ece8;
@@ -234,8 +238,16 @@ img {
   background: #d9efdf;
 }
 
+.parahoy-map-pin--customer span {
+  background: #b46b4e;
+}
+
+.parahoy-map-pin--customer span::after {
+  background: #f8d8c8;
+}
+
 @media (max-width: 480px) {
-  .delivery-coverage-map {
+  .delivery-coverage-map:not(.delivery-coverage-map--compact) {
     height: 320px;
   }
 }

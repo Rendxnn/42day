@@ -42,14 +42,23 @@ Hoy el dashboard está en una etapa intermedia.
 ### Ya alineado con la dirección objetivo
 
 - `features/configuration/*` ya es un ejemplo real del patrón esperado,
+- `features/orders/*` ya concentra la vista y componentes operativos de pedidos,
 - `Configuración` ya concentra `Subida`, pagos y cobertura de domicilios como un solo feature,
 - la lógica de integración de pagos ya salió del cuerpo principal de `App.tsx`,
 - el backend del dashboard ya usa router modular como camino live.
 
+### Conversaciones abiertas y alertas
+
+`orders.tsx` contiene por ahora la vista operativa de pedidos y conversaciones abiertas. Cada tarjeta abierta, incluso una conversacion sin draft ni pedido, puede abrir un detalle compacto con el switch accesible de automatizacion (`role="switch"`, estado ocupado y confirmacion antes de pausar). El detalle operativo de pedido usa el mismo control.
+
+La mutacion no escribe tablas tenant desde el navegador: llama a la Dashboard API, que a su vez ejecuta la RPC local del tenant. Auth y la suscripcion Realtime son las excepciones directas del frontend a esta frontera; los datos y mutaciones de negocio viajan por API.
+
+La campana del shell escucha pedidos y `human_intervention_alerts`. Mantiene los IDs vistos solo en memoria de la sesion, por lo que una alerta nueva recibe sonido/toast/notificacion nativa una vez, y una carga inicial no reproduce alertas anteriores.
+
 ### Todavía con deuda estructural importante
 
 - `apps/dashboard/src/App.tsx` sigue siendo demasiado grande y mezcla shell con varias áreas funcionales,
-- `apps/dashboard/src/orders.tsx` sigue concentrando mucha lógica operativa y UI,
+- todavía quedan areas de menu, catalogo y admin acopladas al shell,
 - la consola admin todavía vive mayormente dentro de `App.tsx`,
 - menú y catálogo todavía siguen demasiado acoplados al shell,
 - `apps/dashboard/src/api.ts` sigue centralizado, lo cual es aceptable por ahora, pero debe mantenerse bajo control.

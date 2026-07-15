@@ -1,6 +1,7 @@
 import type {
   AcceptOrderRequest,
   AutomationSettings,
+  ConversationAutomation,
   DeliveryCoverageSettings,
   HumanInterventionAlert,
   MenuItem,
@@ -422,6 +423,13 @@ export function listNotifications(tenantSlug: string) {
 
 export function getOrder(tenantSlug: string, orderId: string) {
   return request<OrderDetail>(`/${tenantSlug}/orders/${orderId}`);
+}
+
+export function updateConversationAutomation(tenantSlug: string, conversationId: string, enabled: boolean, expectedUpdatedAt: string) {
+  return request<ConversationAutomation>(`/${tenantSlug}/conversations/${conversationId}/automation`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled, expectedUpdatedAt }),
+  });
 }
 
 export function getOrderPaymentProof(tenantSlug: string, orderId: string) {

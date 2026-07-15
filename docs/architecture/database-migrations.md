@@ -119,6 +119,8 @@ El flujo actual:
 7. crea menu inicial
 8. refresca PostgREST
 
+Las funciones tenant-locales no se copian automaticamente junto con las tablas. Cuando una capacidad necesita una RPC por tenant, la migracion debe crearla para `tenant_template`, hacer rollout a los tenants existentes y enganchar el provisionamiento futuro. La migracion de automatizacion de conversaciones usa un trigger diferido sobre `control.tenants`: despues de que `provision_restaurant_tenant` termina de crear el schema, instala la RPC, la policy de lectura de alertas y su tabla en `supabase_realtime` dentro de la misma transaccion de provisionamiento.
+
 Decision pragmatica:
 
 - mantener el modelo de clonacion desde template,
@@ -144,6 +146,8 @@ Patron recomendado:
 4. usar `if exists` y `if not exists`
 5. emitir `notify pgrst, 'reload schema'` si cambia exposicion consumida por REST
 
+Para cambios que ya tuvieron una migracion aplicada, no se edita esa migracion: se crea una migracion forward idempotente. Es importante para poder repetir el rollout y conservar una historia reproducible de los ambientes.
+
 ## Flujo recomendado de desarrollo
 
 ### Carpeta canonica
@@ -152,11 +156,7 @@ Las migraciones nuevas deben vivir en:
 
 - `supabase/migrations`
 
-La carpeta:
-
-- `packages/db/migrations`
-
-queda como archivo historico legacy de la etapa anterior y no deberia seguir recibiendo nuevas migraciones canonicas.
+La carpeta `packages/db/migrations` queda como referencia legacy de la etapa anterior y no recibe nuevas migraciones canonicas. Sus archivos no son instrucciones operativas para ambientes nuevos.
 
 ### Baseline inicial Supabase CLI
 
@@ -200,7 +200,7 @@ Estado actual:
 
 - todavia no existe un seed canonico del proyecto integrado al flujo normal de Supabase CLI,
 - `supabase/seed.sql` existe solo como placeholder tecnico minimo,
-- los datos demo/legacy siguen fuera de ese flujo y viven en `packages/db/seeds/`.
+- los datos demo/legacy siguen fuera de ese flujo y viven en `packages/db/seeds/` solo como referencia; no deben ejecutarse como provisioning actual.
 
 Decision por ahora:
 

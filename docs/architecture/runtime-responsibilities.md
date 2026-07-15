@@ -18,7 +18,7 @@ Vive ahi:
 - resolucion de tenant,
 - orquestacion del flujo conversacional,
 - llamadas al parser semantico,
-- validacion deterministica,
+- interpretacion semantica temporal de todo texto entrante y validacion deterministica de negocio,
 - calculo de precios,
 - creacion de ordenes,
 - handoff humano,
@@ -65,7 +65,7 @@ Archivos relacionados:
 
 ```txt
 packages/db/src
-packages/db/migrations
+supabase/migrations
 ```
 
 Configuracion externa:
@@ -113,7 +113,7 @@ Nota de estado actual:
 ```txt
 .env.example
 apps/api/wrangler.toml
-packages/db/migrations
+supabase/migrations
 packages/config/src/env.ts
 ```
 

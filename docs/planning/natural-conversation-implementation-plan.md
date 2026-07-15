@@ -1,39 +1,24 @@
 # Conversacion natural e integracion IA
 
-Ultima actualizacion: 2026-06-07.
+Ultima actualizacion: 2026-07-13.
 
 ## Objetivo
 
 Mantener un bot que se sienta natural sin perder control operativo:
 
-- deterministico para senales cerradas,
-- LLM solo para extraer estructura cuando aporta valor,
+- interpretacion semantica temporal para toda intencion textual del cliente,
 - validacion backend siempre,
 - humano cuando el caso deja de ser seguro para automatizar.
 
 ## Como interactua hoy la IA con el flujo
 
-### 1. El camino por defecto es deterministico
+### 1. Experimento vigente: LLM para toda intencion textual
 
-Primero se detectan senales como:
+El router envia todo inbound textual procesable al parser semantico con estado y contexto del ultimo prompt. La deteccion deterministica de intencion del cliente esta deshabilitada temporalmente. Estado `manual`, ubicacion y media/comprobante son ramas no textuales o de seguridad separadas.
 
-- saludo,
-- menu,
-- fulfillment,
-- pago,
-- confirmacion,
-- humano,
-- direccion simple,
-- comprobante por tipo de mensaje.
+### 2. Validacion backend obligatoria
 
-### 2. El LLM entra como fallback acotado
-
-El router intenta parser semantico solo si el texto parece:
-
-- pedido libre,
-- pedido con varias entidades,
-- edicion libre del draft,
-- frase donde el matcher por reglas puede quedarse corto.
+El backend resuelve y valida la salida semantica contra menu, opciones, billing, cobertura y estado actual. Si no puede aplicarla de forma segura, aclara o deriva; no usa una regla amplia para reinterpretar la intencion.
 
 ### 3. El LLM no decide negocio
 
@@ -61,20 +46,18 @@ Despues del parser:
 
 - el backend intenta mapear `productText` al menu activo,
 - si no puede, no acepta ciegamente la salida,
-- si la confianza es baja, vuelve a aclaracion o flujo deterministico,
+- si la confianza es baja, aclara o deriva a humano; no vuelve a un matcher amplio,
 - si puede aplicar el cambio, actualiza el draft.
 
 ### 5. Toda respuesta deja trazabilidad
 
 Cada outbound registra metadata para saber si fue:
 
-- `deterministic`,
-- `llm`,
-- `deterministic_after_llm_fallback`.
+- resultado semantico aplicado o no aplicable, con diagnosticos de routing.
 
 ## Estado actual implementado
 
-- fallback semantico con Gemini via `t-router`, con respaldo a OpenRouter cuando el ambiente lo configura,
+- Gemini via `t-router`, con respaldo de proveedor OpenRouter cuando el ambiente lo configura,
 - configuracion por tenant preparada en DB con fallback real a `GEMINI_API_KEY`,
 - soporte para pedidos multi-item simples,
 - soporte para ediciones semanticas del draft:
@@ -98,7 +81,7 @@ Cada outbound registra metadata para saber si fue:
 
 ## Limitaciones actuales
 
-- `addressText`, `confirmationText` y `questions` existen en el contrato del parser pero hoy casi no se explotan en el flujo,
+- `addressText` ya se usa para direccion escrita durante `awaiting_address`; `confirmationText` y `questions` siguen con uso minimo,
 - el umbral de confianza sigue fijo en codigo,
 - la cobertura automatizada de escenarios conversacionales sigue siendo insuficiente,
 - configurables exoticos o catalogos mal modelados pueden seguir cayendo en aclaracion o handoff,
@@ -106,30 +89,19 @@ Cada outbound registra metadata para saber si fue:
 
 ## Reglas actuales importantes
 
-### Deterministico
-
-Debe resolver sin IA:
-
-- saludo,
-- menu,
-- fulfillment,
-- pago,
-- confirmacion,
-- direccion simple,
-- ubicacion WhatsApp,
-- solicitud de humano,
-- comprobante por tipo de mensaje,
-- productos simples por numero o alias.
-
 ### IA
 
-Debe ayudar en:
+Debe ser invocada para toda intencion textual, incluyendo:
 
 - pedido libre con varios productos,
 - cambios libres sobre el draft,
 - opciones escritas en lenguaje natural,
 - notas de producto,
 - frases ambiguas pero rescatables.
+
+### Deterministico de negocio
+
+No interpreta intencion textual. Mantiene deteccion de media/ubicacion y valida/aplica IDs canonicos, configurables, precios, cobertura, billing, disponibilidad y transiciones.
 
 ### Humano
 
@@ -145,8 +117,7 @@ Debe intervenir en:
 
 Para considerar esta capa bien cerrada para demos serias, deberiamos cerrar:
 
-1. Mejor uso de los campos semanticos ya disponibles:
-   - `addressText`
+1. Mejor uso de los campos semanticos aun pendientes:
    - `confirmationText`
    - `questions`
 2. Parametrizacion del umbral de confianza.

@@ -1,6 +1,6 @@
 # Plan de continuacion del refactor de API
 
-Ultima actualizacion: 2026-06-09.
+Ultima actualizacion: 2026-07-13.
 
 ## Objetivo
 
@@ -19,7 +19,7 @@ El objetivo no es agregar features nuevas. Es terminar de ordenar la implementac
 
 Estado base sobre el que continua este plan:
 
-- commit de referencia reciente: `a8499a3`
+- referencia de estado: router modular de dashboard y chat-routing por ramas ya integrados al 2026-07-13
 - `routes/dashboard.ts` y `modules/message-router/router.ts` ya son fachadas finas
 - `features/chat-routing/*`, `features/conversations/*`, `features/menu/*`, `features/product-configurator/*` y `features/payment-proofs/*` ya existen
 - bloques demo-ready ya cerrados en codigo:
@@ -35,9 +35,7 @@ Validaciones que ya pasaron en este punto:
 - `npm run test --prefix apps/api`
 - `corepack pnpm typecheck:direct`
 
-Nota de entorno:
-
-- el `build` del dashboard puede fallar localmente por una dependencia nativa faltante de `rolldown`; no usar ese fallo como senal de regresion funcional del API.
+Validacion de entorno confirmada al 2026-07-13: `pnpm --filter @42day/dashboard build` pasa y debe ejecutarse junto con API tests/typecheck cuando cambie codigo compartido.
 
 ## Restricciones no negociables
 
@@ -101,7 +99,7 @@ Implicaciones operativas:
 - el riesgo principal ya no es el tamaño de un monolito unico, sino la estabilidad de las fronteras entre handlers, servicios y repositorios.
 - cualquier cambio siguiente debe respetar el orden actual de evaluacion en `chat-routing`, porque ahi viven las transiciones conversacionales observables.
 - `orders` y `draft-orders` ya admiten mas descomposicion interna, pero no conviene seguir fragmentandolos si no hay una ganancia real de complejidad.
-- el build del dashboard sigue sin ser una senal confiable de regresion funcional del API por la dependencia nativa de `rolldown`.
+- el build del dashboard es una senal adicional valida para cambios de contratos compartidos o frontend.
 
 ## Estructura objetivo recomendada
 
@@ -496,13 +494,13 @@ Contexto importante:
 - Bloque demo-ready 1 y 2 ya quedaron implementados:
   - configurables con resolucion deterministica y aclaracion conversacional
   - transferencia con descarga de media, `payment_proofs` y revision minima desde dashboard
-- Commit de referencia reciente: `a8499a3`
+- Referencia de estado: 2026-07-13.
 
 Estado validado:
 
 - `npm run test --prefix apps/api` pasa
 - `corepack pnpm typecheck:direct` pasa
-- El build del dashboard puede fallar por una dependencia nativa faltante de `rolldown`; no tomes eso como regresion funcional del API
+- Ejecuta tambien `pnpm --filter @42day/dashboard build` cuando el cambio toque contratos compartidos o frontend.
 
 Restricciones del refactor:
 

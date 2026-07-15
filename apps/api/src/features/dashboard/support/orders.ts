@@ -1,4 +1,5 @@
 import type {
+  ConversationAutomation,
   DashboardNotificationRecord,
   OpenOrderSummary,
   OrderLineItem,
@@ -161,6 +162,7 @@ export function mapOpenOrderSummary(
     linkedOrderId: linkedOrder?.id,
     conversationId: row.conversation_id ?? conversation?.id ?? undefined,
     conversationState: conversation?.state,
+    conversationAutomation: conversation ? mapConversationAutomation(conversation) : undefined,
     customerId: row.customer_id,
     customerPhone: customer?.phone,
     customerName: customer?.name,
@@ -191,6 +193,7 @@ export function mapOpenConversationSummary(
     id: row.id,
     conversationId: row.id,
     conversationState: row.state,
+    conversationAutomation: mapConversationAutomation(row),
     customerId: row.customer_id,
     customerPhone: customer?.phone,
     customerName: customer?.name,
@@ -216,6 +219,7 @@ export function mapOrderSummaryAsOpenSummary(
     linkedOrderId: row.id,
     conversationId: conversation?.id ?? row.conversationId,
     conversationState: conversation?.state,
+    conversationAutomation: conversation ? mapConversationAutomation(conversation) : undefined,
     customerId: row.customerId,
     customerPhone: row.customerPhone,
     customerName: row.customerName,
@@ -233,6 +237,23 @@ export function mapOrderSummaryAsOpenSummary(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     items: row.items,
+  };
+}
+
+export function mapConversationAutomation(row: ConversationRow): ConversationAutomation {
+  const terminal = ["completed", "expired"].includes(row.state);
+  return {
+    conversationId: row.id,
+    enabled: row.automation_enabled ?? true,
+    effectiveEnabled: !terminal && (row.automation_enabled ?? true),
+    state: row.state as ConversationAutomation["state"],
+    resumeState: row.automation_resume_state as ConversationAutomation["resumeState"],
+    manualReason: row.manual_reason ?? undefined,
+    changedAt: row.automation_changed_at ?? undefined,
+    changedBy: row.automation_changed_by ?? undefined,
+    changeReason: row.automation_change_reason ?? undefined,
+    updatedAt: row.updated_at,
+    terminal,
   };
 }
 

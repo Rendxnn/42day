@@ -86,3 +86,27 @@ export function parseElectronicBillingText(text: string): DraftOrder["billing"] 
     email,
   };
 }
+
+export function resolveBillingReuseDecision(signals: {
+  confirmation?: "yes" | "no" | "change" | null;
+  wantsElectronicBilling?: boolean;
+  billingDataChanged?: boolean;
+  billingDecision?: "reuse" | "change" | "switch_to_electronic" | null;
+}): {
+  reuseExisting: boolean;
+  changeBilling: boolean;
+  switchToElectronic: boolean;
+} {
+  const switchToElectronic = signals.billingDecision === "switch_to_electronic" || signals.wantsElectronicBilling === true;
+  const changeBilling = signals.billingDecision === "change"
+    || signals.confirmation === "no"
+    || signals.confirmation === "change"
+    || signals.billingDataChanged === true;
+  const reuseExisting = signals.billingDecision === "reuse" || signals.confirmation === "yes";
+
+  return {
+    reuseExisting,
+    changeBilling,
+    switchToElectronic,
+  };
+}

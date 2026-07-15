@@ -19,9 +19,11 @@ test("detecta formatos no soportados para comprobante", () => {
   assert.equal(isTransferProofUnsupportedMessage({ type: "image" }), false);
 });
 
-test("detecta aviso textual de pago sin adjunto", () => {
-  assert.equal(looksLikeTransferProofNotice("ya pagué por transferencia"), true);
-  assert.equal(looksLikeTransferProofNotice("te mandé el comprobante"), true);
+test("solo detecta avisos textuales de pago cerrados", () => {
+  assert.equal(looksLikeTransferProofNotice("ya pagué"), true);
+  assert.equal(looksLikeTransferProofNotice("comprobante"), true);
+  assert.equal(looksLikeTransferProofNotice("ya pagué por transferencia"), false);
+  assert.equal(looksLikeTransferProofNotice("te mandé el comprobante"), false);
   assert.equal(looksLikeTransferProofNotice("hola quiero el menú"), false);
 });
 

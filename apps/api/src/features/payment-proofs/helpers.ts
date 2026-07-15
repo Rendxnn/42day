@@ -10,7 +10,7 @@ export function isTransferProofUnsupportedMessage(message: Pick<NormalizedInboun
 
 export function looksLikeTransferProofNotice(text: string | undefined): boolean {
   const normalized = normalizeText(text);
-  return includesAny(normalized, ["comprobante", "ya pague", "pago listo", "ya transferi", "te transferi"]);
+  return ["comprobante", "ya pague", "pago listo", "ya transferi", "te transferi"].includes(normalized);
 }
 
 export function buildPaymentProofStoragePath(input: {
@@ -79,15 +79,4 @@ function normalizeText(text: string | undefined): string {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function includesAny(text: string, values: string[]): boolean {
-  return values.some((value) => {
-    const normalizedValue = normalizeText(value);
-    return new RegExp(`(^|\\s)${escapeRegExp(normalizedValue)}($|\\s)`).test(text);
-  });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

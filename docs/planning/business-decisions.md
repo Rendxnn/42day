@@ -10,7 +10,7 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 
 - saludo y menu del dia real,
 - seleccion por numero, nombre o alias,
-- pedido natural simple con fallback LLM,
+- pedido guiado y natural interpretado semanticamente durante el experimento vigente,
 - multiples items simples en una misma frase,
 - edicion basica del draft: agregar, quitar, reemplazar, ajustar cantidad,
 - delivery y pickup,
@@ -61,7 +61,7 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 ### Tenancy y operacion
 
 - una sola sede por restaurante en este tramo,
-- dashboard consume solo nuestro API,
+- dashboard consume API para datos y mutaciones de negocio; Supabase directo se limita a Auth y Realtime,
 - tenant isolation por schema `tenant_<slug>` mas schema global `control`,
 - onboarding de restaurantes via consola admin interna.
 
@@ -106,7 +106,7 @@ Congelar un alcance creible para demos y pruebas controladas con restaurantes, s
 ## Lo que consideramos aceptable para demos
 
 - matcher de productos fuerte para items simples,
-- parser semantico controlado con fallback,
+- interpretacion semantica temporal para toda intencion textual; backend deterministico para validar y aplicar negocio,
 - validacion deterministica de configurables para productos bien modelados en catalogo,
 - retries manuales de notificacion,
 - algunas rutas operativas dependientes de pasos internos de configuracion.

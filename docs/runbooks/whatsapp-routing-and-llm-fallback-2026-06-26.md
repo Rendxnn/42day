@@ -2,6 +2,8 @@
 
 Fecha de referencia: `2026-06-26`.
 
+> Guia operativa actualizada: desde `2026-07-13`, todo inbound textual procesable se interpreta semanticamente. Las ramas de media/ubicacion/manual y las validaciones de negocio siguen siendo deterministicas; no hay deteccion deterministica de intencion del cliente.
+
 ## Estado validado
 
 ### Routing del numero nuevo

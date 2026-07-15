@@ -10,7 +10,7 @@ El API ya soporta el flujo principal `demo-ready`:
 - resolucion de tenant por canal,
 - persistencia de customers, conversations, messages, draft orders y orders,
 - menu real desde Supabase,
-- pedido guiado y pedido natural simple con fallback LLM acotado,
+- pedido guiado y natural con interpretacion semantica de todo texto durante el experimento vigente,
 - configurables con resolucion deterministica contra `product_options`,
 - checkout basico,
 - orden pendiente de revision del restaurante,
@@ -105,18 +105,11 @@ No deben agregarse nuevos comportamientos live de dashboard al router legacy sal
 
 `validation-engine` y `pricing-engine` siguen existiendo sobre todo por compatibilidad y no representan una capa de dominio fuerte por si solas.
 
-### 4. Flujo de migraciones Supabase aun no estandarizado
+### 4. Migraciones multi-tenant
 
-El repo ya tiene migraciones SQL versionadas en `packages/db/migrations`, incluida la de configuracion de pagos, pero todavia no existe un workflow oficial de Supabase CLI para aplicar solo migraciones pendientes.
+`supabase/migrations` es la carpeta canonica. Cada cambio debe mantener `control` y `tenant_template`, y hacer rollout a los `tenant_*` existentes cuando corresponda. `packages/db/migrations` y sus seeds son referencia legacy y no reciben migraciones nuevas. El workflow detallado vive en `docs/architecture/database-migrations.md`.
 
-Pendiente explicito:
-
-- inicializar y linkear un proyecto Supabase CLI en el repo,
-- decidir la carpeta canonica de migraciones,
-- bootstrapear `supabase_migrations.schema_migrations`,
-- agregar scripts operativos para `status`, `dry-run` y `push`.
-
-Mientras eso no exista, aplicar cambios de schema sigue siendo un paso manual y debe tratarse con cuidado.
+Las columnas de automatizacion conversacional viven en `conversations` de `tenant_template` y de cada tenant. La mutacion `change_conversation_automation` es una RPC tenant-local transaccional: bloquea la conversacion, comprueba `expectedUpdatedAt`, actualiza estado/evento y resuelve solo alertas de handoff de routing al reanudar. La API permite la accion a miembros `encargado` y `trabajador`; el frontend no tiene acceso directo a esa mutacion.
 
 ### 5. Deuda fuerte en frontend que impacta el producto completo
 
@@ -140,11 +133,11 @@ Aunque viva en `apps/dashboard`, hoy el frontend sigue teniendo deuda visible:
 ## Gaps reales que siguen abiertos
 
 - falta bandeja visual dedicada de alertas y timeline humano en dashboard,
-- si la automatizacion esta apagada, el sistema todavia no deja siempre una alerta operativa consistente,
+- si la automatizacion esta apagada, sigue pendiente una alerta por cada mensaje nuevo que llegue durante la pausa; el control seguro de pausar/reanudar ya existe,
 - falta rechazo formal de comprobante con pedido de reenvio,
-- falta explotar mejor `addressText`, `confirmationText` y `questions` del parser,
+- `addressText` ya se aplica a direccion escrita y, con geocoding habilitado por sede, se valida y persiste en draft/orden; falta explotar mejor `confirmationText` y `questions`,
 - falta suite conversacional automatizada mas amplia,
-- falta formalizar el sistema de migraciones Supabase para dejar de depender de ejecucion manual SQL.
+- falta automatizar la verificacion de migraciones y rollout remoto por tenant.
 
 ## Testing actual
 

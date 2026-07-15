@@ -10,20 +10,29 @@ import {
 import { loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { applyBillingDefaults, parseElectronicBillingText, readPendingBillingContext, renderBillingProfile } from "./billing-helpers";
+import {
+  applyBillingDefaults,
+  parseElectronicBillingText,
+  readPendingBillingContext,
+  renderBillingProfile,
+  resolveBillingReuseDecision,
+} from "./billing-helpers";
 import { proceedToNextOrderStep } from "./progression";
 
 export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessageInput, signals: {
   confirmation?: "yes" | "no" | "change" | null;
   wantsElectronicBilling?: boolean;
   billingDataChanged?: boolean;
+  billingDecision?: "reuse" | "change" | "switch_to_electronic" | null;
 }): Promise<boolean> {
   const pending = readPendingBillingContext(input.conversation.context);
   if (!pending) {
     return false;
   }
 
-  if (signals.wantsElectronicBilling && pending.type !== "electronic") {
+  const resolved = resolveBillingReuseDecision(signals);
+
+  if (resolved.switchToElectronic && pending.type !== "electronic") {
     return switchToElectronicBilling(input);
   }
 
@@ -37,7 +46,7 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
 
-  if (signals.confirmation === "yes" && pending.reuseProfile) {
+  if (resolved.reuseExisting && pending.reuseProfile) {
     const billing = applyBillingDefaults(toOrderBillingDetails(pending.reuseProfile), draft);
     await updateDraftOrderBilling({
       env: input.env,
@@ -50,7 +59,7 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     return true;
   }
 
-  if (signals.confirmation === "no" || signals.confirmation === "change" || signals.billingDataChanged) {
+  if (resolved.changeBilling) {
     await updateConversationState({
       env: input.env,
       schemaName: input.tenant.schemaName,
@@ -84,7 +93,7 @@ export async function tryHandleNormalBillingInfo(input: RouteInboundMessageInput
   }
 
   const fullName = (input.message.text ?? "").trim();
-  if (!fullName) {
+  if (!looksLikeBillingFullName(fullName)) {
     return false;
   }
 
@@ -124,6 +133,20 @@ export async function tryHandleNormalBillingInfo(input: RouteInboundMessageInput
 
   await proceedToNextOrderStep(input);
   return true;
+}
+
+function looksLikeBillingFullName(value: string): boolean {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  return words.length >= 2
+    && words.length <= 5
+    && words.every((word) => /^[\p{Letter}]{2,}$/u.test(word))
+    && !words.some((word) => ["quiero", "cambiar", "pedido", "agregar", "domicilio", "efectivo", "transferencia"].includes(word));
 }
 
 export async function tryHandleElectronicBillingInfo(input: RouteInboundMessageInput): Promise<boolean> {

@@ -35,19 +35,17 @@ El usuario puede seguir por:
 - numero del producto,
 - nombre,
 - alias,
-- frase natural simple,
-- pedido mas libre si el parser semantico ayuda.
+- frase natural simple o compleja.
 
 ## Flow B: seleccion de productos
 
-### Camino deterministico
+### Interpretacion semantica temporal
 
-Resuelve hoy:
+La politica vigente es un experimento temporal de routing semantico total: todo mensaje textual procesable llega al parser LLM. No se usa deteccion deterministica de intencion del cliente para adelantar, bloquear o reemplazar esa interpretacion.
 
-- seleccion numerica,
-- match por texto o alias,
-- cantidades simples,
-- frases multi-item simples separadas por `y`, `ademas`, `tambien` o coma.
+Las ramas no textuales o de seguridad siguen antes o fuera del parser: conversacion en `manual`, media/comprobante y ubicacion WhatsApp. Despues del parser, el backend resuelve datos canonicos y valida productos, opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
+
+Para delivery, una direccion escrita puede persistirse y geocodificarse server-side con Google Geocoding cuando la sede mantiene habilitada esa opcion (activa por defecto). El resultado guarda coordenadas, distancia, cobertura y confianza en draft/orden; una direccion no resoluble se conserva como referencia sin inventar coordenadas.
 
 Cuando agrega item:
 
@@ -58,16 +56,14 @@ Cuando agrega item:
 5. deja la conversacion en `awaiting_more_items`,
 6. pregunta si desea agregar algo mas o seguir con entrega.
 
-### Camino con IA
+### Camino semantico vigente
 
-Si el mensaje parece pedido libre o edicion libre:
-
-1. el router intenta parser semantico,
+1. el router intenta parser semantico con el estado y el ultimo prompt de conversacion,
 2. el parser devuelve textos, cantidades, posibles opciones y confianza,
 3. el backend intenta resolver eso contra el menu real y contra configurables reales,
 4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
 5. si puede aplicar el cambio, actualiza el draft,
-6. si no puede, vuelve a aclaracion o camino deterministico.
+6. si no puede, vuelve a aclaracion o handoff; no reinterpreta la intencion con reglas deterministicas amplias.
 
 El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
 
@@ -81,6 +77,8 @@ Estado actual implementado:
 4. si completa todas las opciones requeridas, agrega el item al draft con precio final resuelto,
 5. si supera el umbral de aclaraciones, deriva a `manual`.
 
+La respuesta se interpreta semanticamente; el valor propuesto se valida contra la opcion pendiente antes de repetir la aclaracion.
+
 ## Flow C: checkout
 
 Secuencia actual:
@@ -88,12 +86,15 @@ Secuencia actual:
 1. `awaiting_more_items`
 2. `awaiting_fulfillment_type`
 3. `awaiting_address` si es delivery
-4. `awaiting_payment_method`
-5. `awaiting_confirmation`
-6. crear `order`
-7. pasar a `awaiting_restaurant_confirmation`
+4. billing: `awaiting_billing_reuse_confirmation`, `awaiting_normal_billing_info` o `awaiting_electronic_billing_info`
+5. `awaiting_payment_method`
+6. `awaiting_confirmation`
+7. crear `order`
+8. pasar a `awaiting_restaurant_confirmation`
 
 El backend intenta capturar multiples senales en un mismo mensaje cuando son claras.
+
+Los datos capturados se acumulan en el `draft_order` aunque correspondan a pasos posteriores. Despues de cada actualizacion, el backend pregunta solamente el primer requisito faltante en este orden: productos, fulfillment, ubicacion/cobertura para delivery, facturacion, pago y confirmacion. La ubicacion WhatsApp sigue siendo necesaria para validar cobertura salvo configuracion explicita del tenant.
 
 Ejemplos que debe tolerar:
 
@@ -131,6 +132,8 @@ Cuando el cliente confirma:
 3. crea alerta operativa de confirmacion,
 4. deja la conversacion en `awaiting_restaurant_confirmation`,
 5. informa que el restaurante revisa el pedido.
+
+La confirmacion debe mostrar productos, fulfillment (y direccion/costo si es delivery), datos de facturacion, metodo de pago y total.
 
 ## Flow E: confirmacion del restaurante
 
@@ -194,6 +197,8 @@ La conversacion pasa a `manual` cuando:
 - hay error tecnico,
 - el caso operativo ya no debe seguir automatico.
 
+Tambien puede pausarla manualmente un `encargado` o `trabajador` desde el dashboard. El control aparece tanto en el detalle de pedido como en conversaciones abiertas sin pedido. Al pausar, el proximo mensaje entrante no obtiene respuesta automatica; al reanudar se restaura el estado conversacional guardado. La mutacion usa una RPC transaccional con control de version para no sobrescribir un cambio concurrente.
+
 ## Timeout
 
 Si pasan 30 minutos sin respuesta:
@@ -212,8 +217,12 @@ awaiting_product_configuration
 awaiting_more_items
 awaiting_fulfillment_type
 awaiting_address
+awaiting_billing_reuse_confirmation
+awaiting_normal_billing_info
+awaiting_electronic_billing_info
 awaiting_payment_method
 awaiting_transfer_proof
+awaiting_transfer_fallback_payment_method
 awaiting_confirmation
 awaiting_restaurant_confirmation
 awaiting_replacement_selection
@@ -222,26 +231,23 @@ completed
 expired
 ```
 
-## Balance deterministico vs IA
+## Politica semantica temporal y validacion de negocio
 
-Deterministico:
-
-- saludo,
-- menu,
-- fulfillment,
-- pago,
-- confirmacion,
-- ubicacion,
-- comprobante por tipo de mensaje,
-- cantidades simples,
-- producto por numero o alias.
-
-IA:
+IA para toda intencion textual:
 
 - pedido libre multi-producto,
 - edicion libre del draft,
 - opciones y notas expresadas en lenguaje natural,
-- frases mixtas donde el deterministico no alcanza.
+- frases mixtas y respuestas breves interpretadas contra el estado y ultimo prompt.
+
+Deterministico solo para aplicar y proteger negocio:
+
+- detectar tipo de media/ubicacion y respetar `manual`,
+- resolver IDs de producto/opcion y disponibilidad real,
+- calcular precio, cobertura y total,
+- validar billing, configurables y transiciones permitidas.
+
+El experimento se revisara solo con metricas de precision, coste y latencia, pruebas conversacionales representativas y una decision explicita de producto para reintroducir deteccion deterministica de intencion.
 
 Humano:
 

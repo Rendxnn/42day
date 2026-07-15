@@ -1,35 +1,22 @@
-import { getOrCreateActiveDraftOrder } from "../draft-orders/service";
-import { updateConversationState } from "../conversations/service";
-import { buildMenuText, buildWelcomeMenuText } from "../menu/service";
+import { normalizeText } from "../../modules/message-router/message-normalizer";
 import { detectSignals } from "../../modules/message-router/signal-detector";
+import { classifyDeliveryAddressText } from "../delivery-coverage/address-text";
 import {
   buildClarificationPrompt,
-  buildContinueWithMenuAndDraftPrompt,
   buildLocationCapturedForLaterMessage,
-  buildManualHandoffMessage,
   buildRestaurantReviewPendingMessage,
-  buildResumeExistingOrderPrompt,
 } from "../../modules/message-router/response-composer";
-import { isActiveOrderState, loadCurrentMenu, shouldTrySemanticAtState } from "./shared/helpers";
 import { sendAndLogText } from "./outbound/send";
-import { tryHandleTransferFallbackPaymentMethod as tryHandleTransferFallbackPaymentMethodBranch } from "./transfer/fallback";
-import { tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
-import { tryHandlePendingProductConfiguration as tryHandlePendingProductConfigurationBranch } from "./guided/product-configuration";
-import { tryHandleReplacementSelection as tryHandleReplacementSelectionBranch, handleReplacementSelectionClarification as handleReplacementSelectionClarificationBranch } from "./replacements/selection";
-import { getPendingCustomerReplacementOrder } from "../orders/service";
-import { tryHandleGuidedSelection } from "./guided/selection";
-import { tryHandleSemanticOrder } from "./semantic/order";
-import { handleClarification, moveToManual } from "./manual/handoff";
-import { handleCustomerOrderStatus } from "./order-status";
 import {
-  proceedToNextOrderStep,
-  tryHandleBillingReuseConfirmation,
-  tryHandleConfirmation,
+  handleTransferFallbackPaymentMethodClarification,
+} from "./transfer/fallback";
+import { handleTransferProofClarification, tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
+import { tryHandleSemanticOrder } from "./semantic/order";
+import { handleClarification } from "./manual/handoff";
+import { handleCustomerOrderStatus } from "./order-status";
+import { logRoutingDiagnostic } from "./shared/tracing";
+import {
   tryHandleDeliveryAddress,
-  tryHandleElectronicBillingInfo,
-  tryHandleFulfillmentSelection,
-  tryHandleNormalBillingInfo,
-  tryHandlePaymentMethod,
 } from "./checkout";
 import type { RouteInboundMessageInput } from "./shared/types";
 export type { RouteInboundMessageInput } from "./shared/types";
@@ -40,9 +27,29 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     responseReason: "route_started",
   };
 
+  logRoutingDiagnostic(input, "chat_routing.message_received", {
+    hasText: Boolean(input.message.text?.trim()),
+    textLength: input.message.text?.trim().length ?? 0,
+  });
+
   if (!input.tenant.automationEnabled) {
     console.info("tenant.automation_disabled", {
       tenantId: input.tenant.id,
+      providerMessageId: input.message.providerMessageId,
+    });
+    return;
+  }
+
+  const normalizedText = normalizeText(input.message.text);
+
+  logRoutingDiagnostic(input, "chat_routing.inbound_received", {
+    normalizedTextLength: normalizedText.length,
+  });
+
+  if (!input.conversation.automationEnabled || input.conversation.state === "manual") {
+    console.info("conversation.manual_auto_reply_skipped", {
+      tenantId: input.tenant.id,
+      conversationId: input.conversation.id,
       providerMessageId: input.message.providerMessageId,
     });
     return;
@@ -52,50 +59,9 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     message: input.message,
     state: input.conversation.state,
   });
-
-  // Status lookups remain available even when a previous interaction was
-  // handed to a person: they are safe, read-only answers about the order.
   if (signals.wantsOrderStatus) {
     await handleCustomerOrderStatus(input);
     return;
-  }
-
-  if (input.conversation.state === "manual") {
-    console.info("conversation.manual_auto_reply_skipped", {
-      tenantId: input.tenant.id,
-      conversationId: input.conversation.id,
-      providerMessageId: input.message.providerMessageId,
-    });
-    return;
-  }
-
-  if (signals.humanRequested) {
-    await moveToManual(input, {
-      type: "support_requested",
-      manualReason: "support_requested",
-      title: "Cliente pidio asesor",
-      description: "El cliente pidio hablar con alguien del restaurante.",
-      responseText: buildManualHandoffMessage(),
-    });
-    return;
-  }
-
-  // Dashboard notifications can arrive while the persisted conversation state
-  // is briefly stale. If there is an actual replacement order waiting for the
-  // customer, honor a numeric/name selection before generic menu handling.
-  if (input.conversation.state !== "awaiting_replacement_selection") {
-    const pendingReplacement = await getPendingCustomerReplacementOrder({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      currentDraftOrderId: input.conversation.currentDraftOrderId,
-    }).catch(() => undefined);
-    if (pendingReplacement) {
-      const handledReplacement = await tryHandleReplacementSelectionBranch(input, signals);
-      if (handledReplacement) {
-        return;
-      }
-    }
   }
 
   if (input.conversation.state === "awaiting_transfer_proof") {
@@ -105,120 +71,23 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     }
   }
 
-  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
-    const handledTransferFallback = await tryHandleTransferFallbackPaymentMethodBranch(input, signals);
-    if (handledTransferFallback) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_restaurant_confirmation") {
-    await sendAndLogText(
-      input,
-      buildRestaurantReviewPendingMessage(),
-    );
+  if (await trySemanticFallback(input)) {
     return;
-  }
-
-  if (input.conversation.state === "awaiting_replacement_selection") {
-    const handledReplacementSelection = await tryHandleReplacementSelectionBranch(input, signals);
-    if (handledReplacementSelection) {
-      return;
-    }
-
-    await handleReplacementSelectionClarificationBranch(input);
-    return;
-  }
-
-  if (input.conversation.state === "awaiting_product_configuration") {
-    const handledProductConfiguration = await tryHandlePendingProductConfigurationBranch(input);
-    if (handledProductConfiguration) {
-      return;
-    }
-  }
-
-  if (shouldTrySemanticAtState(input.conversation.state, signals)) {
-    const handledSemantic = await tryHandleSemanticOrder(input, signals);
-    if (handledSemantic) {
-      return;
-    }
-  }
-
-  if (
-    input.conversation.state === "awaiting_guided_item_selection" ||
-    input.conversation.state === "awaiting_mode_selection" ||
-    input.conversation.state === "awaiting_more_items"
-  ) {
-    const handledSelection = await tryHandleGuidedSelection(input, signals);
-    if (handledSelection) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_more_items" && signals.doneAddingItems) {
-    await proceedToNextOrderStep(input);
-    return;
-  }
-
-  if (
-    input.conversation.state === "awaiting_more_items" ||
-    input.conversation.state === "awaiting_fulfillment_type" ||
-    input.conversation.state === "awaiting_confirmation"
-  ) {
-    const handledFulfillment = await tryHandleFulfillmentSelection(input, signals);
-    if (handledFulfillment) {
-      return;
-    }
   }
 
   if (
     input.conversation.state === "awaiting_address" ||
     (input.conversation.state === "awaiting_confirmation" && input.message.type === "location")
   ) {
-    const handledAddress = await tryHandleDeliveryAddress(input, signals);
+    const addressKind = classifyDeliveryAddressText(normalizedText);
+    const handledAddress = await tryHandleDeliveryAddress(input, {
+      looksLikeAddress: input.message.type === "location" || addressKind === "structured_address",
+      cannotShareLocation: addressKind === "location_limitation",
+      normalizedText,
+    });
     if (handledAddress) {
       return;
     }
-  }
-
-  if (input.conversation.state === "awaiting_billing_reuse_confirmation") {
-    const handledBillingReuse = await tryHandleBillingReuseConfirmation(input, signals);
-    if (handledBillingReuse) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_normal_billing_info") {
-    const handledNormalBilling = await tryHandleNormalBillingInfo(input, signals);
-    if (handledNormalBilling) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_electronic_billing_info") {
-    const handledElectronicBilling = await tryHandleElectronicBillingInfo(input);
-    if (handledElectronicBilling) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_payment_method" || input.conversation.state === "awaiting_confirmation") {
-    const handledPayment = await tryHandlePaymentMethod(input, signals);
-    if (handledPayment) {
-      return;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_confirmation") {
-    const handledConfirmation = await tryHandleConfirmation(input, signals);
-    if (handledConfirmation) {
-      return;
-    }
-  }
-
-  if (signals.isGreeting || signals.wantsMenu) {
-    await handleGreetingOrMenu(input, signals.isGreeting);
-    return;
   }
 
   if (input.message.type === "location" && input.message.location) {
@@ -229,60 +98,28 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     return;
   }
 
+  if (input.conversation.state === "awaiting_restaurant_confirmation") {
+    await sendAndLogText(input, buildRestaurantReviewPendingMessage());
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_transfer_proof") {
+    await handleTransferProofClarification(input);
+    return;
+  }
+
+  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
+    await handleTransferFallbackPaymentMethodClarification(input);
+    return;
+  }
+
   await handleClarification(input, buildClarificationPrompt(input.conversation.state), "validation_failed_repeatedly");
 }
 
-async function handleGreetingOrMenu(input: RouteInboundMessageInput, isGreeting: boolean): Promise<void> {
-  if (isActiveOrderState(input.conversation.state) && input.conversation.currentDraftOrderId) {
-    const menu = await loadCurrentMenu(input);
-    const draft = await getOrCreateActiveDraftOrder({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversation: input.conversation,
-      customerId: input.conversation.customerId,
-      locationId: menu.location?.id,
-      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
-    });
-
-    if (draft.items.length > 0) {
-      if (!isGreeting) {
-        await updateConversationState({
-          env: input.env,
-          schemaName: input.tenant.schemaName,
-          conversationId: input.conversation.id,
-          state: "awaiting_more_items",
-          resetClarificationAttempts: true,
-        }).catch(() => undefined);
-
-        await sendAndLogText(input, buildContinueWithMenuAndDraftPrompt(buildMenuText(menu), draft));
-        return;
-      }
-
-      await sendAndLogText(input, buildResumeExistingOrderPrompt(draft, buildClarificationPrompt(input.conversation.state)));
-      return;
-    }
+async function trySemanticFallback(input: RouteInboundMessageInput): Promise<boolean> {
+  if (!input.message.text?.trim()) {
+    return false;
   }
 
-  await showCurrentMenu(input, isGreeting);
-}
-
-async function showCurrentMenu(input: RouteInboundMessageInput, isGreeting: boolean): Promise<void> {
-  const menu = await loadCurrentMenu(input);
-  await updateConversationState({
-    env: input.env,
-    schemaName: input.tenant.schemaName,
-    conversationId: input.conversation.id,
-    state: "awaiting_guided_item_selection",
-    context: {
-      flow: "guided",
-      activeMenuId: menu.menu?.id,
-      activeLocationId: menu.location?.id,
-    },
-    resetClarificationAttempts: true,
-  }).catch(() => undefined);
-
-  await sendAndLogText(
-    input,
-    isGreeting ? buildWelcomeMenuText(menu, input.tenant.name) : buildMenuText(menu),
-  );
+  return tryHandleSemanticOrder(input);
 }

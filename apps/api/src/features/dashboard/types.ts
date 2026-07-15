@@ -243,6 +243,12 @@ export type ConversationRow = {
   customer_id: string;
   state: string;
   current_draft_order_id?: string | null;
+  manual_reason?: string | null;
+  automation_enabled?: boolean | null;
+  automation_resume_state?: string | null;
+  automation_changed_at?: string | null;
+  automation_changed_by?: string | null;
+  automation_change_reason?: string | null;
   last_inbound_at?: string | null;
   expires_at?: string | null;
   created_at: string;

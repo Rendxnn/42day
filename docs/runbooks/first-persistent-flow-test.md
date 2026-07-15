@@ -14,32 +14,7 @@ WhatsApp
 
 ## 1. Confirmar SQL pendiente en Supabase
 
-Estado actual:
-
-- `business_config_and_addresses` ya fue aplicado por MCP.
-- `enable_rls_for_exposed_tables` ya fue aplicado por MCP.
-- `menu_demo.sql` ya fue ejecutado por MCP.
-
-Solo repetir esta seccion si estas creando un proyecto nuevo o reseteando la base.
-
-Desde Supabase Dashboard:
-
-1. Abrir el proyecto.
-2. Ir a `SQL Editor`.
-3. Crear una nueva query.
-4. Pegar y ejecutar el contenido de:
-
-```txt
-packages/db/migrations/0009_business_config_and_addresses.sql
-```
-
-Luego crear otra query, pegar y ejecutar:
-
-```txt
-packages/db/seeds/menu_demo.sql
-```
-
-Si el MCP de Supabase esta disponible para Codex, estos pasos los puede ejecutar Codex.
+Solo repetir esta seccion si creas o reseteas un proyecto. Aplica `supabase/migrations` mediante el workflow canonico y provisiona/valida `tenant_demo` desde el template vigente. No ejecutes migraciones o seeds legacy individuales desde SQL Editor.
 
 ## 2. Desplegar el Worker staging
 

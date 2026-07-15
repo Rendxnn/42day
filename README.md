@@ -24,16 +24,16 @@ Hoy el repo ya tiene:
 
 - webhook de WhatsApp funcionando sobre Cloudflare Workers,
 - persistencia de customers, conversations, messages, draft orders y orders en Supabase,
-- router conversacional con camino deterministico y fallback LLM acotado,
-- dashboard operativo para menu, catalogo, pedidos, aceptacion y agotados,
+- router conversacional en experimento temporal de interpretacion semantica para todo texto del cliente, con validacion deterministica de negocio,
+- dashboard operativo para menu, catalogo, pedidos, aceptacion, agotados y control de automatizacion por conversacion,
 - consola admin para provisionar restaurantes y miembros,
 - notificaciones operativas basicas por pedidos.
 
 Los huecos principales para el siguiente tramo son:
 
-- validacion fuerte de configurables contra `product_options`,
-- flujo completo de comprobantes de transferencia,
 - consola humana de alertas/conversacion,
+- alerta por cada mensaje nuevo recibido mientras una conversacion ya esta pausada,
+- rechazo formal de comprobantes con solicitud de reenvio,
 - pruebas automatizadas conversacionales mas amplias.
 
 ## Desarrollo local rapido
@@ -118,6 +118,8 @@ docs/
 ```
 
 ## Documentacion principal
+
+La documentacion se organiza por responsabilidad: `PROJECT_CONTEXT.md` define producto y decisiones vigentes; `docs/planning/current-status.md` describe el estado funcional; `docs/architecture/*` define limites tecnicos; y `docs/runbooks/*` contiene procedimientos operativos. Si hay conflicto, prevalece esa fuente especializada y debe corregirse la duplicacion.
 
 - [Contexto del proyecto](./PROJECT_CONTEXT.md)
 - [Estandar de ingenieria y estructura del monorepo](./docs/architecture/monorepo.md)

@@ -5,7 +5,8 @@ import {
   buildTransferFallbackPaymentPrompt,
 } from "../../../modules/message-router/response-composer";
 import { updateConversationState } from "../../conversations/service";
-import { handleClarification, moveToManual } from "../manual/handoff";
+import { moveToManual } from "../manual/handoff";
+import { handleClarification } from "../manual/handoff";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
 
@@ -91,8 +92,11 @@ export async function tryHandleTransferFallbackPaymentMethod(
     return true;
   }
 
+  return false;
+}
+
+export async function handleTransferFallbackPaymentMethodClarification(input: RouteInboundMessageInput): Promise<void> {
   await handleClarification(input, buildTransferFallbackPaymentPrompt(), "transfer_fallback_payment_method_unresolved");
-  return true;
 }
 
 async function findAcceptedTransferOrderForConversation(input: RouteInboundMessageInput): Promise<AcceptedTransferOrderRow | undefined> {

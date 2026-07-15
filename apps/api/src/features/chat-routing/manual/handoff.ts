@@ -1,5 +1,5 @@
 import type { HumanInterventionType } from "@42day/types";
-import { incrementClarificationAttempts, updateConversationState } from "../../conversations/service";
+import { incrementClarificationAttempts, pauseConversationAutomation } from "../../conversations/service";
 import { persistHumanInterventionAlert } from "../../../modules/handoff-service/handoff-service";
 import { sendAndLogText } from "../outbound/send";
 import { buildMaxClarificationMessage } from "../../../modules/message-router/response-composer";
@@ -40,11 +40,10 @@ export async function moveToManual(input: RouteInboundMessageInput, payload: {
   draftOrderId?: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  await updateConversationState({
+  await pauseConversationAutomation({
     env: input.env,
     schemaName: input.tenant.schemaName,
-    conversationId: input.conversation.id,
-    state: "manual",
+    conversation: input.conversation,
     manualReason: payload.manualReason,
   }).catch(() => undefined);
 

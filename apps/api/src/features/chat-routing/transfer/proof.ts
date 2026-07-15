@@ -129,3 +129,7 @@ export async function tryHandleTransferProof(input: RouteInboundMessageInput): P
 
   return false;
 }
+
+export async function handleTransferProofClarification(input: RouteInboundMessageInput): Promise<void> {
+  await sendAndLogText(input, buildTransferProofAttachmentPrompt());
+}

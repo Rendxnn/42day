@@ -28,7 +28,7 @@ Consecuencia importante:
 ## Estado real hoy
 
 - la carpeta canonica para nuevas migraciones debe ser `supabase/migrations`,
-- `packages/db/migrations` queda como archivo historico legacy del periodo previo a la reconciliacion Supabase CLI,
+- `packages/db/migrations` queda como archivo historico legacy del periodo previo a la reconciliacion Supabase CLI y no es ejecutable como workflow actual,
 - el repo ya tiene migraciones SQL numeradas `0001` a `0025`,
 - las mas recientes agregan cobertura de delivery y billing reutilizable por cliente con snapshot por orden,
 - el repo ya tiene baseline Supabase y migraciones forward reales en `supabase/migrations`,
@@ -79,7 +79,7 @@ La implementacion y configuracion del sistema de migraciones Supabase sigue pend
 Objetivo deseado:
 
 - inicializar `supabase/` en el repo con Supabase CLI,
-- definir la carpeta canonica de migraciones y la convivencia con `packages/db/migrations`,
+- mantener `supabase/migrations` como carpeta canonica y documentar solo la referencia legacy,
 - bootstrapear `supabase_migrations.schema_migrations` en los ambientes existentes,
 - agregar scripts de uso diario para aplicar solo migraciones pendientes,
 - documentar el flujo de desarrollo para staging/produccion y evitar cambios manuales fuera de migraciones.
@@ -96,7 +96,7 @@ Flujo recomendado desde ahora:
 4. aplicar con `supabase db push`
 5. validar schema remoto y comportamiento de API/dashboard
 
-`packages/db/migrations` no debe seguir recibiendo nuevas migraciones canonicas. Puede conservarse por ahora como referencia historica hasta que decidamos archivarlo formalmente.
+`packages/db/migrations` no recibe nuevas migraciones canonicas. Se conserva como referencia historica; el workflow actual se define en `docs/architecture/database-migrations.md`.
 
 Nota sobre seeds:
 

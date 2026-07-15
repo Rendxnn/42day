@@ -78,6 +78,7 @@ Para configuracion de pagos, el frontend ya consume endpoints reales del backend
 - agotados con reemplazos,
 - polling y notificaciones de pedidos nuevos,
 - soporte de realtime para refresco de ordenes,
+- alertas humanas con sonido/toast una vez por ID y control de automatizacion por conversacion desde pedidos y tarjetas abiertas,
 - gestion de menu del dia y catalogo.
 
 ### Plataforma admin
@@ -93,7 +94,7 @@ Para configuracion de pagos, el frontend ya consume endpoints reales del backend
 
 - no existe todavia una vista dedicada de `Alertas`,
 - no existe timeline de conversacion para casos `manual`,
-- no existe flujo visual completo para retomar una conversacion manual especifica,
+- no existe inbox/compositor para responder y continuar una conversacion manual especifica,
 - no existe rechazo formal de comprobante con pedido de reenvio,
 - no existe testing automatizado del modulo `Configuración`,
 - el frontend no tiene pruebas automatizadas.

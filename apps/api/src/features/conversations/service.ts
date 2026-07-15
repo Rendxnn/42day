@@ -1,6 +1,7 @@
 import { getConversationExpiration, isConversationExpired } from "@42day/core";
 import type { Conversation, ConversationContext, ConversationState } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
+import { createSupabaseRestClient } from "../../lib/supabase-rest";
 import { mapConversationRow } from "./mappers";
 import {
   expireConversation,
@@ -22,6 +23,7 @@ export function createNewConversation(input: {
     customerId: input.customerId,
     channel: "whatsapp",
     state: "awaiting_mode_selection",
+    automationEnabled: true,
     context: {},
     clarificationAttempts: 0,
     expiresAt: getConversationExpiration(now).toISOString(),
@@ -127,6 +129,56 @@ export async function updateConversationState(input: {
       },
     }),
   );
+}
+
+export async function pauseConversationAutomation(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversation: Conversation;
+  manualReason: string;
+  changedBy?: string;
+}): Promise<Conversation> {
+  const now = new Date().toISOString();
+  const resumeState = input.conversation.state === "manual"
+    ? (input.conversation.automationResumeState ?? "awaiting_mode_selection")
+    : input.conversation.state;
+
+  return mapConversationRow(await updateConversationRow({
+    env: input.env,
+    schemaName: input.schemaName,
+    conversationId: input.conversation.id,
+    patch: {
+      state: "manual",
+      manual_reason: input.manualReason,
+      automation_enabled: false,
+      automation_resume_state: resumeState,
+      automation_changed_at: now,
+      automation_changed_by: input.changedBy ?? null,
+      automation_change_reason: input.manualReason,
+      updated_at: now,
+    },
+  }));
+}
+
+export async function changeConversationAutomation(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  enabled: boolean;
+  expectedUpdatedAt: string;
+  changedBy: string;
+}): Promise<Conversation> {
+  const row = await createSupabaseRestClient(input.env).rpc<Record<string, unknown>>({
+    schema: input.schemaName,
+    functionName: "change_conversation_automation",
+    args: {
+      p_conversation_id: input.conversationId,
+      p_enabled: input.enabled,
+      p_expected_updated_at: input.expectedUpdatedAt,
+      p_changed_by: input.changedBy,
+    },
+  });
+  return mapConversationRow(row as Parameters<typeof mapConversationRow>[0]);
 }
 
 export async function updateConversationContext(input: {

@@ -134,4 +134,3 @@ Campos:
 - ordenes pendientes por transferencia,
 - conversaciones expiradas,
 - tenants sin menu publicado.
-

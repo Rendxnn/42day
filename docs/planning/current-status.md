@@ -2,12 +2,12 @@
 
 > Nota: este archivo describe estado funcional y operativo. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
 
-Ultima actualizacion: 2026-06-26.
+Ultima actualizacion: 2026-07-14.
 
-Nota operativa reciente:
+Estado externo reportado (requiere verificacion manual antes de una demo):
 
 - el numero nuevo de WhatsApp que se estaba probando fue reasignado temporalmente a `tenant_demo`, porque `tenant_thaledon` no tiene menu operativo publicado en su schema;
-- el fallback semantico `gemini -> openrouter` ya quedo implementado en codigo, pero requiere secret y deploy para quedar activo en `staging`;
+- el respaldo semantico `gemini -> openrouter` esta implementado, pero su disponibilidad depende de secretos y deploy del ambiente;
 - detalle: [WhatsApp routing y fallback LLM](../runbooks/whatsapp-routing-and-llm-fallback-2026-06-26.md)
 
 ## Resumen ejecutivo
@@ -92,8 +92,13 @@ Eso significa poder:
 - soporte de agotados y reemplazos,
 - metadata de routing por outbound,
 - fallback LLM via `t-router`, con Gemini como primario y OpenRouter como respaldo cuando el ambiente tenga el secret configurado.
+- experimento de routing semantico: todo inbound textual llega al parser; media, ubicacion y conversacion manual siguen siendo ramas previas, y el backend mantiene las validaciones de negocio.
 
 ### Dashboard restaurante
+
+- control de automatizacion por conversacion para `encargado` y `trabajador`, disponible tanto en detalle de pedido como en cada conversacion abierta, con confirmacion antes de pausar;
+- la operacion usa RPC transaccional del schema tenant y rechaza estado terminal o una version obsoleta sin escrituras parciales;
+- las tarjetas abiertas muestran el estado pausado y permiten abrir un detalle compacto aun cuando no exista pedido.
 
 - vista de pedidos operativa,
 - detalle de pedido,
@@ -140,9 +145,9 @@ cliente escribe por WhatsApp
 
 ## IA: estado actual
 
-La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
+La IA no maneja las reglas de negocio. Durante el experimento actual actua como interpretador semantico de todo mensaje textual:
 
-- intenta ayudar solo cuando el mensaje parece pedido libre o edicion libre,
+- se invoca para todo mensaje textual procesable; no hay deteccion deterministica de intencion del cliente antes de ella,
 - devuelve textos, cantidades, opciones y confianza,
 - puede extraer `optionTexts`, pero no resuelve IDs finales,
 - no calcula precios,
@@ -150,7 +155,7 @@ La IA no maneja todo el flujo. Hoy actua como parser semantico acotado:
 - no decide disponibilidad,
 - no confirma ordenes.
 
-El backend siempre intenta resolver esa salida contra el menu real y puede volver al camino deterministico si la salida no es confiable o no es aplicable. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
+El backend siempre resuelve esa salida contra el menu real. Si no es confiable o aplicable, aclara o deriva a humano; no vuelve a un matcher deterministico amplio. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
 
 ## Verificacion actual
 
@@ -158,6 +163,7 @@ Validado localmente o por script:
 
 - `npm run test --prefix apps/api`
 - `corepack pnpm typecheck:direct`
+- `pnpm --filter @42day/dashboard build`
 - script E2E `scripts/e2e_order_confirmation_phase5.py`
 
 Las pruebas automatizadas nuevas ya cubren al menos:
@@ -191,13 +197,14 @@ El script E2E actual cubre:
 ### Operacion humana
 
 - la API de alertas existe,
-- pero falta una bandeja visual dedicada de alertas y timeline de conversacion,
-- falta contexto humano mas completo para conversaciones `manual`.
+- las alertas nuevas abiertas producen una sola notificacion (sonido, toast y Browser Notification cuando esta permitido) por ID, incluyendo handoff, pago y confirmacion;
+- falta una bandeja visual dedicada, timeline y compositor de respuesta para operar conversaciones `manual` con contexto completo.
 
 ### Automatizacion
 
 - si la automatizacion esta apagada, el sistema deja de responder,
-- pero todavia no deja siempre una alerta operativa consistente por mensaje pendiente.
+- se puede pausar/reanudar de forma segura por conversacion; al reanudar solo se resuelven alertas de handoff de routing, no revisiones de pago ni confirmaciones pendientes,
+- sigue pendiente definir una alerta para cada mensaje nuevo recibido mientras una conversacion ya esta pausada.
 
 ### Eventos de dominio y notificaciones realtime
 
@@ -207,7 +214,7 @@ Estado actual:
 - el payload de Realtime no se usa directamente: dispara una nueva consulta HTTP de pedidos,
 - existe polling de respaldo cada 30 segundos para reconstruir el estado de la campana,
 - el historial de la campana consulta un subconjunto fijo de `app_events` mediante `/notifications`,
-- el sonido, toast y Browser Notification se disparan solamente cuando aparece un nuevo pedido en estados notificables,
+- el sonido, toast y Browser Notification se disparan cuando aparece un pedido nuevo notificable o una alerta humana abierta no vista; la carga inicial solo establece la linea base,
 - `app_events`, `messages` y `human_intervention_alerts` son modelos separados,
 - el estado de lectura de notificaciones vive solo en memoria del navegador.
 
@@ -238,3 +245,10 @@ Para el alcance cerrado y el plan de cierre demo-ready:
 - [Scope congelado demo-ready](./business-decisions.md)
 - [Gap analysis demo-ready](./demo-ready-gap-analysis.md)
 - [Conversacion natural e integracion IA](./natural-conversation-implementation-plan.md)
+
+## Checklist externo antes de una demo
+
+- Worker staging desplegado y `GET /health` disponible.
+- Secrets de Gemini/OpenRouter, Meta y Supabase presentes en el ambiente que se usara.
+- Webhook y tester de Meta asociados al tenant con menu publicado.
+- `control`, `tenant_template` y tenant demo expuestos/configurados segun el runbook vigente; buckets y Realtime verificados.

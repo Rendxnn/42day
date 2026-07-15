@@ -1,6 +1,6 @@
 import type { Conversation, DraftOrder, NormalizedInboundMessage, PaymentMethod } from "@42day/types";
-import { hasNearToken, includesAny, normalizeText } from "./message-normalizer.ts";
 import { classifyDeliveryAddressText } from "../../features/delivery-coverage/address-text.ts";
+import { includesAny, normalizeText } from "./message-normalizer.ts";
 
 export type DetectedSignals = {
   normalizedText: string;
@@ -17,7 +17,6 @@ export type DetectedSignals = {
   looksLikeAddress: boolean;
   cannotShareLocation: boolean;
   hasTransferProofCandidate: boolean;
-  shouldTrySemanticOrder: boolean;
   doneAddingItems: boolean;
 };
 
@@ -28,7 +27,7 @@ export function detectSignals(input: {
   const text = normalizeText(input.message.text);
   const paymentMethod = parsePaymentMethod(text, input.state);
   const fulfillmentType = parseFulfillmentSelection(text, input.state);
-  const confirmation = parseConfirmation(text);
+  const confirmation = parseConfirmation(text, input.state);
   const doneAddingItems = parseDoneAddingItems(text);
   const deliveryAddressKind = classifyDeliveryAddressText(text);
 
@@ -52,7 +51,6 @@ export function detectSignals(input: {
     }),
     cannotShareLocation: deliveryAddressKind === "location_limitation",
     hasTransferProofCandidate: input.message.type === "image" || input.message.type === "document" || includesAny(text, ["comprobante", "ya pague", "pago listo"]),
-    shouldTrySemanticOrder: shouldTrySemanticOrder(text),
     doneAddingItems,
   };
 }
@@ -75,14 +73,19 @@ export function parseFulfillmentSelection(
     }
   }
 
-  if (
-    includesAny(text, ["domicilio", "delivery", "envio", "a domicilio", "domi", "domicilo"]) ||
-    hasNearToken(text, "domicilio", 2)
-  ) {
+  if (![
+    "awaiting_fulfillment_type",
+    "awaiting_more_items",
+    "awaiting_confirmation",
+  ].includes(state)) {
+    return null;
+  }
+
+  if (["domicilio", "delivery", "envio", "a domicilio"].includes(text)) {
     return "delivery";
   }
 
-  if (includesAny(text, ["pickup", "recoger", "recogida", "retiro", "tienda", "paso por el", "paso por la"])) {
+  if (["pickup", "recoger", "recogida", "retiro"].includes(text)) {
     return "pickup";
   }
 
@@ -104,37 +107,62 @@ export function parsePaymentMethod(text: string, state: Conversation["state"]): 
     }
   }
 
-  if (
-    includesAny(text, ["efectivo", "cash", "contra entrega", "efectvo", "efectibo"]) ||
-    hasNearToken(text, "efectivo", 2)
-  ) {
+  if (state !== "awaiting_payment_method" && state !== "awaiting_transfer_fallback_payment_method") {
+    return null;
+  }
+
+  if (["efectivo", "cash", "contra entrega"].includes(text)) {
     return "cash";
   }
 
-  if (
-    includesAny(text, ["transferencia", "transferir", "trasnferencia", "transfe", "nequi", "daviplata"]) ||
-    hasNearToken(text, "transferencia", 2)
-  ) {
+  if (["transferencia", "nequi", "daviplata"].includes(text)) {
     return "transfer";
   }
 
   return null;
 }
 
-export function parseConfirmation(text: string): "yes" | "no" | "change" | null {
+/**
+ * Semantic output is already an interpreted candidate. This mapper only accepts
+ * canonical payment labels and intentionally does not run the broad text matcher.
+ */
+export function parseSemanticPaymentMethod(text: string): PaymentMethod | null {
+  const normalized = normalizeText(text);
+  if (["efectivo", "cash", "contra entrega"].includes(normalized)) return "cash";
+  if (["transferencia", "nequi", "daviplata"].includes(normalized)) return "transfer";
+  return null;
+}
+
+/** See parseSemanticPaymentMethod: semantic candidates still need canonical mapping. */
+export function parseSemanticFulfillmentSelection(text: string): DraftOrder["fulfillmentType"] | null {
+  const normalized = normalizeText(text);
+  if (["domicilio", "delivery", "envio", "a domicilio"].includes(normalized)) return "delivery";
+  if (["pickup", "recoger", "recogida", "retiro"].includes(normalized)) return "pickup";
+  return null;
+}
+
+export function parseConfirmation(text: string, state: Conversation["state"]): "yes" | "no" | "change" | null {
   if (!text) {
     return null;
   }
 
-  if (/^(no|nop|nope)$/.test(text) || /(^|\s)(cancelar|cancela|no asi|no,? asi no)($|\s)/.test(text)) {
+  if (![
+    "awaiting_confirmation",
+    "awaiting_replacement_selection",
+    "awaiting_transfer_fallback_payment_method",
+  ].includes(state)) {
+    return null;
+  }
+
+  if (["no", "nop", "nope", "cancelar"].includes(text)) {
     return "no";
   }
 
-  if (/(^|\s)(cambiar|cambio|corregir|editar|ajustar|cambiemos|quita|quitar|quitemos|cambia|cambiame|agrega|agregar|agregame|sumale|suma)($|\s)/.test(text)) {
+  if (["cambiar", "corregir", "editar", "ajustar"].includes(text)) {
     return "change";
   }
 
-  if (/^(si|sii|sip|confirmo|confirmado|correcto|dale|listo|ok|okay)(\s|$)/.test(text)) {
+  if (["si", "sii", "sip", "confirmo", "confirmado", "correcto", "dale", "listo", "ok", "okay"].includes(text)) {
     return "yes";
   }
 
@@ -183,26 +211,13 @@ function wantsMenu(text: string): boolean {
   return text === "menu" || text === "menú" || text === "pedido guiado" || text === "guiado" || text === "hacer pedido";
 }
 
-function shouldTrySemanticOrder(text: string): boolean {
-  if (!text) {
-    return false;
-  }
-
-  return (
-    /\b(con|sin|pero|y|tambien|ademas|otro|otra|otros|otras)\b/.test(text) ||
-    /\b(quiero|dame|deme|me regalas|regalame|mandame|necesito|agrega|agregame|agregar|sumale|suma|quita|quitar|quitemos|cambia|cambiame|cambiemos|reemplaza|reemplazame)\b/.test(text) ||
-    /\b(que|cual|cuales|cuanto|cuantos|como|tienen|hay|trae|incluye|viene|puedo|podria|recomiendas|recomiendame)\b/.test(text)
-  );
-}
-
 function parseDoneAddingItems(text: string): boolean {
   if (!text) {
     return false;
   }
 
   return (
-    /^(no|nop|nope|ya|listo|dale|ok|okay)$/.test(text) ||
-    /\b(eso es todo|asi esta bien|nada mas|no mas|no quiero mas|sigamos|continua|continuemos|sigue|seguir|ya no)\b/.test(text)
+    ["no", "nop", "nope", "ya", "listo", "dale", "ok", "okay", "eso es todo", "nada mas", "no mas", "sigamos", "continua", "continuemos"].includes(text)
   );
 }
 

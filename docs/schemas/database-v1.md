@@ -1,10 +1,12 @@
 # Schema de base de datos V1
 
+> Este documento explica el modelo funcional. La estructura ejecutable vigente vive en `supabase/migrations`; no uses esta lista como sustituto de una migracion ni como guia de provisioning.
+
 ## Decision de aislamiento
 
 Usaremos schemas separados por tenant.
 
-Estructura sugerida:
+Estructura vigente:
 
 ```txt
 control.*              # datos globales y resolucion de tenants

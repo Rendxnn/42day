@@ -188,7 +188,7 @@ Si el dashboard consulta solo a nuestro API:
 
 Recomendacion para MVP: dashboard consume API del backend para operaciones sensibles como ordenes, menu y alertas.
 
-## Dashboard via API vs Supabase directo
+## Frontera vigente: dashboard, API y Supabase
 
 ### Solo API
 
@@ -226,10 +226,8 @@ Costos:
 - operaciones multi-schema por tenant se vuelven mas delicadas,
 - es mas facil exponer datos si se configura mal.
 
-### Recomendacion para este proyecto
+### Politica vigente
 
-Usar enfoque mixto con prioridad API:
+El dashboard usa nuestro API para lecturas de negocio y todas las mutaciones: ordenes, pagos, alertas, conversaciones, catalogo y configuracion. El frontend usa Supabase directo solamente para Auth y la suscripcion Realtime de `orders`; el payload de Realtime no se usa como dato de negocio, sino para disparar una nueva consulta HTTP al API.
 
-- API para ordenes, pagos, alertas, conversaciones, mensajes y cambios de estado.
-- Supabase directo solo si se decide usar Auth, realtime o lecturas simples muy controladas.
-- Para CRUD de menu se puede empezar por API para mantener reglas consistentes.
+Esta excepcion exige mantener RLS y publication de Realtime correctas por tenant. `SUPABASE_SERVICE_ROLE_KEY` sigue siendo exclusivamente backend.

@@ -19,6 +19,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
   looksLikeAddress?: boolean;
   cannotShareLocation?: boolean;
   normalizedText?: string;
+  addressText?: string;
   paymentMethod?: "cash" | "transfer" | null;
 }): Promise<boolean> {
   if (input.message.type !== "location" && !signals.looksLikeAddress && !signals.cannotShareLocation) {
@@ -61,7 +62,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
           env: input.env,
           schemaName: input.tenant.schemaName,
           customerId: input.conversation.customerId,
-          addressText: writtenAddressText,
+          addressText: signals.addressText?.trim() || writtenAddressText,
         });
 
     if (writtenAddressText) {

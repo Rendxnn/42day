@@ -4,6 +4,7 @@ import {
   applyBillingDefaults,
   parseElectronicBillingText,
   readPendingBillingContext,
+  resolveBillingReuseDecision,
   renderBillingProfile,
 } from "../src/features/chat-routing/checkout/billing-helpers.ts";
 
@@ -122,4 +123,40 @@ test("renderiza perfil normal reutilizado con hint de factura electronica", () =
 
   assert.match(text, /Nombre completo: Cliente Demo/);
   assert.match(text, /Si necesitas factura electrónica/);
+});
+
+test("prioriza billingDecision reuse para conservar la facturacion guardada", () => {
+  const resolved = resolveBillingReuseDecision({
+    billingDecision: "reuse",
+  });
+
+  assert.deepEqual(resolved, {
+    reuseExisting: true,
+    changeBilling: false,
+    switchToElectronic: false,
+  });
+});
+
+test("interpreta billingDecision change como solicitud de nuevos datos", () => {
+  const resolved = resolveBillingReuseDecision({
+    billingDecision: "change",
+  });
+
+  assert.deepEqual(resolved, {
+    reuseExisting: false,
+    changeBilling: true,
+    switchToElectronic: false,
+  });
+});
+
+test("interpreta billingDecision switch_to_electronic como cambio a factura electronica", () => {
+  const resolved = resolveBillingReuseDecision({
+    billingDecision: "switch_to_electronic",
+  });
+
+  assert.deepEqual(resolved, {
+    reuseExisting: false,
+    changeBilling: false,
+    switchToElectronic: true,
+  });
 });

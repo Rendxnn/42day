@@ -8,4 +8,4 @@ export const ORDER_ITEM_SELECT =
 export const DRAFT_ORDER_ITEM_SELECT =
   "id,draft_order_id,menu_item_id,product_id,combo_id,name_snapshot,quantity,unit_price,options_snapshot,notes,line_total";
 export const CONVERSATION_SELECT =
-  "id,customer_id,state,current_draft_order_id,last_inbound_at,expires_at,created_at,updated_at";
+  "id,customer_id,state,current_draft_order_id,manual_reason,automation_enabled,automation_resume_state,automation_changed_at,automation_changed_by,automation_change_reason,last_inbound_at,expires_at,created_at,updated_at";
