@@ -1664,7 +1664,7 @@ function Sidebar({
         <div className="rounded-[26px] border border-[rgba(255,242,227,0.08)] bg-[rgba(255,248,240,0.03)] p-4">
           <div className="flex items-center gap-3">
             <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-[rgba(255,248,240,0.08)] ring-1 ring-[rgba(255,242,227,0.08)]">
-              <img alt="ParaHoy" className="h-9 w-9 object-contain" src="/parahoy-logo.png" />
+              <img alt="ParaHoy" className="h-9 w-9 object-contain" src="/parahoy-logo-dark-no-bg.png" />
             </div>
             <div className="min-w-0">
               <p className="app-display text-[2rem] leading-none text-[var(--text-on-dark)]">ParaHoy</p>
