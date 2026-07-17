@@ -1,10 +1,7 @@
 import type { DraftOrder, OrderBillingDetails, TodayMenuPayload } from "@42day/types";
-import { saveCustomerAddressFromText } from "../../../modules/customer-address-service/customer-address-service";
 import { saveCustomerBillingProfile } from "../../../modules/customer-billing-service/customer-billing-service";
-import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
 import {
   updateDraftOrderBilling,
-  updateDraftOrderCoverage,
   updateDraftOrderFulfillment,
   updateDraftOrderPaymentMethod,
 } from "../../draft-orders/service";
@@ -16,6 +13,7 @@ export type DraftFacts = {
   fulfillmentType?: "delivery" | "pickup" | null;
   paymentMethod?: "cash" | "transfer" | null;
   deliveryAddressText?: string | null;
+  deliveryAddressDetails?: string | null;
   billing?: OrderBillingDetails | null;
 };
 
@@ -42,38 +40,6 @@ export async function applyDraftFacts(input: RouteInboundMessageInput, payload: 
       deliveryFeeFixed,
     });
     logRoutingDiagnostic(input, "draft_facts.fulfillment_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
-  }
-
-  if (payload.facts.deliveryAddressText?.trim() && draft.fulfillmentType === "delivery") {
-    const settings = await getDeliveryCoverageSettings({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      locationId: draft.locationId ?? payload.menu.location?.id,
-    });
-    if (settings?.allowWrittenAddressReference !== false) {
-      const address = await saveCustomerAddressFromText({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        customerId: input.conversation.customerId,
-        addressText: payload.facts.deliveryAddressText,
-      });
-      draft = await updateDraftOrderCoverage({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        draftOrderId: draft.id,
-        customerAddressText: address.addressText,
-        deliveryAddressId: address.id,
-        validationMethod: "written_address_reference",
-        confidence: "low",
-        deliveryFeeFixed,
-      });
-      logRoutingDiagnostic(input, "draft_facts.delivery_address_reference_applied", { draftOrderId: draft.id, after: summarizeDraft(draft) });
-    } else {
-      logRoutingDiagnostic(input, "draft_facts.delivery_address_skipped", {
-        draftOrderId: draft.id,
-        reason: "written_address_reference_disabled",
-      });
-    }
   }
 
   if (payload.facts.billing) {
@@ -114,6 +80,7 @@ function summarizeFacts(facts: DraftFacts): Record<string, unknown> {
     fulfillmentType: facts.fulfillmentType ?? null,
     paymentMethod: facts.paymentMethod ?? null,
     hasDeliveryAddress: Boolean(facts.deliveryAddressText?.trim()),
+    hasDeliveryAddressDetails: Boolean(facts.deliveryAddressDetails?.trim()),
     billing: facts.billing
       ? { type: facts.billing.type, hasName: Boolean(facts.billing.fullName || facts.billing.legalName), hasAddress: Boolean(facts.billing.billingAddress), hasTaxId: Boolean(facts.billing.taxId), hasEmail: Boolean(facts.billing.email) }
       : null,

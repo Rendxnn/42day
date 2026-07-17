@@ -110,6 +110,7 @@ export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSum
     serviceTiming: row.service_timing ?? "asap",
     scheduledFor: row.scheduled_for ?? undefined,
     customerAddressText: row.customer_address_text ?? undefined,
+    deliveryAddressDetails: row.delivery_address_details ?? undefined,
     resolvedDeliveryAddress: row.resolved_delivery_address ?? undefined,
     customerLatitude: row.customer_latitude ?? undefined,
     customerLongitude: row.customer_longitude ?? undefined,
@@ -173,6 +174,7 @@ export function mapOpenOrderSummary(
     serviceTiming: row.service_timing ?? undefined,
     scheduledFor: row.scheduled_for ?? undefined,
     customerAddressText: row.customer_address_text ?? row.delivery_address ?? undefined,
+    deliveryAddressDetails: row.delivery_address_details ?? undefined,
     resolvedDeliveryAddress: row.resolved_delivery_address ?? undefined,
     paymentMethod: row.payment_method ?? undefined,
     subtotal: row.subtotal,
@@ -231,6 +233,7 @@ export function mapOrderSummaryAsOpenSummary(
     serviceTiming: row.serviceTiming,
     scheduledFor: row.scheduledFor,
     customerAddressText: row.customerAddressText,
+    deliveryAddressDetails: row.deliveryAddressDetails,
     resolvedDeliveryAddress: row.resolvedDeliveryAddress,
     paymentMethod: row.paymentMethod,
     subtotal: row.subtotal,
@@ -331,7 +334,7 @@ export async function loadOrderNotificationContext(
     table: "orders",
     query: {
       select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_id,customer_address_text,resolved_delivery_address,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_details,delivery_address_id,customer_address_text,resolved_delivery_address,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
       id: `eq.${orderId}`,
       limit: 1,
     },

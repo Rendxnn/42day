@@ -7,6 +7,7 @@ const emptySignals = {
   numericSelection: null,
   isGreeting: false,
   wantsMenu: false,
+  wantsOrderStatus: false,
   humanRequested: false,
   fulfillmentType: null,
   paymentMethod: null,
@@ -14,6 +15,7 @@ const emptySignals = {
   wantsElectronicBilling: false,
   billingDataChanged: false,
   looksLikeAddress: false,
+  cannotShareLocation: false,
   hasTransferProofCandidate: false,
   doneAddingItems: false,
 };
@@ -29,6 +31,7 @@ test("construye hechos de draft independientes desde un solo mensaje semantico",
       paymentText: "efectivo",
       paymentConfidence: 0.95,
       deliveryAddressText: "Calle 10 # 5-20",
+      deliveryAddressDetails: "Torre 3, apto 402",
       deliveryAddressConfidence: 0.9,
       billing: {
         type: "normal",
@@ -46,6 +49,7 @@ test("construye hechos de draft independientes desde un solo mensaje semantico",
   assert.equal(facts.fulfillmentType, "delivery");
   assert.equal(facts.paymentMethod, "cash");
   assert.equal(facts.deliveryAddressText, "Calle 10 # 5-20");
+  assert.equal(facts.deliveryAddressDetails, "Torre 3, apto 402");
   assert.deepEqual(facts.billing, {
     type: "normal",
     fullName: "Samuel Rendon",

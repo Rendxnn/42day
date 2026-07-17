@@ -28,6 +28,7 @@ export function mapOrder(row: OrderRow): Order {
     serviceTiming: row.service_timing ?? "asap",
     scheduledFor: row.scheduled_for ?? undefined,
     deliveryAddress: row.delivery_address ?? undefined,
+    deliveryAddressDetails: row.delivery_address_details ?? undefined,
     deliveryAddressId: row.delivery_address_id ?? undefined,
     customerAddressText: row.customer_address_text ?? undefined,
     resolvedDeliveryAddress: row.resolved_delivery_address ?? undefined,

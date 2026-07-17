@@ -5,25 +5,24 @@ export function buildCoverageRequestMessage(input?: {
   tryGeocodeWrittenAddresses?: boolean;
 }): string {
   const baseMessage = input?.requestLocationMessage?.trim() || buildDeliveryAddressPrompt();
-  if (input?.tryGeocodeWrittenAddresses === false || /\bdireccion\b|\bdirección\b/i.test(baseMessage)) {
-    return baseMessage;
-  }
+  if (input?.tryGeocodeWrittenAddresses === false) return baseMessage;
+  if (/\b(apto|apartamento|torre|unidad|detalle|indicaci[oó]n|referencia)\b/i.test(baseMessage)) return baseMessage;
 
-  return `${baseMessage}\n\nSi no puedes compartir la ubicación, también puedes escribirme la dirección completa para validarla.`;
+  return `${baseMessage}\n\nSi prefieres escribirla, envíame en un solo mensaje la dirección completa (calle o carrera, número, barrio y municipio) e incluye apartamento, torre, unidad, casa o una referencia si aplica.`;
 }
 
 export function buildWrittenAddressHelpPrompt(): string {
   return [
     "No hay problema.",
-    "Si no puedes compartir tu ubicación, escríbeme la dirección lo más completa posible: calle o carrera, número, barrio y municipio.",
-    'Ejemplo: "Calle 74 Sur #35-145, barrio X, Sabaneta".',
+    "Envíame en un solo mensaje la dirección completa: calle o carrera, número, barrio y municipio. Incluye apartamento, torre, unidad, casa o referencia si aplica.",
+    'Ejemplo: "Calle 74 Sur #35-145, barrio X, Sabaneta. Torre 2, apto 301, portería."',
   ].join("\n\n");
 }
 
 export function buildAddressValidationRetryPrompt(): string {
   return [
-    "No pude validar esa dirección con suficiente claridad.",
-    "Por favor escríbemela más completa, incluyendo calle o carrera, número, barrio y municipio.",
-    "Si prefieres, tambiÃ©n puedes enviarme la ubicaciÃ³n de WhatsApp.",
+    "No logré identificar con claridad la dirección para validar la cobertura.",
+    "Envíamela nuevamente en un solo mensaje con calle o carrera, número, barrio y municipio; agrega apartamento, torre, unidad, casa o referencia si aplica.",
+    "Si prefieres, también puedes enviarme la ubicación de WhatsApp.",
   ].join("\n\n");
 }

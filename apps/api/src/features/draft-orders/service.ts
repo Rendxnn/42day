@@ -261,6 +261,7 @@ export async function updateDraftOrderFulfillment(input: {
 
   if (input.fulfillmentType === "pickup") {
     patch.delivery_address = null;
+    patch.delivery_address_details = null;
     patch.delivery_address_id = null;
     patch.customer_address_text = null;
     patch.resolved_delivery_address = null;
@@ -293,6 +294,7 @@ export async function updateDraftOrderDeliveryAddress(input: {
   schemaName: string;
   draftOrderId: string;
   addressText: string;
+  addressDetails?: string;
   deliveryAddressId?: string;
   deliveryFeeFixed?: number;
 }): Promise<DraftOrder> {
@@ -302,6 +304,7 @@ export async function updateDraftOrderDeliveryAddress(input: {
     draftOrderId: input.draftOrderId,
     values: {
       delivery_address: input.addressText,
+      delivery_address_details: input.addressDetails ?? null,
       delivery_address_id: input.deliveryAddressId ?? null,
       customer_address_text: input.addressText,
       resolved_delivery_address: input.addressText,
@@ -330,6 +333,7 @@ export async function updateDraftOrderCoverage(input: {
   customerAddressText?: string | null;
   resolvedDeliveryAddress?: string | null;
   deliveryAddressId?: string | null;
+  deliveryAddressDetails?: string | null;
   deliveryFeeFixed?: number;
 }): Promise<DraftOrder> {
   await updateDraftOrderRow({
@@ -352,6 +356,7 @@ export async function updateDraftOrderCoverage(input: {
         resolved_delivery_address: input.resolvedDeliveryAddress,
       } : {}),
       ...(input.deliveryAddressId !== undefined ? { delivery_address_id: input.deliveryAddressId } : {}),
+      ...(input.deliveryAddressDetails !== undefined ? { delivery_address_details: input.deliveryAddressDetails } : {}),
     },
   });
 

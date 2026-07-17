@@ -8,8 +8,10 @@ test("redacta facturacion y direccion del snapshot semantico", () => {
     confidence: 0.9,
     items: [],
     addressText: "Calle privada 123",
+    addressDetails: "Apto privado 5",
     draftFacts: {
       deliveryAddressText: "Carrera privada 4",
+      deliveryAddressDetails: "Torre privada",
       deliveryAddressConfidence: 0.9,
       billing: {
         type: "normal",
@@ -21,6 +23,8 @@ test("redacta facturacion y direccion del snapshot semantico", () => {
   });
 
   assert.equal(redacted.addressText, "[redacted]");
+  assert.equal(redacted.addressDetails, "[redacted]");
   assert.equal(redacted.draftFacts.deliveryAddressText, "[redacted]");
+  assert.equal(redacted.draftFacts.deliveryAddressDetails, "[redacted]");
   assert.deepEqual(redacted.draftFacts.billing, { type: "normal", confidence: 0.9 });
 });

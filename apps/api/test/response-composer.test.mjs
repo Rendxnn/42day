@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCustomerOrderStatusMessage, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -80,6 +80,17 @@ test("menciona el valor del domicilio cuando el pedido es delivery", () => {
 
   assert.match(message, /El valor del domicilio es de/);
   assert.match(message, /5\.000/);
+});
+
+test("no ofrece factura electronica cuando el restaurante la desactiva", () => {
+  const message = buildNormalBillingPrompt({
+    fulfillmentType: "delivery",
+    billingAddress: "Calle 10 # 5-20",
+    electronicBillingEnabled: false,
+  });
+
+  assert.match(message, /factura normal/i);
+  assert.doesNotMatch(message, /factura electr[óo]nica/i);
 });
 
 test("la confirmacion incluye entrega, facturacion y pago acumulados", () => {

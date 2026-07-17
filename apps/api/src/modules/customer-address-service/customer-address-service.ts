@@ -5,6 +5,7 @@ import { createSupabaseRestClient } from "../../lib/supabase-rest";
 export type CustomerAddress = {
   id: string;
   addressText: string;
+  addressDetails?: string;
   latitude?: number;
   longitude?: number;
   source: "text" | "whatsapp_location" | "dashboard";
@@ -16,6 +17,7 @@ export type CustomerAddress = {
 type CustomerAddressRow = {
   id: string;
   address_text: string;
+  address_details?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   source: CustomerAddress["source"];
@@ -29,13 +31,15 @@ export async function saveCustomerAddressFromWhatsAppLocation(input: {
   schemaName: string;
   customerId: string;
   message: NormalizedInboundMessage;
+  addressText?: string;
+  addressDetails?: string;
 }): Promise<CustomerAddress | null> {
   if (!input.message.location) {
     return null;
   }
 
   const client = createSupabaseRestClient(input.env);
-  const addressText =
+  const addressText = input.addressText?.trim() ||
     input.message.location.address ??
     input.message.location.name ??
     `Ubicacion compartida: ${input.message.location.latitude}, ${input.message.location.longitude}`;
@@ -49,6 +53,7 @@ export async function saveCustomerAddressFromWhatsAppLocation(input: {
       customer_id: input.customerId,
       label: "WhatsApp",
       address_text: addressText,
+      address_details: input.addressDetails?.trim() || null,
       latitude: input.message.location.latitude,
       longitude: input.message.location.longitude,
       raw_location_payload: input.message.raw,
@@ -66,6 +71,7 @@ export async function saveCustomerAddressFromText(input: {
   schemaName: string;
   customerId: string;
   addressText: string;
+  addressDetails?: string;
 }): Promise<CustomerAddress> {
   const client = createSupabaseRestClient(input.env);
   const normalizedAddress = input.addressText.trim();
@@ -79,6 +85,7 @@ export async function saveCustomerAddressFromText(input: {
       customer_id: input.customerId,
       label: "Direccion de entrega",
       address_text: normalizedAddress,
+      address_details: input.addressDetails?.trim() || null,
       source: "text",
       is_default: true,
     },
@@ -97,7 +104,7 @@ export async function getLatestCustomerAddress(input: {
     schema: input.schemaName,
     table: "customer_addresses",
     query: {
-      select: "id,address_text,latitude,longitude,source,is_default,created_at,updated_at",
+      select: "id,address_text,address_details,latitude,longitude,source,is_default,created_at,updated_at",
       customer_id: `eq.${input.customerId}`,
       order: "is_default.desc,created_at.desc",
       limit: 1,
@@ -153,6 +160,7 @@ function mapCustomerAddress(row: CustomerAddressRow | undefined): CustomerAddres
   return {
     id: row.id,
     addressText: row.address_text,
+    addressDetails: row.address_details?.trim() || undefined,
     latitude: row.latitude ?? undefined,
     longitude: row.longitude ?? undefined,
     source: row.source,

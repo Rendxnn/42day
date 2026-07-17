@@ -5,6 +5,7 @@ import { updateConversationState } from "../../conversations/service";
 import {
   buildBillingReusePrompt,
   buildElectronicBillingPrompt,
+  buildElectronicBillingUnavailableMessage,
   buildNormalBillingPrompt,
 } from "../../../modules/message-router/response-composer";
 import { loadCurrentMenu } from "../shared/helpers";
@@ -18,6 +19,16 @@ import {
   resolveBillingReuseDecision,
 } from "./billing-helpers";
 import { proceedToNextOrderStep } from "./progression";
+import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
+
+export async function isElectronicBillingEnabled(input: RouteInboundMessageInput, locationId?: string): Promise<boolean> {
+  const settings = await getDeliveryCoverageSettings({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    locationId,
+  });
+  return settings?.electronicBillingEnabled ?? true;
+}
 
 export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessageInput, signals: {
   confirmation?: "yes" | "no" | "change" | null;
@@ -45,6 +56,11 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     locationId: menu.location?.id,
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
+
+  if (pending.type === "electronic" && !(await isElectronicBillingEnabled(input, draft.locationId))) {
+    await moveToNormalBilling(input, draft);
+    return true;
+  }
 
   if (resolved.reuseExisting && pending.reuseProfile) {
     const billing = applyBillingDefaults(toOrderBillingDetails(pending.reuseProfile), draft);
@@ -78,6 +94,7 @@ export async function tryHandleBillingReuseConfirmation(input: RouteInboundMessa
     await sendAndLogText(input, pending.type === "electronic" ? buildElectronicBillingPrompt() : buildNormalBillingPrompt({
       fulfillmentType: draft.fulfillmentType,
       billingAddress: draft.deliveryAddress,
+      electronicBillingEnabled: await isElectronicBillingEnabled(input, draft.locationId),
     }));
     return true;
   }
@@ -150,12 +167,6 @@ function looksLikeBillingFullName(value: string): boolean {
 }
 
 export async function tryHandleElectronicBillingInfo(input: RouteInboundMessageInput): Promise<boolean> {
-  const text = (input.message.text ?? "").trim();
-  const parsed = parseElectronicBillingText(text);
-  if (!parsed) {
-    return false;
-  }
-
   const menu = await loadCurrentMenu(input);
   const draft = await getOrCreateActiveDraftOrder({
     env: input.env,
@@ -165,6 +176,17 @@ export async function tryHandleElectronicBillingInfo(input: RouteInboundMessageI
     locationId: menu.location?.id,
     deliveryFeeFixed: menu.location?.deliveryFeeFixed,
   });
+
+  if (!(await isElectronicBillingEnabled(input, draft.locationId))) {
+    await moveToNormalBilling(input, draft);
+    return true;
+  }
+
+  const text = (input.message.text ?? "").trim();
+  const parsed = parseElectronicBillingText(text);
+  if (!parsed) {
+    return false;
+  }
 
   const profile = await saveCustomerBillingProfile({
     env: input.env,
@@ -202,6 +224,7 @@ export async function startBillingStep(
     type: "normal",
     shouldReuseDeliveryAddress: payload.draft.fulfillmentType === "delivery",
   };
+  const electronicBillingEnabled = await isElectronicBillingEnabled(input, payload.draft.locationId);
 
   if (normalProfile) {
     await updateConversationState({
@@ -249,10 +272,16 @@ export async function startBillingStep(
   await sendAndLogText(input, [payload.prefix, buildNormalBillingPrompt({
     fulfillmentType: payload.draft.fulfillmentType,
     billingAddress: payload.draft.deliveryAddress,
+    electronicBillingEnabled,
   })].filter(Boolean).join("\n\n"));
 }
 
 async function switchToElectronicBilling(input: RouteInboundMessageInput): Promise<boolean> {
+  if (!(await isElectronicBillingEnabled(input))) {
+    await sendAndLogText(input, buildElectronicBillingUnavailableMessage());
+    return true;
+  }
+
   const profiles = await loadCustomerBillingProfiles({
     env: input.env,
     schemaName: input.tenant.schemaName,
@@ -311,4 +340,30 @@ async function switchToElectronicBilling(input: RouteInboundMessageInput): Promi
 
   await sendAndLogText(input, buildElectronicBillingPrompt());
   return true;
+}
+
+async function moveToNormalBilling(input: RouteInboundMessageInput, draft: DraftOrder): Promise<void> {
+  await updateConversationState({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    state: "awaiting_normal_billing_info",
+    context: {
+      ...input.conversation.context,
+      pendingBilling: {
+        type: "normal",
+        shouldReuseDeliveryAddress: draft.fulfillmentType === "delivery",
+      },
+    },
+    resetClarificationAttempts: true,
+  }).catch(() => undefined);
+
+  await sendAndLogText(input, [
+    buildElectronicBillingUnavailableMessage(),
+    buildNormalBillingPrompt({
+      fulfillmentType: draft.fulfillmentType,
+      billingAddress: draft.deliveryAddress,
+      electronicBillingEnabled: false,
+    }),
+  ].join("\n\n"));
 }

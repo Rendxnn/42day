@@ -21,6 +21,8 @@ export type AutomationSettings = {
 export type DeliveryCoverageSettings = {
   locationId: string;
   deliveryEnabled: boolean;
+  deliveryFeeFixed: number;
+  electronicBillingEnabled: boolean;
   latitude?: number;
   longitude?: number;
   restaurantCity?: string;

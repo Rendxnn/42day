@@ -55,10 +55,12 @@ export function redactSemanticParserResult(parsed: SemanticParserResult): Semant
   return {
     ...parsed,
     addressText: parsed.addressText ? "[redacted]" : parsed.addressText,
+    addressDetails: parsed.addressDetails ? "[redacted]" : parsed.addressDetails,
     draftFacts: parsed.draftFacts
       ? {
           ...parsed.draftFacts,
           deliveryAddressText: parsed.draftFacts.deliveryAddressText ? "[redacted]" : parsed.draftFacts.deliveryAddressText,
+          deliveryAddressDetails: parsed.draftFacts.deliveryAddressDetails ? "[redacted]" : parsed.draftFacts.deliveryAddressDetails,
           billing: parsed.draftFacts.billing
             ? {
                 type: parsed.draftFacts.billing.type,

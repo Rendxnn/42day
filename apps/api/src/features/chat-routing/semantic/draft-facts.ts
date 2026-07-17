@@ -28,12 +28,15 @@ export function buildSemanticDraftFacts(parsed: SemanticParserResult, signals: D
     fulfillmentType: signals.fulfillmentType,
     paymentMethod: signals.paymentMethod,
     deliveryAddressText: (facts?.deliveryAddressConfidence ?? 0) >= 0.75
-      ? facts?.deliveryAddressText?.trim() || undefined
+      ? facts?.deliveryAddressText?.trim() || parsed.addressText?.trim() || undefined
+      : undefined,
+    deliveryAddressDetails: (facts?.deliveryAddressConfidence ?? 0) >= 0.75
+      ? facts?.deliveryAddressDetails?.trim() || parsed.addressDetails?.trim() || undefined
       : undefined,
     billing: normalizedBilling,
   };
 }
 
 export function hasDraftFacts(facts: DraftFacts): boolean {
-  return Boolean(facts.fulfillmentType || facts.paymentMethod || facts.deliveryAddressText || facts.billing);
+  return Boolean(facts.fulfillmentType || facts.paymentMethod || facts.deliveryAddressText || facts.deliveryAddressDetails || facts.billing);
 }

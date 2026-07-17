@@ -3,6 +3,13 @@ export type DeliveryAddressTextKind =
   | "location_limitation"
   | "unknown";
 
+export type SegmentedDeliveryAddress = {
+  /** Street-level address used for geocoding and coverage validation. */
+  addressText: string;
+  /** Instructions useful to the courier but not useful to a geocoder. */
+  details?: string;
+};
+
 export function classifyDeliveryAddressText(text: string): DeliveryAddressTextKind {
   const normalized = normalizeAddressText(text);
   if (!normalized) {
@@ -18,6 +25,38 @@ export function classifyDeliveryAddressText(text: string): DeliveryAddressTextKi
   }
 
   return "unknown";
+}
+
+/**
+ * Keeps the geocodable part of an address separate from delivery instructions.
+ * The deterministic split is deliberately conservative: if it cannot identify
+ * a delivery-detail marker, it leaves the original text untouched.
+ */
+export function segmentDeliveryAddress(input: {
+  addressText: string;
+  details?: string | null;
+}): SegmentedDeliveryAddress {
+  const rawAddress = cleanAddressPart(input.addressText);
+  const explicitDetails = cleanAddressPart(input.details ?? "");
+  if (!rawAddress) {
+    return { addressText: "", ...(explicitDetails ? { details: explicitDetails } : {}) };
+  }
+
+  if (explicitDetails) {
+    return { addressText: rawAddress, details: explicitDetails };
+  }
+
+  const match = rawAddress.match(/(?:^|[,;\n]|\s)(apto\.?|apartamento|interior|piso|torre|bloque|unidad|conjunto|edificio|porter[ií]a|entrada|casa|local|referencia|indicaciones?|al lado de|frente a)\b/i);
+  if (!match || match.index === undefined || match.index === 0) {
+    return { addressText: rawAddress };
+  }
+
+  const addressText = cleanAddressPart(rawAddress.slice(0, match.index));
+  const details = cleanAddressPart(rawAddress.slice(match.index));
+  return {
+    addressText: addressText || rawAddress,
+    ...(addressText && details ? { details } : {}),
+  };
 }
 
 function looksLikeLocationLimitation(text: string) {
@@ -57,5 +96,12 @@ function normalizeAddressText(text: string) {
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanAddressPart(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^[,;\-–—\s]+|[,;\-–—\s]+$/g, "")
     .trim();
 }

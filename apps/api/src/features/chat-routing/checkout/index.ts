@@ -11,6 +11,7 @@ export {
   tryHandleBillingReuseConfirmation,
   tryHandleNormalBillingInfo,
   tryHandleElectronicBillingInfo,
+  isElectronicBillingEnabled,
 } from "./billing";
 export { tryHandlePaymentMethod } from "./payment";
 export { tryHandleConfirmation } from "./confirmation";

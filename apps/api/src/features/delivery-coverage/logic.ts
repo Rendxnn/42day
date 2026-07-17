@@ -75,6 +75,7 @@ export function parseDeliveryCoverageSettingsUpdate(value: unknown): UpdateDeliv
   const latitude = parseOptionalNumber(body.latitude);
   const longitude = parseOptionalNumber(body.longitude);
   const deliveryRadiusKm = Number(body.deliveryRadiusKm);
+  const deliveryFeeFixed = Number(body.deliveryFeeFixed);
   const country = parseText(body.restaurantCountry, 2, 80);
   const requestLocationMessage = parseText(body.requestLocationMessage, 10, 1000);
   const writtenAddressFallbackMessage = parseText(body.writtenAddressFallbackMessage, 10, 1000);
@@ -86,6 +87,8 @@ export function parseDeliveryCoverageSettingsUpdate(value: unknown): UpdateDeliv
     || (latitude !== undefined && !isValidLatitude(latitude))
     || (longitude !== undefined && !isValidLongitude(longitude))
     || !isValidDeliveryRadius(deliveryRadiusKm)
+    || !isValidDeliveryFee(deliveryFeeFixed)
+    || typeof body.electronicBillingEnabled !== "boolean"
     || typeof body.allowWrittenAddressReference !== "boolean"
     || typeof body.tryGeocodeWrittenAddresses !== "boolean"
     || typeof body.allowOutOfCoverageOrders !== "boolean"
@@ -94,6 +97,8 @@ export function parseDeliveryCoverageSettingsUpdate(value: unknown): UpdateDeliv
 
   return {
     deliveryEnabled: body.deliveryEnabled,
+    deliveryFeeFixed,
+    electronicBillingEnabled: body.electronicBillingEnabled,
     latitude,
     longitude,
     restaurantCity: parseOptionalText(body.restaurantCity, 100),
@@ -107,6 +112,10 @@ export function parseDeliveryCoverageSettingsUpdate(value: unknown): UpdateDeliv
     writtenAddressFallbackMessage,
     outOfCoverageMessage,
   };
+}
+
+export function isValidDeliveryFee(value: number) {
+  return Number.isInteger(value) && value >= 0 && value <= 1_000_000;
 }
 
 function assertCoordinates(latitude: number, longitude: number) {
