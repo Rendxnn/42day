@@ -18,6 +18,7 @@ export function canApplySemanticDraftChangeAtState(state: Conversation["state"])
     "awaiting_electronic_billing_info",
     "awaiting_payment_method",
     "awaiting_confirmation",
+    "awaiting_order_adjustment",
   ].includes(state);
 }
 

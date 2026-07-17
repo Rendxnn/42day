@@ -8,7 +8,7 @@ import {
 import { loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { persistConfirmedOrder } from "../../orders/service";
+import { confirmOrderAdjustment, getPendingCustomerReplacementOrder, persistConfirmedOrder } from "../../orders/service";
 import { getDeliveryCoverageSettings } from "../../delivery-coverage/service";
 import { buildCoverageRequestMessage } from "./address-prompts";
 
@@ -19,18 +19,40 @@ export async function tryHandleConfirmation(input: RouteInboundMessageInput, sig
     return false;
   }
 
+  const pendingAdjustment = await getPendingCustomerReplacementOrder({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    conversationId: input.conversation.id,
+    currentDraftOrderId: input.conversation.currentDraftOrderId,
+  });
+
   if (signals.confirmation === "no" || signals.confirmation === "change") {
     await updateConversationState({
       env: input.env,
       schemaName: input.tenant.schemaName,
       conversationId: input.conversation.id,
-      state: "awaiting_more_items",
+      state: pendingAdjustment ? "awaiting_order_adjustment" : "awaiting_more_items",
       resetClarificationAttempts: true,
     }).catch(() => undefined);
 
     await sendAndLogText(
       input,
       buildEditableSummaryAdjustmentPrompt(),
+    );
+    return true;
+  }
+
+  if (pendingAdjustment) {
+    const adjustedOrder = await confirmOrderAdjustment({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      orderId: pendingAdjustment.order.id,
+      expectedOrderUpdatedAt: pendingAdjustment.order.updatedAt,
+    });
+    await sendAndLogText(
+      input,
+      buildOrderSubmittedForReviewMessage(adjustedOrder.id, adjustedOrder.paymentMethod),
     );
     return true;
   }

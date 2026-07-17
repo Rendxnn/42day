@@ -19,7 +19,7 @@ import { sendAndLogText } from "../outbound/send";
 import type { ConfigurableItemCandidate, PendingProductConfigurationContext } from "../shared/context";
 import { loadCurrentMenu } from "../shared/helpers";
 import { moveToManual } from "../manual/handoff";
-import { continueAfterItemAdded } from "../checkout";
+import { continueAfterItemAdded, proceedToNextOrderStep } from "../checkout";
 import type { RouteInboundMessageInput } from "../shared/types";
 import { stageConfiguredItemSelection } from "./selection";
 
@@ -116,6 +116,11 @@ export async function tryHandlePendingProductConfiguration(
       lastSelectedItem = queuedResult.lastSelectedItem ?? lastSelectedItem;
     }
 
+    if (pending.returnToOrderAdjustment) {
+      await proceedToNextOrderStep(input, { menu, draft });
+      return true;
+    }
+
     await continueAfterItemAdded(input, {
       menu,
       draft,
@@ -198,6 +203,7 @@ export async function persistPendingProductConfiguration(input: RouteInboundMess
         ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
         startedAt: new Date().toISOString(),
         queuedItems: payload.queuedItems,
+        returnToOrderAdjustment: input.conversation.state === "awaiting_order_adjustment",
       } satisfies PendingProductConfigurationContext,
     },
     resetClarificationAttempts: true,

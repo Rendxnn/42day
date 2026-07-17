@@ -2,14 +2,15 @@ import type { SemanticParserResult } from "../../../modules/semantic-parser/sema
 import type { ResponseRoutingTrace, RouteInboundMessageInput } from "./types";
 
 export function logRoutingDiagnostic(input: RouteInboundMessageInput, event: string, payload: Record<string, unknown> = {}): void {
-  console.info(event, {
+  console.info(JSON.stringify({
+    event,
     tenantId: input.tenant.id,
     conversationId: input.conversation.id,
     inboundProviderMessageId: input.message.providerMessageId ?? null,
     conversationState: input.conversation.state,
     messageType: input.message.type,
     ...payload,
-  });
+  }));
 }
 
 export function markLlmAttempt(input: RouteInboundMessageInput): void {

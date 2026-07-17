@@ -458,7 +458,8 @@ async function recalculateDraftOrder(input: {
     },
   });
 
-  console.info("draft_order.recalculated", {
+  console.info(JSON.stringify({
+    event: "draft_order.recalculated",
     schemaName: input.schemaName,
     draftOrderId: nextDraft.id,
     status: nextDraft.status,
@@ -468,7 +469,7 @@ async function recalculateDraftOrder(input: {
     hasDeliveryAddress: Boolean(nextDraft.deliveryAddress || nextDraft.deliveryAddressId),
     billingType: nextDraft.billing?.type ?? null,
     total: nextDraft.total,
-  });
+  }));
 
   return nextDraft;
 }

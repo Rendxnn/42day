@@ -241,6 +241,25 @@ export async function getPendingCustomerReplacementOrder(input: {
   };
 }
 
+export async function confirmOrderAdjustment(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  orderId: string;
+  expectedOrderUpdatedAt: string;
+}): Promise<Order> {
+  const row = await createSupabaseRestClient(input.env).rpc<OrderRow>({
+    schema: input.schemaName,
+    functionName: "confirm_order_adjustment",
+    args: {
+      p_conversation_id: input.conversationId,
+      p_order_id: input.orderId,
+      p_expected_order_updated_at: input.expectedOrderUpdatedAt,
+    },
+  });
+  return mapOrder(row);
+}
+
 export async function applyCustomerReplacementSelection(input: {
   env: ApiBindings;
   schemaName: string;

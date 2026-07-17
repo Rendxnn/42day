@@ -38,10 +38,6 @@ export function registerOrdersOutOfStockRoute(routes: Hono<{
       return c.json({ error: "order_not_pending_restaurant_confirmation" }, 409);
     }
 
-    const unavailableSelection = body.items[0];
-    if (!unavailableSelection) {
-      return c.json({ error: "invalid_out_of_stock_request" }, 400);
-    }
     const orderItems = await createSupabaseRestClient(c.env).select<OrderItemRow>({
       schema: tenant.schema_name,
       table: "order_items",
@@ -50,71 +46,49 @@ export function registerOrdersOutOfStockRoute(routes: Hono<{
         order_id: `eq.${context.order.id}`,
       },
     });
-    const unavailableItem = orderItems.find((item) => item.id === unavailableSelection.orderItemId);
-
-    if (!unavailableItem) {
+    const selections = body.items.map((selection) => ({ selection, item: orderItems.find((item) => item.id === selection.orderItemId) }));
+    if (selections.some(({ item }) => !item)) {
       return c.json({ error: "order_item_not_found" }, 404);
     }
 
-    const replacementOptions = await resolveReplacementOptions({
-      env: c.env,
-      schemaName: tenant.schema_name,
-      tenantTimezone: tenant.timezone,
-      orderItem: unavailableItem,
-      requestedReplacementMenuItemIds: unavailableSelection.replacementMenuItemIds ?? [],
-    });
+    const unavailableItems = selections.map(({ item }) => item!);
+    const replacementOptionsByItem = await Promise.all(selections.map(async ({ selection, item }) => ({
+      orderItemId: item!.id,
+      options: await resolveReplacementOptions({
+        env: c.env,
+        schemaName: tenant.schema_name,
+        tenantTimezone: tenant.timezone,
+        orderItem: item!,
+        requestedReplacementMenuItemIds: selection.replacementMenuItemIds ?? [],
+      }),
+    })));
 
-    if (replacementOptions.length === 0) {
-      return c.json({ error: "replacement_options_not_found" }, 409);
-    }
-
-    if (unavailableSelection.markMenuItemUnavailable && unavailableItem.menu_item_id) {
-      await createSupabaseRestClient(c.env).update({
-        schema: tenant.schema_name,
-        table: "menu_items",
-        values: {
-          is_available: false,
-        },
-        query: {
-          id: `eq.${unavailableItem.menu_item_id}`,
-        },
-      }).catch(() => undefined);
-
-      await createSupabaseRestClient(c.env).insert({
-        schema: tenant.schema_name,
-        table: "app_events",
-        rows: {
-          conversation_id: context.draftOrder?.conversation_id ?? null,
-          draft_order_id: context.order.draft_order_id ?? null,
-          order_id: context.order.id,
-          event_name: "menu_item.marked_unavailable_from_order",
-          severity: "info",
-          source: "dashboard_api",
-          metadata: {
-            orderItemId: unavailableItem.id,
-            menuItemId: unavailableItem.menu_item_id,
-            reviewedBy: authUser.id,
-          },
-        },
-      }).catch(() => undefined);
+    for (const { selection, item } of selections) {
+      if (selection.markMenuItemUnavailable && item?.menu_item_id) {
+        await createSupabaseRestClient(c.env).update({
+          schema: tenant.schema_name,
+          table: "menu_items",
+          values: { is_available: false },
+          query: { id: `eq.${item.menu_item_id}` },
+        });
+      }
     }
 
     const reviewMetadata = {
       reason: "out_of_stock",
-      unavailableOrderItemIds: [unavailableItem.id],
-      unavailableItems: [
-        {
-          orderItemId: unavailableItem.id,
-          menuItemId: unavailableItem.menu_item_id ?? undefined,
-          productId: unavailableItem.product_id ?? undefined,
-          comboId: unavailableItem.combo_id ?? undefined,
-          name: unavailableItem.name_snapshot,
-          quantity: unavailableItem.quantity,
-          category: unavailableItem.category_snapshot ?? undefined,
-        },
-      ],
-      replacementMenuItems: replacementOptions,
-      markMenuItemsUnavailable: Boolean(unavailableSelection.markMenuItemUnavailable),
+      adjustmentStatus: "awaiting_customer",
+      unavailableOrderItemIds: unavailableItems.map((item) => item.id),
+      unavailableItems: unavailableItems.map((item) => ({
+        orderItemId: item.id,
+        menuItemId: item.menu_item_id ?? undefined,
+        productId: item.product_id ?? undefined,
+        comboId: item.combo_id ?? undefined,
+        name: item.name_snapshot,
+        quantity: item.quantity,
+        category: item.category_snapshot ?? undefined,
+      })),
+      replacementMenuItemsByUnavailableItem: Object.fromEntries(replacementOptionsByItem.map(({ orderItemId, options }) => [orderItemId, options])),
+      markMenuItemsUnavailable: selections.some(({ selection }) => Boolean(selection.markMenuItemUnavailable)),
     };
 
     const now = new Date().toISOString();
@@ -139,7 +113,7 @@ export function registerOrdersOutOfStockRoute(routes: Hono<{
         env: c.env,
         schemaName: tenant.schema_name,
         conversationId: context.draftOrder.conversation_id,
-        state: "awaiting_replacement_selection",
+        state: "awaiting_order_adjustment",
         resetClarificationAttempts: true,
       }).catch(() => undefined);
     }
@@ -164,7 +138,11 @@ export function registerOrdersOutOfStockRoute(routes: Hono<{
 
     await resolvePendingConfirmationAlerts(c.env, tenant.schema_name, context.order.id).catch(() => undefined);
 
-    const notificationText = buildOutOfStockMessage(unavailableItem.name_snapshot, replacementOptions);
+    const notificationText = buildOutOfStockMessage(unavailableItems.map((item) => ({
+      name: item.name_snapshot,
+      quantity: item.quantity,
+      suggestions: replacementOptionsByItem.find((entry) => entry.orderItemId === item.id)?.options,
+    })));
     const finalOrder = await sendOrderCustomerNotification({
       env: c.env,
       schemaName: tenant.schema_name,

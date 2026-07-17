@@ -54,7 +54,15 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
     });
     parsed = execution.parsed;
     providerId = execution.providerId;
-    parsed = await enrichStateDirectivesIfNeeded(input, parsed);
+    try {
+      parsed = await enrichStateDirectivesIfNeeded(input, parsed);
+    } catch (error) {
+      logRoutingDiagnostic(input, "semantic_state_directives.failed", {
+        provider: providerId,
+        reason: error instanceof Error ? error.message : String(error),
+        retainedBaseParse: redactSemanticParserResult(parsed),
+      });
+    }
     logRoutingDiagnostic(input, "semantic_parser.completed", {
       provider: execution.providerId,
       fallbackFromProviderId: execution.fallbackFromProviderId,
@@ -159,7 +167,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
     return true;
   }
 
-  if (parsed.intent === "order_edit" && canApplyDraftChange) {
+  if ((parsed.intent === "order_edit" || (input.conversation.state === "awaiting_order_adjustment" && parsed.items.length > 0)) && canApplyDraftChange) {
     const handledEdit = await tryApplySemanticEdit(input, {
       menu,
       parsed,
@@ -186,14 +194,25 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
   let updatedDraft: DraftOrder | null = null;
   let lastSelectedItem: MenuItem | null = null;
   let resolvedCount = 0;
+  const unresolvedItems: Array<{ index: number; productText: string; reason: string }> = [];
 
   for (const [index, item] of parsed.items.entries()) {
     const resolved = resolveMenuSelectionFromText(menu, item.productText);
     const selectedItem = resolved?.item ?? null;
     if (!selectedItem) {
-      logRoutingDiagnostic(input, "semantic_draft_item_unresolved", { itemIndex: index, productText: item.productText });
+      unresolvedItems.push({ index, productText: item.productText, reason: "menu_match_not_found_or_ambiguous" });
+      logRoutingDiagnostic(input, "semantic_draft_item_unresolved", { itemIndex: index, productText: item.productText, reason: "menu_match_not_found_or_ambiguous" });
       continue;
     }
+
+    logRoutingDiagnostic(input, "semantic_draft_item_resolved", {
+      itemIndex: index,
+      requestedProductText: item.productText,
+      requestedQuantity: item.quantity ?? null,
+      resolvedMenuItemId: selectedItem.id,
+      resolvedMenuItemName: selectedItem.displayName ?? selectedItem.product?.name ?? null,
+      matcherQuantity: resolved?.quantity ?? null,
+    });
 
     const queuedItems = parsed.items.slice(index + 1).flatMap((queuedItem) => {
       const queuedSelection = resolveMenuSelectionFromText(menu, queuedItem.productText);
@@ -226,6 +245,9 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
       productText: item.productText,
       selectedMenuItemId: selectedItem.id,
       result: stageResult.kind,
+      draft: stageResult.kind === "added"
+        ? { id: stageResult.draft.id, items: stageResult.draft.items.map((draftItem) => ({ name: draftItem.name, quantity: draftItem.quantity })) }
+        : undefined,
     });
     if (stageResult.kind === "prompted") {
       markLlmOutcome(input, {
@@ -256,6 +278,28 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
       reason: "items_not_resolved_against_menu",
     });
     return false;
+  }
+
+  if (unresolvedItems.length > 0) {
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: providerId,
+      parsed,
+      reason: "semantic_order_partially_applied",
+    });
+    await updateConversationState({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      state: "awaiting_more_items",
+      resetClarificationAttempts: true,
+    });
+    await sendAndLogText(
+      input,
+      `Pude agregar ${updatedDraft.items.map((draftItem) => `${draftItem.quantity} x ${draftItem.name}`).join(", ")}, pero no pude identificar ${unresolvedItems.map((unresolvedItem) => `“${unresolvedItem.productText}”`).join(", ")}. ¿Puedes escribir ese producto nuevamente como aparece en el menú?`,
+    );
+    return true;
   }
 
   markLlmOutcome(input, {
@@ -310,28 +354,11 @@ async function tryHandleSemanticStateResponse(input: RouteInboundMessageInput, p
     }
   }
 
-  if (input.conversation.state === "awaiting_replacement_selection") {
-    const replacementSignals = {
+  if (input.conversation.state === "awaiting_order_adjustment" && payload.parsed.textDirectives?.replacementRejectAll) {
+    return tryHandleReplacementSelection(input, {
       ...payload.semanticSignals,
-      confirmation: payload.parsed.textDirectives?.replacementRejectAll ? "no" : payload.semanticSignals.confirmation,
-    };
-    const handled = await tryHandleReplacementSelection(input, replacementSignals, {
-      selectionText: payload.parsed.textDirectives?.replacementChoiceText ?? null,
+      confirmation: "no",
     });
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_replacement_selection_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.replacement_applied", {
-        replacementChoiceText: payload.parsed.textDirectives?.replacementChoiceText ?? null,
-        rejectedAll: payload.parsed.textDirectives?.replacementRejectAll ?? false,
-      });
-      return true;
-    }
   }
 
   if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
@@ -567,7 +594,7 @@ async function buildSemanticStateContext(input: RouteInboundMessageInput, menu: 
     };
   }
 
-  if (input.conversation.state === "awaiting_replacement_selection") {
+  if (input.conversation.state === "awaiting_order_adjustment") {
     const pendingReplacement = await getPendingCustomerReplacementOrder({
       env: input.env,
       schemaName: input.tenant.schemaName,
@@ -577,7 +604,7 @@ async function buildSemanticStateContext(input: RouteInboundMessageInput, menu: 
     if (pendingReplacement) {
       context.pendingReplacement = {
         replacementOptions: pendingReplacement.replacementOptions.map((option) => option.name),
-        expectedActions: ["choose_replacement", "reject_all"],
+        expectedActions: ["adjust_order", "cancel_order", "ask_human"],
       };
     }
   }
@@ -656,7 +683,7 @@ function needsStateDirectiveOverlay(
       return parsed.textDirectives?.continueCheckout !== true;
     case "awaiting_confirmation":
       return !parsed.textDirectives?.confirmation;
-    case "awaiting_replacement_selection":
+    case "awaiting_order_adjustment":
       return !parsed.textDirectives?.replacementChoiceText && parsed.textDirectives?.replacementRejectAll !== true;
     case "awaiting_transfer_fallback_payment_method":
       return !parsed.textDirectives?.transferFallbackDecision;
@@ -703,6 +730,39 @@ async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {
   let updatedDraft = draft;
   let changed = false;
   let contextItem: MenuItem | null = null;
+
+  const pendingAdjustment = input.conversation.state === "awaiting_order_adjustment"
+    ? await getPendingCustomerReplacementOrder({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        conversationId: input.conversation.id,
+        currentDraftOrderId: input.conversation.currentDraftOrderId,
+      })
+    : undefined;
+
+  if (input.conversation.state === "awaiting_order_adjustment" && !pendingAdjustment) {
+    await moveToManual(input, {
+      type: "technical_error",
+      manualReason: "order_adjustment_not_found",
+      title: "No se encontro el pedido para ajustar",
+      description: "La conversacion estaba ajustando un pedido sin disponibilidad, pero no se encontro la orden asociada.",
+      responseText: "No pude ubicar el pedido que estabamos ajustando. Voy a ponerte en contacto con alguien del restaurante para ayudarte.",
+    });
+    return true;
+  }
+
+  if (pendingAdjustment?.order.restaurantReviewMetadata?.unavailableItems) {
+    for (const unavailableItem of pendingAdjustment.order.restaurantReviewMetadata.unavailableItems) {
+      const result = await removeItemsFromDraftOrder({
+        env: input.env,
+        schemaName: input.tenant.schemaName,
+        draftOrderId: updatedDraft.id,
+        targetText: unavailableItem.name,
+        deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
+      });
+      updatedDraft = result.draft;
+    }
+  }
 
   for (const action of actions) {
     if (action.confidence !== undefined && action.confidence < 0.45) {
@@ -778,7 +838,7 @@ async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {
     const stageResult = await stageConfiguredItemSelection(input, {
       menu: payload.menu,
       selectedItem,
-      quantity: Math.max(1, Math.round(action.quantity ?? resolved?.quantity ?? 1)),
+      quantity: Math.max(1, Math.round(action.quantity ?? resolved?.quantity ?? (actions.length === 1 && pendingAdjustment ? pendingAdjustment.order.restaurantReviewMetadata?.unavailableItems?.[0]?.quantity : undefined) ?? 1)),
       source: "semantic",
       rawItemText: productText,
       rawOptionTexts: action.optionTexts,
@@ -861,6 +921,11 @@ async function continueAfterSemanticEdit(input: RouteInboundMessageInput, payloa
   contextItem: MenuItem | null;
 }): Promise<void> {
   const context = payload.contextItem ? buildGuidedContext(payload.menu, payload.contextItem) : undefined;
+
+  if (input.conversation.state === "awaiting_order_adjustment") {
+    await proceedToNextOrderStep(input, { menu: payload.menu, draft: payload.draft, context });
+    return;
+  }
 
   if (payload.draft.items.length === 0) {
     await updateConversationState({

@@ -205,7 +205,7 @@ export async function loadPendingCustomerReplacementOrderContext(input: {
     orderItems.find((item) => item.id === order.restaurant_review_metadata?.["unavailableOrderItemId"]) ??
     orderItems[0];
 
-  if (!unavailableOrderItem || replacementOptions.length === 0) {
+  if (!unavailableOrderItem) {
     return undefined;
   }
 

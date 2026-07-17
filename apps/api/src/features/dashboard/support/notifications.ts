@@ -21,20 +21,22 @@ export function buildAcceptedOrderMessage(order: OrderRow, _location?: LocationR
   ].join("\n\n");
 }
 
-export function buildOutOfStockMessage(itemName: string, replacementOptions: Array<{
+export function buildOutOfStockMessage(items: Array<{
   name: string;
-  price?: number;
+  quantity?: number;
+  suggestions?: Array<{ name: string; price?: number }>;
 }>): string {
-  const replacementLines = replacementOptions
-    .slice(0, 3)
-    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` — ${formatCop(option.price)}` : ""}`);
+  const unavailableLines = items.map((item) => `• ${item.quantity ?? 1} x ${item.name}`);
+  const suggestionLines = items.flatMap((item) => (item.suggestions ?? []).slice(0, 3).map(
+    (option) => `• ${option.name}${option.price !== undefined ? ` — ${formatCop(option.price)}` : ""}`,
+  ));
 
   return [
-    `Lo siento mucho, en este momento no tenemos ${itemName}.`,
-    "Si quieres, puedes elegir una de estas opciones similares:",
-    replacementLines.join("\n"),
-    'Respóndeme con el número de la opción que prefieras o escribe "cancelar" si prefieres no continuar con ese pedido.',
-  ].join("\n\n");
+    `Lo siento mucho, en este momento no tenemos:\n${unavailableLines.join("\n")}`,
+    suggestionLines.length > 0 ? `Como referencia, hoy también tenemos:\n${suggestionLines.join("\n")}` : null,
+    "Puedes ajustar todo tu pedido por aquí. Por ejemplo: “cámbiame los productos agotados por un almuerzo del día y una carne a la plancha”, “déjame 3 cafés con leche” o “quita los jugos”.",
+    'Cuando estés listo te mostraré el nuevo resumen para que lo confirmes. También puedes escribir "cancelar" o "asesor".',
+  ].filter(Boolean).join("\n\n");
 }
 
 export function buildOrderStatusNotification(order: Pick<OrderRow, "status" | "fulfillment_type">): string | null {
@@ -73,28 +75,25 @@ export function buildRetryNotificationMessage(
   if (type === "out_of_stock") {
     const metadata = order.restaurant_review_metadata ?? {};
     const unavailableItems = Array.isArray(metadata.unavailableItems) ? metadata.unavailableItems : [];
-    const replacementMenuItems = Array.isArray(metadata.replacementMenuItems) ? metadata.replacementMenuItems : [];
-    const unavailableName =
-      unavailableItems[0] && typeof unavailableItems[0] === "object" && "name" in unavailableItems[0]
-        ? String(unavailableItems[0].name)
-        : null;
-    const replacements: Array<{ name: string; price?: number }> = [];
-    for (const item of replacementMenuItems) {
-      if (!item || typeof item !== "object" || !("name" in item) || !item.name) {
-        continue;
-      }
+    const replacementMenuItemsByUnavailableItem = metadata.replacementMenuItemsByUnavailableItem && typeof metadata.replacementMenuItemsByUnavailableItem === "object"
+      ? metadata.replacementMenuItemsByUnavailableItem as Record<string, unknown>
+      : {};
+    const items = unavailableItems.flatMap((item) => {
+      if (!item || typeof item !== "object" || !("name" in item) || !item.name) return [];
+      const orderItemId = "orderItemId" in item ? String(item.orderItemId) : "";
+      const suggestions = Array.isArray(replacementMenuItemsByUnavailableItem[orderItemId])
+        ? replacementMenuItemsByUnavailableItem[orderItemId]
+            .filter((option): option is Record<string, unknown> => Boolean(option) && typeof option === "object" && "name" in option)
+            .map((option) => ({ name: String(option.name), price: option.price !== undefined ? Number(option.price) : undefined }))
+        : [];
+      return [{ name: String(item.name), quantity: "quantity" in item ? Number(item.quantity) : 1, suggestions }];
+    });
 
-      replacements.push({
-        name: String(item.name),
-        price: "price" in item && item.price !== undefined ? Number(item.price) : undefined,
-      });
-    }
-
-    if (!unavailableName || replacements.length === 0) {
+    if (items.length === 0) {
       return null;
     }
 
-    return buildOutOfStockMessage(unavailableName, replacements);
+    return buildOutOfStockMessage(items);
   }
 
   if (type === "order_status") {

@@ -14,7 +14,7 @@ export const conversationStates = [
   "awaiting_transfer_fallback_payment_method",
   "awaiting_confirmation",
   "awaiting_restaurant_confirmation",
-  "awaiting_replacement_selection",
+  "awaiting_order_adjustment",
   "manual",
   "completed",
   "expired",

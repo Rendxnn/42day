@@ -49,6 +49,7 @@ export type OutOfStockReplacementOption = {
 
 export type RestaurantReviewMetadata = {
   reason?: "out_of_stock";
+  adjustmentStatus?: "awaiting_customer" | "customer_editing" | "awaiting_customer_confirmation" | "confirmed" | "cancelled";
   unavailableOrderItemIds?: string[];
   unavailableItems?: Array<{
     orderItemId: string;
@@ -60,6 +61,7 @@ export type RestaurantReviewMetadata = {
     category?: string;
   }>;
   replacementMenuItems?: OutOfStockReplacementOption[];
+  replacementMenuItemsByUnavailableItem?: Record<string, OutOfStockReplacementOption[]>;
   markMenuItemsUnavailable?: boolean;
 };
 

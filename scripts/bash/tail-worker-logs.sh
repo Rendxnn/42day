@@ -42,7 +42,7 @@ ensure_repo_root "$root"
 printf 'Tailing logs for %s (%s)...\n' "$worker_name" "$environment"
 (
   cd "$root/apps/api"
-  cmd=(exec wrangler tail "$worker_name" --env "$environment" --format pretty)
+  cmd=(exec wrangler tail "$worker_name" --env "$environment" --format json)
   if [[ ${#tail_args[@]} -gt 0 ]]; then
     cmd+=("${tail_args[@]}")
   fi

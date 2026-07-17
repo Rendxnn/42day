@@ -31,4 +31,5 @@ export type PendingProductConfigurationContext = {
   ambiguousValueTexts?: string[];
   startedAt: string;
   queuedItems?: ConfigurableItemCandidate[];
+  returnToOrderAdjustment?: boolean;
 };
