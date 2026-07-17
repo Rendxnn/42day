@@ -1864,6 +1864,7 @@ function DeliveryCoverageDetail({
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{status}</span>
       </div>
       {addressText ? <p className="mt-4 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Address:" : "Direccion:"}</span> {addressText}</p> : null}
+      {order.deliveryAddressDetails ? <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]"><span className="font-semibold text-[var(--text-strong)]">{locale === "en" ? "Delivery details:" : "Indicaciones:"}</span> {order.deliveryAddressDetails}</p> : null}
       {canShowMap ? (
         <div className="mt-4">
           <Suspense fallback={<div className="grid h-[220px] place-items-center rounded-[18px] bg-[var(--surface-base)]"><Loader2 className="animate-spin text-[var(--text-soft)]" size={20} /></div>}>

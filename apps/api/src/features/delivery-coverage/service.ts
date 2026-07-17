@@ -11,18 +11,21 @@ export {
   hasValidatedDeliveryCoverage,
   haversineDistanceKm,
   isValidDeliveryRadius,
+  isValidDeliveryFee,
   isValidLatitude,
   isValidLongitude,
   parseDeliveryCoverageSettingsUpdate,
 } from "./logic.ts";
 
-export const DEFAULT_REQUEST_LOCATION_MESSAGE = "Perfecto. Para validar si tenemos cobertura, por favor envianos tu ubicacion actual usando el boton de ubicacion de WhatsApp.";
+export const DEFAULT_REQUEST_LOCATION_MESSAGE = "Perfecto. Para validar si tenemos cobertura, envíanos tu ubicación actual usando el botón de ubicación de WhatsApp. Si prefieres escribirla, envíanos en un solo mensaje la dirección completa con barrio, municipio y los detalles de entrega que apliquen (apto, torre, unidad, casa o referencia).";
 export const DEFAULT_WRITTEN_ADDRESS_FALLBACK_MESSAGE = "Para evitar errores con el domicilio, necesitamos validar tu ubicacion exacta. Por favor envianos tu ubicacion usando el boton de ubicacion de WhatsApp. Tambien guardaremos tu direccion escrita como referencia para el domiciliario.";
 export const DEFAULT_OUT_OF_COVERAGE_MESSAGE = "Lo sentimos, por ahora no tenemos cobertura para tu ubicacion. Puedes recoger en el local.";
 
 type DeliveryCoverageLocationRow = {
   id: string;
   delivery_enabled?: boolean | null;
+  delivery_fee_fixed?: number | null;
+  electronic_billing_enabled?: boolean | null;
   latitude?: number | null;
   longitude?: number | null;
   restaurant_city?: string | null;
@@ -38,7 +41,7 @@ type DeliveryCoverageLocationRow = {
 };
 
 const DELIVERY_COVERAGE_SELECT =
-  "id,delivery_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,allow_written_address_reference,try_geocode_written_addresses,allow_out_of_coverage_orders,request_location_message,written_address_fallback_message,out_of_coverage_message";
+  "id,delivery_enabled,delivery_fee_fixed,electronic_billing_enabled,latitude,longitude,restaurant_city,restaurant_department,restaurant_country,delivery_radius_km,allow_written_address_reference,try_geocode_written_addresses,allow_out_of_coverage_orders,request_location_message,written_address_fallback_message,out_of_coverage_message";
 const LEGACY_DELIVERY_COVERAGE_SELECT = "id,delivery_enabled,latitude,longitude";
 
 export async function getDeliveryCoverageSettings(input: {
@@ -120,6 +123,8 @@ function mapDeliveryCoverageSettings(row: DeliveryCoverageLocationRow): Delivery
   return {
     locationId: row.id,
     deliveryEnabled: row.delivery_enabled ?? true,
+    deliveryFeeFixed: Math.max(0, row.delivery_fee_fixed ?? 0),
+    electronicBillingEnabled: row.electronic_billing_enabled ?? true,
     latitude: row.latitude ?? undefined,
     longitude: row.longitude ?? undefined,
     restaurantCity: row.restaurant_city ?? undefined,

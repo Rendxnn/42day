@@ -10,10 +10,13 @@ import {
   validateDeliveryCoverageFromWrittenAddress,
 } from "../src/features/delivery-coverage/service.ts";
 import { reverseGeocodeCoordinatesWithGoogleMaps } from "../src/features/delivery-coverage/google-maps.ts";
+import { segmentDeliveryAddress } from "../src/features/delivery-coverage/address-text.ts";
 
 const baseSettings = {
   locationId: "location-1",
   deliveryEnabled: true,
+  deliveryFeeFixed: 4_000,
+  electronicBillingEnabled: true,
   latitude: 6.2442,
   longitude: -75.5812,
   restaurantCountry: "Colombia",
@@ -56,6 +59,29 @@ test("acepta cobertura validada por direccion geocodificada", () => {
   }), false);
 });
 
+test("separa las indicaciones del domiciliario de la direccion que se geocodifica", () => {
+  assert.deepEqual(
+    segmentDeliveryAddress({ addressText: "Calle 74 Sur #35-145, Sabaneta, Torre 2, apto 301, portería" }),
+    {
+      addressText: "Calle 74 Sur #35-145, Sabaneta",
+      details: "Torre 2, apto 301, portería",
+    },
+  );
+});
+
+test("prioriza los detalles separados por la IA sin alterar la direccion", () => {
+  assert.deepEqual(
+    segmentDeliveryAddress({
+      addressText: "Carrera 43A # 61 Sur-44, Sabaneta",
+      details: "Unidad Los Pinos, casa 12; avisar en portería",
+    }),
+    {
+      addressText: "Carrera 43A # 61 Sur-44, Sabaneta",
+      details: "Unidad Los Pinos, casa 12; avisar en portería",
+    },
+  );
+});
+
 test("falla si el restaurante no tiene coordenadas", () => {
   assert.throws(
     () => evaluateDeliveryCoverage({ ...baseSettings, latitude: undefined, longitude: undefined }, 6.25, -75.57),
@@ -74,6 +100,8 @@ test("valida coordenadas y radio al guardar configuracion", () => {
   assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, deliveryRadiusKm: 31 }), undefined);
   assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, latitude: 91 }), undefined);
   assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, longitude: -181 }), undefined);
+  assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, deliveryFeeFixed: -1 }), undefined);
+  assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, electronicBillingEnabled: "true" }), undefined);
   assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, longitude: undefined }), undefined);
   assert.equal(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, requestLocationMessage: "corto" }), undefined);
   assert.ok(parseDeliveryCoverageSettingsUpdate({ ...baseSettings, deliveryRadiusKm: 4.5 }));
@@ -130,6 +158,8 @@ test("usa query legacy cuando faltan columnas nuevas en locations", async () => 
     assert.match(calls[1], /select=id%2Cdelivery_enabled%2Clatitude%2Clongitude/);
     assert.equal(settings?.locationId, "location-legacy");
     assert.equal(settings?.deliveryRadiusKm, 3);
+    assert.equal(settings?.deliveryFeeFixed, 0);
+    assert.equal(settings?.electronicBillingEnabled, true);
     assert.equal(settings?.restaurantCountry, "Colombia");
     assert.equal(settings?.allowWrittenAddressReference, true);
     assert.equal(settings?.tryGeocodeWrittenAddresses, true);

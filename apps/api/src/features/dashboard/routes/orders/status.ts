@@ -3,6 +3,7 @@ import type { OrderStatus } from "@42day/types";
 import { createSupabaseRestClient } from "../../../../lib/supabase-rest";
 import type { ApiBindings } from "../../../../lib/bindings";
 import { isMissingTableError } from "../../../../shared/errors/supabase";
+import { completeConversationAfterOrderCancellation } from "../../../../modules/conversation-service/conversation-service";
 import { loadOrderNotificationContext, mapOrderSummary } from "../../support/orders";
 import { buildOrderStatusNotification, sendOrderCustomerNotification } from "../../support/notifications";
 import type { DashboardVariables, OrderRow } from "../../types";
@@ -66,6 +67,33 @@ export function registerOrdersStatusRoute(routes: Hono<{
 
     if (!order) {
       return c.json({ error: "order_not_found" }, 404);
+    }
+
+    if (body.status === "cancelled") {
+      const resetTasks: Promise<unknown>[] = [];
+
+      if (currentContext.draftOrder?.id) {
+        resetTasks.push(
+          createSupabaseRestClient(c.env).update({
+            schema: tenant.schema_name,
+            table: "draft_orders",
+            values: { status: "cancelled", updated_at: now },
+            query: { id: `eq.${currentContext.draftOrder.id}` },
+          }),
+        );
+      }
+
+      if (currentContext.draftOrder?.conversation_id) {
+        resetTasks.push(
+          completeConversationAfterOrderCancellation({
+            env: c.env,
+            schemaName: tenant.schema_name,
+            conversationId: currentContext.draftOrder.conversation_id,
+          }),
+        );
+      }
+
+      await Promise.all(resetTasks);
     }
 
     const notification = body.status && body.status !== currentContext.order.status

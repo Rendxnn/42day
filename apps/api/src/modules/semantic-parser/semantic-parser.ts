@@ -31,6 +31,7 @@ export type SemanticDraftFacts = {
   paymentText?: string | null;
   paymentConfidence?: number;
   deliveryAddressText?: string | null;
+  deliveryAddressDetails?: string | null;
   deliveryAddressConfidence?: number;
   billing?: {
     type?: "normal" | "electronic" | null;
@@ -76,6 +77,7 @@ export type SemanticParserResult = {
   fulfillmentText?: string | null;
   paymentText?: string | null;
   addressText?: string | null;
+  addressDetails?: string | null;
   confirmationText?: string | null;
   draftFacts?: SemanticDraftFacts;
   textDirectives?: SemanticTextDirectives;
@@ -116,8 +118,8 @@ export async function parseFreeFormOrder(input: {
       "Si parece pedido, usa intent order.",
       "Si el usuario quiere quitar, cambiar, reemplazar o ajustar productos de un pedido existente, usa intent order_edit y editActions.",
       "Usa textDirectives para respuestas conversacionales dependientes del estado: saludo, continuar al siguiente paso, confirmar, rechazar, pedir cambios, reutilizar o cambiar facturación, cambiar a factura electrónica, elegir o rechazar reemplazos, aceptar efectivo en fallback o insistir en transferencia, y responder una configuración pendiente.",
-      "Si la conversacion esta esperando direccion y el usuario proporciona una direccion escrita, copiala en addressText sin inventar detalles.",
-      "Extrae en draftFacts los datos independientes que el usuario entregue antes de que se los preguntemos: tipo de entrega, pago, direccion de entrega y facturacion. Incluye la confianza de cada dato.",
+      "Cuando el usuario proporcione una dirección, separa la parte geocodificable en addressText (vía, número, barrio y municipio) y los detalles para el domiciliario en addressDetails (apto, torre, unidad, casa, portería o referencia). No inventes detalles ni los mezcles en la dirección que se valida.",
+      "Extrae en draftFacts los datos independientes que el usuario entregue antes de que se los preguntemos: tipo de entrega, pago, dirección de entrega, detalles de entrega y facturación. Incluye la confianza de cada dato.",
       "Para facturacion normal usa fullName y billingAddress si fueron dichos. Para electronica exige legalName, taxId y email. Incluye confidence para billing.",
       "Si el usuario dice algo como 'asi esta bien', 'sigamos', 'eso es todo' o equivalente, marca textDirectives.continueCheckout en true con confianza.",
       "Si el usuario responde con si, no o cambio segun el contexto, usa textDirectives.confirmation.",
@@ -359,6 +361,9 @@ const semanticOrderSchema = {
     addressText: {
       type: ["string", "null"],
     },
+    addressDetails: {
+      type: ["string", "null"],
+    },
     confirmationText: {
       type: ["string", "null"],
     },
@@ -371,6 +376,7 @@ const semanticOrderSchema = {
         paymentText: { type: ["string", "null"] },
         paymentConfidence: { type: "number", minimum: 0, maximum: 1 },
         deliveryAddressText: { type: ["string", "null"] },
+        deliveryAddressDetails: { type: ["string", "null"] },
         deliveryAddressConfidence: { type: "number", minimum: 0, maximum: 1 },
         billing: {
           type: ["object", "null"],

@@ -70,6 +70,9 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
     if (draft.deliveryAddress) {
       lines.push(`Dirección de entrega: ${draft.deliveryAddress}`);
     }
+    if (draft.deliveryAddressDetails) {
+      lines.push(`Indicaciones de entrega: ${draft.deliveryAddressDetails}`);
+    }
   } else {
     lines.push("Entrega: para recoger");
   }
@@ -106,7 +109,7 @@ export function buildClarificationPrompt(state: DraftOrderStateLike): string {
     case "awaiting_billing_reuse_confirmation":
       return "¿La información de facturación sigue igual o quieres cambiarla?";
     case "awaiting_normal_billing_info":
-      return "Compárteme tu nombre completo para la factura normal. Si necesitas factura electrónica, también puedes pedírmela aquí.";
+      return "Compárteme tu nombre completo para la factura normal.";
     case "awaiting_electronic_billing_info":
       return "Envíame por favor: nombre o razón social, cédula o NIT y correo electrónico, separados por comas.";
     case "awaiting_payment_method":
@@ -238,15 +241,20 @@ export function buildAddressSavedPrompt(addressText: string, nextPrompt: string)
 export function buildNormalBillingPrompt(input: {
   fulfillmentType?: DraftOrder["fulfillmentType"];
   billingAddress?: string;
+  electronicBillingEnabled?: boolean;
 }): string {
+  const electronicBillingHint = input.electronicBillingEnabled === false
+    ? ""
+    : " Si necesitas factura electrónica, también puedes pedírmela aquí.";
+
   if (input.fulfillmentType === "delivery" && input.billingAddress) {
     return [
       `Perfecto. Para la factura normal tomaré esta dirección: ${input.billingAddress}.`,
-      "Ahora compárteme tu nombre completo. Si necesitas factura electrónica, también puedes pedírmela aquí.",
+      `Ahora compárteme tu nombre completo.${electronicBillingHint}`,
     ].join("\n\n");
   }
 
-  return "Perfecto. Para continuar, compárteme tu nombre completo para la factura normal. Si necesitas factura electrónica, también puedes pedírmela aquí.";
+  return `Perfecto. Para continuar, compárteme tu nombre completo para la factura normal.${electronicBillingHint}`;
 }
 
 export function buildBillingReusePrompt(input: {
@@ -263,6 +271,10 @@ export function buildBillingReusePrompt(input: {
 
 export function buildElectronicBillingPrompt(): string {
   return "Claro. Para factura electrónica envíame por favor: nombre o razón social, cédula o NIT y correo electrónico, separados por comas.";
+}
+
+export function buildElectronicBillingUnavailableMessage(): string {
+  return "Por ahora este restaurante no gestiona facturación electrónica por este chat. Podemos continuar con la factura normal.";
 }
 
 export function buildEditableSummaryAdjustmentPrompt(): string {

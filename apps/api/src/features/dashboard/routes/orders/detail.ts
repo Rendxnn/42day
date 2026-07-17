@@ -108,6 +108,7 @@ export function registerOrdersDetailRoute(routes: Hono<{
         }
         : undefined,
       deliveryAddress: order.delivery_address ?? undefined,
+      deliveryAddressDetails: order.delivery_address_details ?? undefined,
       deliveryAddressId: order.delivery_address_id ?? undefined,
       items: items.map((item) => {
         const product = item.product_id ? visualsByProductId.get(item.product_id) : undefined;

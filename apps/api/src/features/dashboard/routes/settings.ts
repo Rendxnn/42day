@@ -164,6 +164,8 @@ settingsDashboardRoutes.patch("/:tenantSlug/settings/delivery-coverage", async (
     table: "locations",
     values: {
       delivery_enabled: body.deliveryEnabled,
+      delivery_fee_fixed: body.deliveryFeeFixed,
+      electronic_billing_enabled: body.electronicBillingEnabled,
       latitude: body.latitude ?? null,
       longitude: body.longitude ?? null,
       restaurant_city: body.restaurantCity ?? null,

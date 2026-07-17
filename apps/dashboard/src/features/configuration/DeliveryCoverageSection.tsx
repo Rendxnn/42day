@@ -201,6 +201,15 @@ export function DeliveryCoverageSection({ locale, onNotify, tenantSlug }: Delive
             <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "Calculated in a straight line. It does not represent road distance or travel time." : "Este radio se calcula en linea recta. No representa distancia por calles ni tiempo de viaje."}</p>
           </div>
 
+          <div className="mt-6 border-t border-[rgba(118,93,71,0.12)] pt-5">
+            <label className="text-sm font-semibold text-[var(--text-strong)]" htmlFor="delivery-fee">{locale === "en" ? "Delivery fee" : "Valor del domicilio"}</label>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs font-semibold text-[var(--text-soft)]">COP</span>
+              <input id="delivery-fee" className="h-12 min-w-0 flex-1 rounded-[14px] border border-[rgba(118,93,71,0.16)] bg-white/80 px-3 text-sm font-semibold text-[var(--text-strong)] outline-none focus:border-[var(--success)]" max={1_000_000} min={0} onChange={(event) => patchForm({ deliveryFeeFixed: Number(event.target.value) })} step={100} type="number" value={form.deliveryFeeFixed} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "This amount is added automatically to each delivery order." : "Este valor se suma automaticamente a cada pedido a domicilio."}</p>
+          </div>
+
           {coordinatesReady && googleMapsEmbedApiKey ? (
             <div className="mt-6 border-t border-[rgba(118,93,71,0.12)] pt-5">
               <div className="flex items-center justify-between gap-3">
@@ -250,6 +259,7 @@ export function DeliveryCoverageSection({ locale, onNotify, tenantSlug }: Delive
         <div className="mt-6 rounded-[18px] border border-[rgba(118,93,71,0.12)] bg-[rgba(255,255,255,0.45)]">
           <CompactSwitchRow checked={form.allowWrittenAddressReference} description={locale === "en" ? "Save the written address for the driver even if final coverage later requires exact location." : "Guarda la direccion escrita para el domiciliario aunque la cobertura final luego requiera ubicacion exacta."} label={locale === "en" ? "Save written address as reference" : "Guardar direccion escrita como referencia"} onChange={(allowWrittenAddressReference) => patchForm({ allowWrittenAddressReference })} />
           <CompactSwitchRow checked={form.tryGeocodeWrittenAddresses} description={locale === "en" ? "Use Google Geocoding to try validating written addresses before asking for WhatsApp location." : "Usa Google Geocoding para intentar validar direcciones escritas antes de pedir la ubicacion por WhatsApp."} label={locale === "en" ? "Validate written addresses automatically" : "Validar direcciones escritas automaticamente"} onChange={(tryGeocodeWrittenAddresses) => patchForm({ tryGeocodeWrittenAddresses })} />
+          <CompactSwitchRow checked={form.electronicBillingEnabled} description={locale === "en" ? "Customers can request and submit electronic invoice details through WhatsApp." : "Los clientes podran solicitar y enviar los datos de factura electronica por WhatsApp."} label={locale === "en" ? "Allow electronic invoicing in chat" : "Permitir facturacion electronica por chat"} onChange={(electronicBillingEnabled) => patchForm({ electronicBillingEnabled })} />
         </div>
       </section>
 
@@ -326,6 +336,9 @@ function isValidForm(form: UpdateDeliveryCoverageSettingsRequest) {
     && Number.isFinite(form.deliveryRadiusKm)
     && form.deliveryRadiusKm > 0
     && form.deliveryRadiusKm <= 30
+    && Number.isInteger(form.deliveryFeeFixed)
+    && form.deliveryFeeFixed >= 0
+    && form.deliveryFeeFixed <= 1_000_000
     && form.restaurantCountry.trim().length >= 2
     && form.requestLocationMessage.trim().length >= 10
     && form.writtenAddressFallbackMessage.trim().length >= 10

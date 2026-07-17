@@ -1,8 +1,8 @@
 import type { DraftOrder } from "@42day/types";
-import { getOrCreateActiveDraftOrder, updateDraftOrderBilling, updateDraftOrderCoverage, updateDraftOrderPaymentMethod } from "../../draft-orders/service";
-import { getLatestCustomerAddress, saveCustomerAddressFromText } from "../../../modules/customer-address-service/customer-address-service";
+import { getOrCreateActiveDraftOrder, updateDraftOrderCoverage, updateDraftOrderPaymentMethod } from "../../draft-orders/service";
+import { saveCustomerAddressFromText, saveCustomerAddressFromWhatsAppLocation } from "../../../modules/customer-address-service/customer-address-service";
 import { updateConversationState } from "../../conversations/service";
-import { buildAddressSaveFailedPrompt, buildAddressSavedPrompt } from "../../../modules/message-router/response-composer";
+import { buildAddressSavedPrompt } from "../../../modules/message-router/response-composer";
 import { loadCurrentMenu } from "../shared/helpers";
 import { sendAndLogText } from "../outbound/send";
 import type { RouteInboundMessageInput } from "../shared/types";
@@ -13,6 +13,7 @@ import {
   validateDeliveryCoverageFromWhatsappLocation,
 } from "../../delivery-coverage/service";
 import { reverseGeocodeCoordinatesWithGoogleMaps } from "../../delivery-coverage/google-maps";
+import { segmentDeliveryAddress } from "../../delivery-coverage/address-text";
 import { startBillingStep } from "./billing";
 import { buildAddressValidationRetryPrompt, buildWrittenAddressHelpPrompt } from "./address-prompts";
 
@@ -21,6 +22,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
   cannotShareLocation?: boolean;
   normalizedText?: string;
   addressText?: string;
+  addressDetails?: string;
   paymentMethod?: "cash" | "transfer" | null;
 }): Promise<boolean> {
   if (input.message.type !== "location" && !signals.looksLikeAddress && !signals.cannotShareLocation) {
@@ -56,14 +58,20 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       return true;
     }
 
-    const writtenAddressText = (input.message.text ?? signals.normalizedText ?? "").trim();
+    const segmentedAddress = segmentDeliveryAddress({
+      addressText: signals.addressText?.trim() || input.message.text || signals.normalizedText || "",
+      details: signals.addressDetails,
+    });
+    const writtenAddressText = segmentedAddress.addressText;
+    const addressDetails = segmentedAddress.details;
     const address = writtenAddressText.length === 0 || settings?.allowWrittenAddressReference === false
       ? null
       : await saveCustomerAddressFromText({
           env: input.env,
           schemaName: input.tenant.schemaName,
           customerId: input.conversation.customerId,
-          addressText: signals.addressText?.trim() || writtenAddressText,
+          addressText: writtenAddressText,
+          addressDetails,
         });
 
     if (writtenAddressText) {
@@ -74,6 +82,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         customerAddressText: address?.addressText ?? writtenAddressText,
         resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
+        deliveryAddressDetails: addressDetails,
         validationMethod: "written_address_reference",
         confidence: "low",
         deliveryFeeFixed: menu.location?.deliveryFeeFixed,
@@ -114,6 +123,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         customerAddressText: address?.addressText ?? writtenAddressValidation.formattedAddress,
         resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
+        deliveryAddressDetails: addressDetails,
         deliveryFeeFixed: menu.location?.deliveryFeeFixed,
       });
 
@@ -143,7 +153,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         menu,
         draft: draftWithPayment,
         prefix: buildAddressSavedPrompt(
-          writtenAddressValidation.formattedAddress,
+          formatDeliveryAddress(writtenAddressValidation.formattedAddress, addressDetails),
           writtenAddressValidation.isInsideCoverage
             ? "Perfecto, validamos tu direccion y esta dentro de cobertura."
             : "Perfecto, validamos tu direccion. Continuemos con el pedido.",
@@ -164,6 +174,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         customerAddressText: address?.addressText ?? writtenAddressText,
         resolvedDeliveryAddress: address?.addressText ?? writtenAddressText,
         deliveryAddressId: address?.id,
+        deliveryAddressDetails: addressDetails,
         validationMethod: "written_address_reference",
         confidence: "low",
         deliveryFeeFixed: menu.location?.deliveryFeeFixed,
@@ -183,7 +194,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
         menu,
         draft: draftWithPayment,
         prefix: buildAddressSavedPrompt(
-          address?.addressText ?? writtenAddressText,
+          formatDeliveryAddress(address?.addressText ?? writtenAddressText, addressDetails),
           "Guardamos esta dirección como referencia. El restaurante verificará la cobertura al revisar el pedido.",
         ),
       });
@@ -204,40 +215,30 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
     return true;
   }
 
-  const address =
-    await getLatestCustomerAddress({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      customerId: input.conversation.customerId,
-    });
-
-  const resolvedAddressText = address?.addressText ?? draft.customerAddressText ?? draft.deliveryAddress;
-
-  if (!resolvedAddressText) {
-    await updateConversationState({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_address",
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-    await sendAndLogText(input, buildAddressSaveFailedPrompt());
-    return true;
-  }
-
-  let resolvedDeliveryAddress = resolvedAddressText;
+  let resolvedDeliveryAddress = input.message.location!.address
+    ?? input.message.location!.name
+    ?? `Ubicacion compartida: ${input.message.location!.latitude}, ${input.message.location!.longitude}`;
   try {
     resolvedDeliveryAddress = await reverseGeocodeCoordinatesWithGoogleMaps({
       env: input.env,
       latitude: input.message.location!.latitude,
       longitude: input.message.location!.longitude,
-    }) ?? resolvedAddressText;
+    }) ?? resolvedDeliveryAddress;
   } catch (error) {
     console.warn("delivery_coverage.reverse_geocoding_failed", {
       conversationId: input.conversation.id,
       reason: error instanceof Error ? error.message : String(error),
     });
   }
+
+  const address = await saveCustomerAddressFromWhatsAppLocation({
+    env: input.env,
+    schemaName: input.tenant.schemaName,
+    customerId: input.conversation.customerId,
+    message: input.message,
+    addressText: resolvedDeliveryAddress,
+  });
+  const resolvedAddressText = address?.addressText ?? resolvedDeliveryAddress;
 
   let updatedDraft: DraftOrder;
   try {
@@ -262,6 +263,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       customerAddressText: resolvedAddressText,
       resolvedDeliveryAddress,
       deliveryAddressId: address?.id,
+      deliveryAddressDetails: address?.addressDetails,
       deliveryFeeFixed: menu.location?.deliveryFeeFixed,
     });
 
@@ -291,6 +293,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
       customerAddressText: resolvedAddressText,
       resolvedDeliveryAddress,
       deliveryAddressId: address?.id,
+      deliveryAddressDetails: address?.addressDetails,
       deliveryFeeFixed: menu.location?.deliveryFeeFixed,
     });
     await updateConversationState({
@@ -320,4 +323,8 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
     prefix: buildAddressSavedPrompt(resolvedDeliveryAddress, "Perfecto, tenemos cobertura para tu ubicacion."),
   });
   return true;
+}
+
+function formatDeliveryAddress(addressText: string, details?: string): string {
+  return details ? `${addressText}\nIndicaciones: ${details}` : addressText;
 }

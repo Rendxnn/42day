@@ -6,6 +6,7 @@ import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderIt
 import {
   buildClarificationPrompt,
   buildContinueWithMenuAndDraftPrompt,
+  buildElectronicBillingUnavailableMessage,
   buildManualHandoffMessage,
   buildOrderAdjustedPrompt,
   buildResumeExistingOrderPrompt,
@@ -22,6 +23,7 @@ import {
   tryHandleConfirmation,
   tryHandleDeliveryAddress,
   tryHandleFulfillmentSelection,
+  isElectronicBillingEnabled,
   tryHandlePaymentMethod,
 } from "../checkout";
 import { stageConfiguredItemSelection } from "../guided/selection";
@@ -126,6 +128,18 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
     return true;
   }
 
+  if (draftFacts.billing?.type === "electronic" && !(await isElectronicBillingEnabled(input, menu.location?.id))) {
+    await sendAndLogText(input, buildElectronicBillingUnavailableMessage());
+    markLlmOutcome(input, {
+      used: true,
+      outcome: "handled",
+      provider: providerId,
+      parsed,
+      reason: "electronic_billing_disabled",
+    });
+    return true;
+  }
+
   if (canApplyDraftChange && hasDraftFacts(draftFacts) && (parsed.intent === "unknown" || parsed.items.length === 0)) {
     const draft = await getOrCreateActiveDraftOrder({
       env: input.env,
@@ -136,6 +150,22 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
       deliveryFeeFixed: menu.location?.deliveryFeeFixed,
     });
     const updatedDraft = await applyDraftFacts(input, { menu, draft, facts: draftFacts });
+    if (draftFacts.deliveryAddressText?.trim() && updatedDraft.fulfillmentType === "delivery") {
+      await tryHandleDeliveryAddress(input, {
+        looksLikeAddress: true,
+        addressText: draftFacts.deliveryAddressText,
+        addressDetails: draftFacts.deliveryAddressDetails ?? undefined,
+        paymentMethod: draftFacts.paymentMethod,
+      });
+      markLlmOutcome(input, {
+        used: true,
+        outcome: "handled",
+        provider: providerId,
+        parsed,
+        reason: "semantic_delivery_address_validated",
+      });
+      return true;
+    }
     markLlmOutcome(input, {
       used: true,
       outcome: "handled",
@@ -268,6 +298,16 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
 
   updatedDraft = await applyDraftFacts(input, { menu, draft: updatedDraft, facts: draftFacts });
 
+  if (draftFacts.deliveryAddressText?.trim() && updatedDraft.fulfillmentType === "delivery") {
+    await tryHandleDeliveryAddress(input, {
+      looksLikeAddress: true,
+      addressText: draftFacts.deliveryAddressText,
+      addressDetails: draftFacts.deliveryAddressDetails ?? undefined,
+      paymentMethod: draftFacts.paymentMethod,
+    });
+    return true;
+  }
+
   await continueAfterSemanticEdit(input, {
     menu,
     draft: updatedDraft,
@@ -370,6 +410,7 @@ async function tryHandleSemanticStateResponse(input: RouteInboundMessageInput, p
     const handled = await tryHandleDeliveryAddress(input, {
       looksLikeAddress: true,
       addressText: payload.parsed.addressText?.trim() ?? payload.parsed.draftFacts?.deliveryAddressText?.trim(),
+      addressDetails: payload.parsed.addressDetails?.trim() ?? payload.parsed.draftFacts?.deliveryAddressDetails?.trim(),
       paymentMethod: payload.semanticSignals.paymentMethod,
     });
     if (handled) {

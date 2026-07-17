@@ -165,6 +165,7 @@ export type OrderRow = {
   service_timing?: "asap" | "scheduled" | null;
   scheduled_for?: string | null;
   delivery_address?: string | null;
+  delivery_address_details?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
   resolved_delivery_address?: string | null;
@@ -212,6 +213,7 @@ export type DraftOrderRow = {
   service_timing?: "asap" | "scheduled" | null;
   scheduled_for?: string | null;
   delivery_address?: string | null;
+  delivery_address_details?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
   resolved_delivery_address?: string | null;

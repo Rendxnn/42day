@@ -182,6 +182,7 @@ export type DraftOrder = {
   serviceTiming?: ServiceTiming;
   scheduledFor?: string;
   deliveryAddress?: string;
+  deliveryAddressDetails?: string;
   deliveryAddressId?: string;
   customerAddressText?: string;
   resolvedDeliveryAddress?: string;
@@ -213,6 +214,7 @@ export type Order = {
   serviceTiming: ServiceTiming;
   scheduledFor?: string;
   deliveryAddress?: string;
+  deliveryAddressDetails?: string;
   deliveryAddressId?: string;
   customerAddressText?: string;
   resolvedDeliveryAddress?: string;
@@ -255,6 +257,7 @@ export type OrderSummary = {
   serviceTiming: ServiceTiming;
   scheduledFor?: string;
   customerAddressText?: string;
+  deliveryAddressDetails?: string;
   resolvedDeliveryAddress?: string;
   customerLatitude?: number;
   customerLongitude?: number;
@@ -302,6 +305,7 @@ export type OpenOrderSummary = {
   serviceTiming?: ServiceTiming;
   scheduledFor?: string;
   customerAddressText?: string;
+  deliveryAddressDetails?: string;
   resolvedDeliveryAddress?: string;
   paymentMethod?: PaymentMethod;
   subtotal: number;
@@ -323,6 +327,7 @@ export type OrderDetail = OrderSummary & {
     deliveryRadiusKm?: number;
   };
   deliveryAddress?: string;
+  deliveryAddressDetails?: string;
   deliveryAddressId?: string;
   items: OrderLineItem[];
   paymentProof?: PaymentProofSummary;

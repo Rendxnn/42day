@@ -1,4 +1,4 @@
-import { incrementClarificationAttempts, updateConversationState } from "../../conversations/service";
+import { completeConversationAfterOrderCancellation, incrementClarificationAttempts, updateConversationState } from "../../conversations/service";
 import {
   applyCustomerReplacementSelection,
   cancelPendingCustomerReplacementOrder,
@@ -52,12 +52,10 @@ export async function tryHandleReplacementSelection(
       currentDraftOrderId: input.conversation.currentDraftOrderId,
     });
 
-    await updateConversationState({
+    await completeConversationAfterOrderCancellation({
       env: input.env,
       schemaName: input.tenant.schemaName,
       conversationId: input.conversation.id,
-      state: "completed",
-      resetClarificationAttempts: true,
     }).catch(() => undefined);
 
     await sendAndLogText(input, buildReplacementCancelledMessage());

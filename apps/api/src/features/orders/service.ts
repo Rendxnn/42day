@@ -24,6 +24,7 @@ type OrderRow = {
   service_timing: "asap" | "scheduled";
   scheduled_for?: string | null;
   delivery_address?: string | null;
+  delivery_address_details?: string | null;
   delivery_address_id?: string | null;
   customer_address_text?: string | null;
   resolved_delivery_address?: string | null;
@@ -142,6 +143,7 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
       service_timing: input.draft.serviceTiming ?? "asap",
       scheduled_for: input.draft.scheduledFor ?? null,
       delivery_address: input.draft.deliveryAddress ?? null,
+      delivery_address_details: input.draft.deliveryAddressDetails ?? null,
       delivery_address_id: input.draft.deliveryAddressId ?? null,
       customer_address_text: input.draft.customerAddressText ?? input.draft.deliveryAddress ?? null,
       resolved_delivery_address: input.draft.resolvedDeliveryAddress ?? input.draft.customerAddressText ?? input.draft.deliveryAddress ?? null,

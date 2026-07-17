@@ -131,6 +131,40 @@ export async function updateConversationState(input: {
   );
 }
 
+/**
+ * Finishes the workflow that belonged to a cancelled order without deleting
+ * its audit trail. The next inbound WhatsApp message will therefore create a
+ * brand-new conversation and draft instead of continuing the cancelled flow.
+ */
+export async function completeConversationAfterOrderCancellation(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+}): Promise<Conversation> {
+  const now = new Date().toISOString();
+
+  return mapConversationRow(
+    await updateConversationRow({
+      env: input.env,
+      schemaName: input.schemaName,
+      conversationId: input.conversationId,
+      patch: {
+        state: "completed",
+        context: {},
+        clarification_attempts: 0,
+        current_draft_order_id: null,
+        manual_reason: null,
+        automation_enabled: true,
+        automation_resume_state: null,
+        automation_changed_at: now,
+        automation_changed_by: null,
+        automation_change_reason: "order_cancelled",
+        updated_at: now,
+      },
+    }),
+  );
+}
+
 export async function pauseConversationAutomation(input: {
   env: ApiBindings;
   schemaName: string;
