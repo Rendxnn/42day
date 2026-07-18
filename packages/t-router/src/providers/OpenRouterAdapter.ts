@@ -39,7 +39,7 @@ export class OpenRouterAdapter implements AiProviderAdapter {
     );
 
     await assertProviderResponse(response);
-    const raw = (await response.json()) as unknown;
+    const raw = await parseProviderJson(response, "response_body_json_parse");
     const outputText = extractOpenRouterText(raw);
 
     if (input.task.kind === "text") {
@@ -57,7 +57,7 @@ export class OpenRouterAdapter implements AiProviderAdapter {
       providerId: this.providerId,
       model,
       outputText,
-      outputObject: JSON.parse(outputText) as T,
+      outputObject: parseObjectOutput<T>(outputText),
       raw,
     };
   }
@@ -171,6 +171,22 @@ function extractOpenRouterText(payload: unknown): string {
   }
 
   throw new AiRouterError("provider_invalid_response", "OpenRouter response did not include parseable output text.");
+}
+
+async function parseProviderJson(response: Response, stage: string): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new AiRouterError("provider_invalid_response", "OpenRouter response body was not valid JSON.", { stage });
+  }
+}
+
+function parseObjectOutput<T>(outputText: string): T {
+  try {
+    return JSON.parse(outputText) as T;
+  } catch {
+    throw new AiRouterError("provider_invalid_response", "OpenRouter structured output was not valid JSON.", { stage: "object_output_json_parse" });
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

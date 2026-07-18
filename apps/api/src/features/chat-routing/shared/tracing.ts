@@ -31,6 +31,7 @@ export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
   provider?: "gemini" | "openrouter";
   reason?: string;
   parsed?: SemanticParserResult;
+  diagnostics?: Record<string, unknown>;
 }): void {
   input.routingTrace = {
     ...(input.routingTrace ?? {}),
@@ -47,6 +48,7 @@ export function markLlmOutcome(input: RouteInboundMessageInput, payload: {
       itemCount: payload.parsed?.items.length,
       editActionCount: payload.parsed?.editActions?.length,
       parsed: payload.parsed ? redactSemanticParserResult(payload.parsed) : undefined,
+      diagnostics: payload.diagnostics,
     },
   };
 }

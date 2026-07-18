@@ -82,6 +82,30 @@ test("prioriza los detalles separados por la IA sin alterar la direccion", () =>
   );
 });
 
+test("reincorpora numeracion colombiana si la IA la separa como indicacion", () => {
+  assert.deepEqual(
+    segmentDeliveryAddress({
+      addressText: "Calle 58 Sur",
+      details: "#42 99",
+    }),
+    {
+      addressText: "Calle 58 Sur #42 99",
+    },
+  );
+});
+
+test("separa urbanizacion y casa posteriores a una direccion numerada", () => {
+  assert.deepEqual(
+    segmentDeliveryAddress({
+      addressText: "Calle 58 Sur #42 99. Urbanización San Antonio 2 Casa 166",
+    }),
+    {
+      addressText: "Calle 58 Sur #42 99",
+      details: "Urbanización San Antonio 2 Casa 166",
+    },
+  );
+});
+
 test("falla si el restaurante no tiene coordenadas", () => {
   assert.throws(
     () => evaluateDeliveryCoverage({ ...baseSettings, latitude: undefined, longitude: undefined }, 6.25, -75.57),

@@ -117,10 +117,8 @@ begin
   end if;
 end;
 $$;
-
 revoke all on function control.configure_tenant_conversation_automation(text, uuid) from public, anon, authenticated;
 grant execute on function control.configure_tenant_conversation_automation(text, uuid) to service_role;
-
 do $$
 declare
   tenant_record record;
@@ -131,7 +129,6 @@ begin
   end loop;
 end;
 $$;
-
 create or replace function control.configure_new_tenant_conversation_automation()
 returns trigger
 language plpgsql
@@ -143,11 +140,9 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists configure_new_tenant_conversation_automation on control.tenants;
 create constraint trigger configure_new_tenant_conversation_automation
 after insert on control.tenants
 deferrable initially deferred
 for each row execute function control.configure_new_tenant_conversation_automation();
-
 notify pgrst, 'reload schema';

@@ -43,10 +43,17 @@ export function segmentDeliveryAddress(input: {
   }
 
   if (explicitDetails) {
+    // A Colombian street number such as "#42 99" is occasionally returned
+    // by the model as a detail. It belongs to the street address instead.
+    if (looksLikeDetachedStreetNumber(explicitDetails) && !hasStreetNumber(rawAddress)) {
+      return segmentDeliveryAddress({
+        addressText: `${rawAddress} ${explicitDetails}`,
+      });
+    }
     return { addressText: rawAddress, details: explicitDetails };
   }
 
-  const match = rawAddress.match(/(?:^|[,;\n]|\s)(apto\.?|apartamento|interior|piso|torre|bloque|unidad|conjunto|edificio|porter[ií]a|entrada|casa|local|referencia|indicaciones?|al lado de|frente a)\b/i);
+  const match = rawAddress.match(/(?:^|[,;.\n]|\s)(apto\.?|apartamento|interior|piso|torre|bloque|unidad|urbanizaci[oó]n|conjunto|edificio|porter[ií]a|entrada|casa|local|referencia|indicaciones?|al lado de|frente a)\b/i);
   if (!match || match.index === undefined || match.index === 0) {
     return { addressText: rawAddress };
   }
@@ -102,6 +109,14 @@ function normalizeAddressText(text: string) {
 function cleanAddressPart(value: string) {
   return value
     .replace(/\s+/g, " ")
-    .replace(/^[,;\-–—\s]+|[,;\-–—\s]+$/g, "")
+    .replace(/^[,;.\-–—\s]+|[,;.\-–—\s]+$/g, "")
     .trim();
+}
+
+function hasStreetNumber(value: string) {
+  return /#\s*\d/.test(value);
+}
+
+function looksLikeDetachedStreetNumber(value: string) {
+  return /^#\s*\d+(?:\s*[-–—]?\s*\d+)+\b/.test(value);
 }

@@ -1,6 +1,3 @@
-
-
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -11,20 +8,10 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
-
 CREATE SCHEMA IF NOT EXISTS "control";
-
-
 ALTER SCHEMA "control" OWNER TO "postgres";
-
-
 CREATE SCHEMA IF NOT EXISTS "tenant_demo";
-
-
 ALTER SCHEMA "tenant_demo" OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "control"."get_tenant_admin_snapshot"("p_schema_name" "text", "p_timezone" "text" DEFAULT 'America/Bogota'::"text") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -109,11 +96,7 @@ begin
   );
 end;
 $_$;
-
-
 ALTER FUNCTION "control"."get_tenant_admin_snapshot"("p_schema_name" "text", "p_timezone" "text") OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "control"."provision_restaurant_tenant"("p_name" "text", "p_slug" "text", "p_schema_name" "text", "p_timezone" "text" DEFAULT 'America/Bogota'::"text", "p_currency" "text" DEFAULT 'COP'::"text", "p_status" "text" DEFAULT 'active'::"text", "p_automation_enabled" boolean DEFAULT true, "p_location_name" "text" DEFAULT 'Sede principal'::"text", "p_location_address" "text" DEFAULT NULL::"text", "p_location_phone" "text" DEFAULT NULL::"text", "p_delivery_fee_fixed" integer DEFAULT 0) RETURNS TABLE("id" "uuid", "name" "text", "slug" "text", "schema_name" "text", "status" "text", "timezone" "text", "currency" "text", "automation_enabled" boolean)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -339,11 +322,7 @@ begin
   where t.id = tenant_id;
 end;
 $_$;
-
-
 ALTER FUNCTION "control"."provision_restaurant_tenant"("p_name" "text", "p_slug" "text", "p_schema_name" "text", "p_timezone" "text", "p_currency" "text", "p_status" "text", "p_automation_enabled" boolean, "p_location_name" "text", "p_location_address" "text", "p_location_phone" "text", "p_delivery_fee_fixed" integer) OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "control"."update_tenant_primary_location"("p_schema_name" "text", "p_name" "text" DEFAULT NULL::"text", "p_address" "text" DEFAULT NULL::"text", "p_phone" "text" DEFAULT NULL::"text", "p_delivery_fee_fixed" integer DEFAULT NULL::integer, "p_pickup_enabled" boolean DEFAULT NULL::boolean, "p_delivery_enabled" boolean DEFAULT NULL::boolean, "p_automation_enabled" boolean DEFAULT NULL::boolean) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -427,11 +406,7 @@ begin
   return location_payload;
 end;
 $_$;
-
-
 ALTER FUNCTION "control"."update_tenant_primary_location"("p_schema_name" "text", "p_name" "text", "p_address" "text", "p_phone" "text", "p_delivery_fee_fixed" integer, "p_pickup_enabled" boolean, "p_delivery_enabled" boolean, "p_automation_enabled" boolean) OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -452,15 +427,9 @@ CREATE OR REPLACE FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"()
          return new;
        end;
        $$;
-
-
 ALTER FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"() OWNER TO "postgres";
-
 SET default_tablespace = '';
-
 SET default_table_access_method = "heap";
-
-
 CREATE TABLE IF NOT EXISTS "control"."tenant_ai_provider_configs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "tenant_id" "uuid" NOT NULL,
@@ -477,11 +446,7 @@ CREATE TABLE IF NOT EXISTS "control"."tenant_ai_provider_configs" (
     CONSTRAINT "tenant_ai_provider_configs_provider_id_check" CHECK (("provider_id" = ANY (ARRAY['gemini'::"text", 'openai'::"text", 'openrouter'::"text", 'anthropic'::"text", 'custom'::"text"]))),
     CONSTRAINT "tenant_ai_provider_configs_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'inactive'::"text"])))
 );
-
-
 ALTER TABLE "control"."tenant_ai_provider_configs" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "control"."tenant_channels" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "tenant_id" "uuid" NOT NULL,
@@ -494,11 +459,7 @@ CREATE TABLE IF NOT EXISTS "control"."tenant_channels" (
     CONSTRAINT "tenant_channels_provider_check" CHECK (("provider" = 'whatsapp_cloud'::"text")),
     CONSTRAINT "tenant_channels_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'inactive'::"text"])))
 );
-
-
 ALTER TABLE "control"."tenant_channels" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "control"."tenant_users" (
     "tenant_id" "uuid" NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -508,11 +469,7 @@ CREATE TABLE IF NOT EXISTS "control"."tenant_users" (
     CONSTRAINT "tenant_users_role_check" CHECK (("role" = ANY (ARRAY['encargado'::"text", 'trabajador'::"text"]))),
     CONSTRAINT "tenant_users_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'inactive'::"text"])))
 );
-
-
 ALTER TABLE "control"."tenant_users" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "control"."tenants" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -526,11 +483,7 @@ CREATE TABLE IF NOT EXISTS "control"."tenants" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "tenants_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'inactive'::"text", 'suspended'::"text"])))
 );
-
-
 ALTER TABLE "control"."tenants" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "control"."webhook_events" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "provider" "text" NOT NULL,
@@ -545,11 +498,7 @@ CREATE TABLE IF NOT EXISTS "control"."webhook_events" (
     "error_message" "text",
     CONSTRAINT "webhook_events_status_check" CHECK (("status" = ANY (ARRAY['received'::"text", 'processed'::"text", 'duplicate'::"text", 'failed'::"text"])))
 );
-
-
 ALTER TABLE "control"."webhook_events" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."app_events" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid",
@@ -561,11 +510,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."app_events" (
     "metadata" "jsonb",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."app_events" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."combo_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "combo_id" "uuid" NOT NULL,
@@ -575,11 +520,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."combo_items" (
     "group_name" "text",
     "sort_order" integer DEFAULT 0 NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."combo_items" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."combos" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -589,11 +530,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."combos" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."combos" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."conversations" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "customer_id" "uuid" NOT NULL,
@@ -609,11 +546,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."conversations" (
     "clarification_attempts" integer DEFAULT 0 NOT NULL,
     CONSTRAINT "conversations_channel_check" CHECK (("channel" = 'whatsapp'::"text"))
 );
-
-
 ALTER TABLE "tenant_demo"."conversations" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."customer_addresses" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "customer_id" "uuid" NOT NULL,
@@ -628,11 +561,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."customer_addresses" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "customer_addresses_source_check" CHECK (("source" = ANY (ARRAY['text'::"text", 'whatsapp_location'::"text", 'dashboard'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."customer_addresses" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."customer_billing_profiles" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "customer_id" "uuid" NOT NULL,
@@ -647,11 +576,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."customer_billing_profiles" (
     CONSTRAINT "customer_billing_profiles_billing_fields_check" CHECK (((("billing_type" = 'normal'::"text") AND ("full_name" IS NOT NULL) AND (NULLIF(TRIM(BOTH FROM "full_name"), ''::"text") IS NOT NULL)) OR (("billing_type" = 'electronic'::"text") AND ("legal_name" IS NOT NULL) AND (NULLIF(TRIM(BOTH FROM "legal_name"), ''::"text") IS NOT NULL) AND ("tax_id" IS NOT NULL) AND (NULLIF(TRIM(BOTH FROM "tax_id"), ''::"text") IS NOT NULL) AND ("email" IS NOT NULL) AND (NULLIF(TRIM(BOTH FROM "email"), ''::"text") IS NOT NULL)))),
     CONSTRAINT "customer_billing_profiles_billing_type_check" CHECK (("billing_type" = ANY (ARRAY['normal'::"text", 'electronic'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."customer_billing_profiles" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."customers" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "phone" "text" NOT NULL,
@@ -660,11 +585,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."customers" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."customers" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."draft_order_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "draft_order_id" "uuid" NOT NULL,
@@ -678,11 +599,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."draft_order_items" (
     "notes" "text",
     "line_total" integer NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."draft_order_items" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."draft_orders" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid" NOT NULL,
@@ -728,11 +645,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."draft_orders" (
     CONSTRAINT "draft_orders_payment_method_check" CHECK (("payment_method" = ANY (ARRAY['cash'::"text", 'transfer'::"text"]))),
     CONSTRAINT "draft_orders_service_timing_check" CHECK (("service_timing" = ANY (ARRAY['asap'::"text", 'scheduled'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."draft_orders" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."human_intervention_alerts" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid",
@@ -747,11 +660,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."human_intervention_alerts" (
     "resolved_at" timestamp with time zone,
     CONSTRAINT "human_intervention_alerts_status_check" CHECK (("status" = ANY (ARRAY['open'::"text", 'acknowledged'::"text", 'resolved'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."human_intervention_alerts" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."locations" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -782,11 +691,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."locations" (
     CONSTRAINT "locations_latitude_check" CHECK ((("latitude" IS NULL) OR (("latitude" >= ('-90'::integer)::numeric) AND ("latitude" <= (90)::numeric)))),
     CONSTRAINT "locations_longitude_check" CHECK ((("longitude" IS NULL) OR (("longitude" >= ('-180'::integer)::numeric) AND ("longitude" <= (180)::numeric))))
 );
-
-
 ALTER TABLE "tenant_demo"."locations" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."menu_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "menu_id" "uuid" NOT NULL,
@@ -800,11 +705,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."menu_items" (
     "aliases" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
     CONSTRAINT "menu_items_check" CHECK (((("product_id" IS NOT NULL) AND ("combo_id" IS NULL)) OR (("product_id" IS NULL) AND ("combo_id" IS NOT NULL))))
 );
-
-
 ALTER TABLE "tenant_demo"."menu_items" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."menus" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "location_id" "uuid" NOT NULL,
@@ -815,11 +716,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."menus" (
     "published_at" timestamp with time zone,
     CONSTRAINT "menus_status_check" CHECK (("status" = ANY (ARRAY['draft'::"text", 'published'::"text", 'archived'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."menus" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."messages" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid",
@@ -833,11 +730,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."messages" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "messages_direction_check" CHECK (("direction" = ANY (ARRAY['inbound'::"text", 'outbound'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."messages" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."order_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "order_id" "uuid" NOT NULL,
@@ -852,11 +745,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."order_items" (
     "menu_item_id" "uuid",
     "category_snapshot" "text"
 );
-
-
 ALTER TABLE "tenant_demo"."order_items" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."orders" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "draft_order_id" "uuid",
@@ -912,11 +801,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."orders" (
     CONSTRAINT "orders_payment_method_check" CHECK (("payment_method" = ANY (ARRAY['cash'::"text", 'transfer'::"text"]))),
     CONSTRAINT "orders_service_timing_check" CHECK (("service_timing" = ANY (ARRAY['asap'::"text", 'scheduled'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."orders" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_accounts" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "location_id" "uuid" NOT NULL,
@@ -930,11 +815,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_accounts" (
     CONSTRAINT "payment_accounts_bank_name_check" CHECK (("length"("btrim"("bank_name")) > 0)),
     CONSTRAINT "payment_accounts_holder_name_check" CHECK (("length"("btrim"("holder_name")) > 0))
 );
-
-
 ALTER TABLE "tenant_demo"."payment_accounts" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_proofs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid",
@@ -952,11 +833,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_proofs" (
     "reviewed_by" "uuid",
     CONSTRAINT "payment_proofs_status_check" CHECK (("status" = ANY (ARRAY['received'::"text", 'stored'::"text", 'review_pending'::"text", 'approved'::"text", 'rejected'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."payment_proofs" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_qrs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "location_id" "uuid" NOT NULL,
@@ -971,11 +848,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."payment_qrs" (
     CONSTRAINT "payment_qrs_storage_bucket_check" CHECK (("length"("btrim"("storage_bucket")) > 0)),
     CONSTRAINT "payment_qrs_storage_path_check" CHECK (("length"("btrim"("storage_path")) > 0))
 );
-
-
 ALTER TABLE "tenant_demo"."payment_qrs" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."product_option_values" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "option_id" "uuid" NOT NULL,
@@ -987,11 +860,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."product_option_values" (
     "aliases" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
     "sort_order" integer DEFAULT 0 NOT NULL
 );
-
-
 ALTER TABLE "tenant_demo"."product_option_values" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."product_options" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "product_id" "uuid" NOT NULL,
@@ -1008,11 +877,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."product_options" (
     CONSTRAINT "product_options_display_mode_check" CHECK (("display_mode" = ANY (ARRAY['list'::"text", 'buttons'::"text", 'swatches'::"text", 'text'::"text"]))),
     CONSTRAINT "product_options_type_check" CHECK (("type" = ANY (ARRAY['single'::"text", 'multiple'::"text", 'text'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."product_options" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."products" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -1028,11 +893,7 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."products" (
     "product_type" "text" DEFAULT 'simple'::"text" NOT NULL,
     CONSTRAINT "products_product_type_check" CHECK (("product_type" = ANY (ARRAY['simple'::"text", 'composite'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."products" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "tenant_demo"."promotions" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -1046,998 +907,379 @@ CREATE TABLE IF NOT EXISTS "tenant_demo"."promotions" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "promotions_type_check" CHECK (("type" = ANY (ARRAY['fixed_amount'::"text", 'percentage'::"text", 'informational'::"text"])))
 );
-
-
 ALTER TABLE "tenant_demo"."promotions" OWNER TO "postgres";
-
-
 ALTER TABLE ONLY "control"."tenant_ai_provider_configs"
     ADD CONSTRAINT "tenant_ai_provider_configs_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_ai_provider_configs"
     ADD CONSTRAINT "tenant_ai_provider_configs_tenant_id_provider_id_key" UNIQUE ("tenant_id", "provider_id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_channels"
     ADD CONSTRAINT "tenant_channels_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_channels"
     ADD CONSTRAINT "tenant_channels_provider_phone_number_id_key" UNIQUE ("provider", "phone_number_id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_users"
     ADD CONSTRAINT "tenant_users_pkey" PRIMARY KEY ("tenant_id", "user_id");
-
-
-
 ALTER TABLE ONLY "control"."tenants"
     ADD CONSTRAINT "tenants_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "control"."tenants"
     ADD CONSTRAINT "tenants_schema_name_key" UNIQUE ("schema_name");
-
-
-
 ALTER TABLE ONLY "control"."tenants"
     ADD CONSTRAINT "tenants_slug_key" UNIQUE ("slug");
-
-
-
 ALTER TABLE ONLY "control"."webhook_events"
     ADD CONSTRAINT "webhook_events_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."app_events"
     ADD CONSTRAINT "app_events_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."combo_items"
     ADD CONSTRAINT "combo_items_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."combos"
     ADD CONSTRAINT "combos_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."conversations"
     ADD CONSTRAINT "conversations_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customer_addresses"
     ADD CONSTRAINT "customer_addresses_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customer_billing_profiles"
     ADD CONSTRAINT "customer_billing_profiles_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customers"
     ADD CONSTRAINT "customers_phone_key" UNIQUE ("phone");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customers"
     ADD CONSTRAINT "customers_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_order_items"
     ADD CONSTRAINT "draft_order_items_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."human_intervention_alerts"
     ADD CONSTRAINT "human_intervention_alerts_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."locations"
     ADD CONSTRAINT "locations_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menu_items"
     ADD CONSTRAINT "menu_items_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menus"
     ADD CONSTRAINT "menus_location_id_date_key" UNIQUE ("location_id", "date");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menus"
     ADD CONSTRAINT "menus_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."messages"
     ADD CONSTRAINT "messages_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."order_items"
     ADD CONSTRAINT "order_items_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_accounts"
     ADD CONSTRAINT "payment_accounts_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_proofs"
     ADD CONSTRAINT "payment_proofs_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_qrs"
     ADD CONSTRAINT "payment_qrs_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."product_option_values"
     ADD CONSTRAINT "product_option_values_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."product_options"
     ADD CONSTRAINT "product_options_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."products"
     ADD CONSTRAINT "products_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."promotions"
     ADD CONSTRAINT "promotions_pkey" PRIMARY KEY ("id");
-
-
-
 CREATE INDEX "tenant_ai_provider_configs_tenant_status_idx" ON "control"."tenant_ai_provider_configs" USING "btree" ("tenant_id", "status");
-
-
-
 CREATE INDEX "tenant_channels_tenant_id_idx" ON "control"."tenant_channels" USING "btree" ("tenant_id");
-
-
-
 CREATE INDEX "webhook_events_phone_number_id_idx" ON "control"."webhook_events" USING "btree" ("phone_number_id");
-
-
-
 CREATE UNIQUE INDEX "webhook_events_provider_message_unique_idx" ON "control"."webhook_events" USING "btree" ("provider", "provider_message_id") WHERE ("provider_message_id" IS NOT NULL);
-
-
-
 CREATE INDEX "webhook_events_tenant_id_idx" ON "control"."webhook_events" USING "btree" ("tenant_id");
-
-
-
 CREATE INDEX "app_events_conversation_id_idx" ON "tenant_demo"."app_events" USING "btree" ("conversation_id");
-
-
-
 CREATE INDEX "app_events_draft_order_id_idx" ON "tenant_demo"."app_events" USING "btree" ("draft_order_id");
-
-
-
 CREATE INDEX "app_events_event_name_idx" ON "tenant_demo"."app_events" USING "btree" ("event_name");
-
-
-
 CREATE INDEX "app_events_order_id_idx" ON "tenant_demo"."app_events" USING "btree" ("order_id");
-
-
-
 CREATE INDEX "combo_items_combo_id_idx" ON "tenant_demo"."combo_items" USING "btree" ("combo_id");
-
-
-
 CREATE INDEX "combo_items_product_id_idx" ON "tenant_demo"."combo_items" USING "btree" ("product_id");
-
-
-
 CREATE INDEX "conversations_current_draft_order_id_idx" ON "tenant_demo"."conversations" USING "btree" ("current_draft_order_id");
-
-
-
 CREATE INDEX "conversations_customer_id_idx" ON "tenant_demo"."conversations" USING "btree" ("customer_id");
-
-
-
 CREATE INDEX "conversations_expires_at_idx" ON "tenant_demo"."conversations" USING "btree" ("expires_at");
-
-
-
 CREATE INDEX "conversations_state_idx" ON "tenant_demo"."conversations" USING "btree" ("state");
-
-
-
 CREATE INDEX "customer_addresses_customer_id_idx" ON "tenant_demo"."customer_addresses" USING "btree" ("customer_id");
-
-
-
 CREATE UNIQUE INDEX "customer_billing_profiles_customer_type_idx" ON "tenant_demo"."customer_billing_profiles" USING "btree" ("customer_id", "billing_type");
-
-
-
 CREATE INDEX "draft_order_items_combo_id_idx" ON "tenant_demo"."draft_order_items" USING "btree" ("combo_id");
-
-
-
 CREATE INDEX "draft_order_items_draft_order_id_idx" ON "tenant_demo"."draft_order_items" USING "btree" ("draft_order_id");
-
-
-
 CREATE INDEX "draft_order_items_menu_item_id_idx" ON "tenant_demo"."draft_order_items" USING "btree" ("menu_item_id");
-
-
-
 CREATE INDEX "draft_order_items_product_id_idx" ON "tenant_demo"."draft_order_items" USING "btree" ("product_id");
-
-
-
 CREATE INDEX "draft_orders_billing_profile_id_idx" ON "tenant_demo"."draft_orders" USING "btree" ("billing_profile_id");
-
-
-
 CREATE INDEX "draft_orders_conversation_id_idx" ON "tenant_demo"."draft_orders" USING "btree" ("conversation_id");
-
-
-
 CREATE INDEX "draft_orders_customer_id_idx" ON "tenant_demo"."draft_orders" USING "btree" ("customer_id");
-
-
-
 CREATE INDEX "draft_orders_delivery_address_id_idx" ON "tenant_demo"."draft_orders" USING "btree" ("delivery_address_id");
-
-
-
 CREATE INDEX "draft_orders_location_id_idx" ON "tenant_demo"."draft_orders" USING "btree" ("location_id");
-
-
-
 CREATE INDEX "human_intervention_alerts_conversation_id_idx" ON "tenant_demo"."human_intervention_alerts" USING "btree" ("conversation_id");
-
-
-
 CREATE INDEX "human_intervention_alerts_draft_order_id_idx" ON "tenant_demo"."human_intervention_alerts" USING "btree" ("draft_order_id");
-
-
-
 CREATE INDEX "human_intervention_alerts_order_id_idx" ON "tenant_demo"."human_intervention_alerts" USING "btree" ("order_id");
-
-
-
 CREATE INDEX "human_intervention_alerts_status_idx" ON "tenant_demo"."human_intervention_alerts" USING "btree" ("status");
-
-
-
 CREATE INDEX "menu_items_combo_id_idx" ON "tenant_demo"."menu_items" USING "btree" ("combo_id");
-
-
-
 CREATE INDEX "menu_items_menu_id_idx" ON "tenant_demo"."menu_items" USING "btree" ("menu_id");
-
-
-
 CREATE INDEX "menu_items_product_id_idx" ON "tenant_demo"."menu_items" USING "btree" ("product_id");
-
-
-
 CREATE INDEX "messages_conversation_id_idx" ON "tenant_demo"."messages" USING "btree" ("conversation_id");
-
-
-
 CREATE UNIQUE INDEX "messages_provider_message_unique_idx" ON "tenant_demo"."messages" USING "btree" ("provider", "provider_message_id", "direction") WHERE ("provider_message_id" IS NOT NULL);
-
-
-
 CREATE INDEX "order_items_combo_id_idx" ON "tenant_demo"."order_items" USING "btree" ("combo_id");
-
-
-
 CREATE INDEX "order_items_order_id_idx" ON "tenant_demo"."order_items" USING "btree" ("order_id");
-
-
-
 CREATE INDEX "order_items_product_id_idx" ON "tenant_demo"."order_items" USING "btree" ("product_id");
-
-
-
 CREATE INDEX "orders_billing_profile_id_idx" ON "tenant_demo"."orders" USING "btree" ("billing_profile_id");
-
-
-
 CREATE INDEX "orders_customer_id_idx" ON "tenant_demo"."orders" USING "btree" ("customer_id");
-
-
-
 CREATE INDEX "orders_delivery_address_id_idx" ON "tenant_demo"."orders" USING "btree" ("delivery_address_id");
-
-
-
 CREATE INDEX "orders_draft_order_id_idx" ON "tenant_demo"."orders" USING "btree" ("draft_order_id");
-
-
-
 CREATE INDEX "orders_location_id_idx" ON "tenant_demo"."orders" USING "btree" ("location_id");
-
-
-
 CREATE INDEX "orders_payment_proof_file_id_idx" ON "tenant_demo"."orders" USING "btree" ("payment_proof_file_id");
-
-
-
 CREATE INDEX "orders_status_idx" ON "tenant_demo"."orders" USING "btree" ("status");
-
-
-
 CREATE INDEX "payment_proofs_conversation_id_idx" ON "tenant_demo"."payment_proofs" USING "btree" ("conversation_id");
-
-
-
 CREATE INDEX "payment_proofs_draft_order_id_idx" ON "tenant_demo"."payment_proofs" USING "btree" ("draft_order_id");
-
-
-
 CREATE INDEX "payment_proofs_message_id_idx" ON "tenant_demo"."payment_proofs" USING "btree" ("message_id");
-
-
-
 CREATE INDEX "payment_proofs_order_id_idx" ON "tenant_demo"."payment_proofs" USING "btree" ("order_id");
-
-
-
 CREATE INDEX "product_option_values_option_id_idx" ON "tenant_demo"."product_option_values" USING "btree" ("option_id");
-
-
-
 CREATE INDEX "product_options_product_id_idx" ON "tenant_demo"."product_options" USING "btree" ("product_id");
-
-
-
 CREATE INDEX "tenant_demo_alerts_type_status_created_idx" ON "tenant_demo"."human_intervention_alerts" USING "btree" ("type", "status", "created_at" DESC);
-
-
-
 CREATE INDEX "tenant_demo_order_items_menu_item_id_idx" ON "tenant_demo"."order_items" USING "btree" ("menu_item_id");
-
-
-
 CREATE INDEX "tenant_demo_orders_customer_notification_status_idx" ON "tenant_demo"."orders" USING "btree" ("customer_notification_status");
-
-
-
 CREATE INDEX "tenant_demo_orders_payment_confirmed_at_idx" ON "tenant_demo"."orders" USING "btree" ("payment_confirmed_at");
-
-
-
 CREATE INDEX "tenant_demo_orders_restaurant_confirmed_at_idx" ON "tenant_demo"."orders" USING "btree" ("restaurant_confirmed_at");
-
-
-
 CREATE INDEX "tenant_demo_orders_restaurant_reviewed_at_idx" ON "tenant_demo"."orders" USING "btree" ("restaurant_reviewed_at");
-
-
-
 CREATE INDEX "tenant_demo_payment_accounts_location_idx" ON "tenant_demo"."payment_accounts" USING "btree" ("location_id");
-
-
-
 CREATE INDEX "tenant_demo_payment_qrs_location_idx" ON "tenant_demo"."payment_qrs" USING "btree" ("location_id");
-
-
-
 CREATE UNIQUE INDEX "tenant_demo_payment_qrs_single_active_idx" ON "tenant_demo"."payment_qrs" USING "btree" ("location_id") WHERE "is_active";
-
-
-
 CREATE INDEX "tenant_demo_product_option_values_option_sort_idx" ON "tenant_demo"."product_option_values" USING "btree" ("option_id", "sort_order");
-
-
-
 CREATE INDEX "tenant_demo_product_options_product_sort_idx" ON "tenant_demo"."product_options" USING "btree" ("product_id", "sort_order");
-
-
-
 CREATE OR REPLACE TRIGGER "enforce_max_active_payment_accounts" BEFORE INSERT OR UPDATE ON "tenant_demo"."payment_accounts" FOR EACH ROW EXECUTE FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"();
-
-
-
 ALTER TABLE ONLY "control"."tenant_ai_provider_configs"
     ADD CONSTRAINT "tenant_ai_provider_configs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "control"."tenants"("id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_channels"
     ADD CONSTRAINT "tenant_channels_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "control"."tenants"("id");
-
-
-
 ALTER TABLE ONLY "control"."tenant_users"
     ADD CONSTRAINT "tenant_users_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "control"."tenants"("id");
-
-
-
 ALTER TABLE ONLY "control"."webhook_events"
     ADD CONSTRAINT "webhook_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "control"."tenants"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."app_events"
     ADD CONSTRAINT "app_events_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "tenant_demo"."conversations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."app_events"
     ADD CONSTRAINT "app_events_draft_order_id_fkey" FOREIGN KEY ("draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."app_events"
     ADD CONSTRAINT "app_events_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "tenant_demo"."orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."combo_items"
     ADD CONSTRAINT "combo_items_combo_id_fkey" FOREIGN KEY ("combo_id") REFERENCES "tenant_demo"."combos"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."combo_items"
     ADD CONSTRAINT "combo_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "tenant_demo"."products"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."conversations"
     ADD CONSTRAINT "conversations_current_draft_order_id_fkey" FOREIGN KEY ("current_draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."conversations"
     ADD CONSTRAINT "conversations_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "tenant_demo"."customers"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customer_addresses"
     ADD CONSTRAINT "customer_addresses_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "tenant_demo"."customers"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."customer_billing_profiles"
     ADD CONSTRAINT "customer_billing_profiles_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "tenant_demo"."customers"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_order_items"
     ADD CONSTRAINT "draft_order_items_combo_id_fkey" FOREIGN KEY ("combo_id") REFERENCES "tenant_demo"."combos"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_order_items"
     ADD CONSTRAINT "draft_order_items_draft_order_id_fkey" FOREIGN KEY ("draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_order_items"
     ADD CONSTRAINT "draft_order_items_menu_item_id_fkey" FOREIGN KEY ("menu_item_id") REFERENCES "tenant_demo"."menu_items"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_order_items"
     ADD CONSTRAINT "draft_order_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "tenant_demo"."products"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_billing_profile_id_fkey" FOREIGN KEY ("billing_profile_id") REFERENCES "tenant_demo"."customer_billing_profiles"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "tenant_demo"."conversations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "tenant_demo"."customers"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_delivery_address_id_fkey" FOREIGN KEY ("delivery_address_id") REFERENCES "tenant_demo"."customer_addresses"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."draft_orders"
     ADD CONSTRAINT "draft_orders_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "tenant_demo"."locations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."human_intervention_alerts"
     ADD CONSTRAINT "human_intervention_alerts_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "tenant_demo"."conversations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."human_intervention_alerts"
     ADD CONSTRAINT "human_intervention_alerts_draft_order_id_fkey" FOREIGN KEY ("draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."human_intervention_alerts"
     ADD CONSTRAINT "human_intervention_alerts_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "tenant_demo"."orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menu_items"
     ADD CONSTRAINT "menu_items_combo_id_fkey" FOREIGN KEY ("combo_id") REFERENCES "tenant_demo"."combos"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menu_items"
     ADD CONSTRAINT "menu_items_menu_id_fkey" FOREIGN KEY ("menu_id") REFERENCES "tenant_demo"."menus"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menu_items"
     ADD CONSTRAINT "menu_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "tenant_demo"."products"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."menus"
     ADD CONSTRAINT "menus_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "tenant_demo"."locations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."messages"
     ADD CONSTRAINT "messages_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "tenant_demo"."conversations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."order_items"
     ADD CONSTRAINT "order_items_combo_id_fkey" FOREIGN KEY ("combo_id") REFERENCES "tenant_demo"."combos"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."order_items"
     ADD CONSTRAINT "order_items_menu_item_id_fkey" FOREIGN KEY ("menu_item_id") REFERENCES "tenant_demo"."menu_items"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."order_items"
     ADD CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "tenant_demo"."orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."order_items"
     ADD CONSTRAINT "order_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "tenant_demo"."products"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_billing_profile_id_fkey" FOREIGN KEY ("billing_profile_id") REFERENCES "tenant_demo"."customer_billing_profiles"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "tenant_demo"."customers"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_delivery_address_id_fkey" FOREIGN KEY ("delivery_address_id") REFERENCES "tenant_demo"."customer_addresses"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_draft_order_id_fkey" FOREIGN KEY ("draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "tenant_demo"."locations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."orders"
     ADD CONSTRAINT "orders_payment_proof_file_id_fkey" FOREIGN KEY ("payment_proof_file_id") REFERENCES "tenant_demo"."payment_proofs"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_accounts"
     ADD CONSTRAINT "payment_accounts_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "tenant_demo"."locations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_proofs"
     ADD CONSTRAINT "payment_proofs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "tenant_demo"."conversations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_proofs"
     ADD CONSTRAINT "payment_proofs_draft_order_id_fkey" FOREIGN KEY ("draft_order_id") REFERENCES "tenant_demo"."draft_orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_proofs"
     ADD CONSTRAINT "payment_proofs_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "tenant_demo"."messages"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_proofs"
     ADD CONSTRAINT "payment_proofs_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "tenant_demo"."orders"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."payment_qrs"
     ADD CONSTRAINT "payment_qrs_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "tenant_demo"."locations"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."product_option_values"
     ADD CONSTRAINT "product_option_values_option_id_fkey" FOREIGN KEY ("option_id") REFERENCES "tenant_demo"."product_options"("id");
-
-
-
 ALTER TABLE ONLY "tenant_demo"."product_options"
     ADD CONSTRAINT "product_options_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "tenant_demo"."products"("id");
-
-
-
 ALTER TABLE "control"."tenant_ai_provider_configs" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "control"."tenant_channels" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "control"."tenant_users" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "control"."tenants" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "control"."webhook_events" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."app_events" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."combo_items" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."combos" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."conversations" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."customer_addresses" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."customer_billing_profiles" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."customers" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."draft_order_items" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."draft_orders" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."human_intervention_alerts" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."locations" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."menu_items" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."menus" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."messages" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."order_items" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."orders" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."payment_accounts" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."payment_proofs" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."payment_qrs" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."product_option_values" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."product_options" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."products" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "tenant_demo"."promotions" ENABLE ROW LEVEL SECURITY;
-
-
 CREATE POLICY "tenant members can read realtime orders" ON "tenant_demo"."orders" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "control"."tenant_users" "tu"
   WHERE (("tu"."tenant_id" = '9a5774e0-e01f-4278-b8ee-8e5c155f12f4'::"uuid") AND ("tu"."user_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("tu"."status" = 'active'::"text")))));
-
-
-
 GRANT USAGE ON SCHEMA "control" TO "anon";
 GRANT USAGE ON SCHEMA "control" TO "authenticated";
 GRANT USAGE ON SCHEMA "control" TO "service_role";
-
-
-
 GRANT USAGE ON SCHEMA "tenant_demo" TO "anon";
 GRANT USAGE ON SCHEMA "tenant_demo" TO "authenticated";
 GRANT USAGE ON SCHEMA "tenant_demo" TO "service_role";
-
-
-
 REVOKE ALL ON FUNCTION "control"."get_tenant_admin_snapshot"("p_schema_name" "text", "p_timezone" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "control"."get_tenant_admin_snapshot"("p_schema_name" "text", "p_timezone" "text") TO "service_role";
-
-
-
 REVOKE ALL ON FUNCTION "control"."provision_restaurant_tenant"("p_name" "text", "p_slug" "text", "p_schema_name" "text", "p_timezone" "text", "p_currency" "text", "p_status" "text", "p_automation_enabled" boolean, "p_location_name" "text", "p_location_address" "text", "p_location_phone" "text", "p_delivery_fee_fixed" integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION "control"."provision_restaurant_tenant"("p_name" "text", "p_slug" "text", "p_schema_name" "text", "p_timezone" "text", "p_currency" "text", "p_status" "text", "p_automation_enabled" boolean, "p_location_name" "text", "p_location_address" "text", "p_location_phone" "text", "p_delivery_fee_fixed" integer) TO "service_role";
-
-
-
 REVOKE ALL ON FUNCTION "control"."update_tenant_primary_location"("p_schema_name" "text", "p_name" "text", "p_address" "text", "p_phone" "text", "p_delivery_fee_fixed" integer, "p_pickup_enabled" boolean, "p_delivery_enabled" boolean, "p_automation_enabled" boolean) FROM PUBLIC;
 GRANT ALL ON FUNCTION "control"."update_tenant_primary_location"("p_schema_name" "text", "p_name" "text", "p_address" "text", "p_phone" "text", "p_delivery_fee_fixed" integer, "p_pickup_enabled" boolean, "p_delivery_enabled" boolean, "p_automation_enabled" boolean) TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"() TO "anon";
 GRANT ALL ON FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"() TO "authenticated";
 GRANT ALL ON FUNCTION "tenant_demo"."enforce_max_active_payment_accounts"() TO "service_role";
-
-
-
 GRANT ALL ON TABLE "control"."tenant_ai_provider_configs" TO "anon";
 GRANT ALL ON TABLE "control"."tenant_ai_provider_configs" TO "authenticated";
 GRANT ALL ON TABLE "control"."tenant_ai_provider_configs" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "control"."tenant_channels" TO "anon";
 GRANT ALL ON TABLE "control"."tenant_channels" TO "authenticated";
 GRANT ALL ON TABLE "control"."tenant_channels" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "control"."tenant_users" TO "anon";
 GRANT ALL ON TABLE "control"."tenant_users" TO "authenticated";
 GRANT ALL ON TABLE "control"."tenant_users" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "control"."tenants" TO "anon";
 GRANT ALL ON TABLE "control"."tenants" TO "authenticated";
 GRANT ALL ON TABLE "control"."tenants" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "control"."webhook_events" TO "anon";
 GRANT ALL ON TABLE "control"."webhook_events" TO "authenticated";
 GRANT ALL ON TABLE "control"."webhook_events" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."app_events" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."app_events" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."app_events" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."combo_items" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."combo_items" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."combo_items" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."combos" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."combos" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."combos" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."conversations" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."conversations" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."conversations" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."customer_addresses" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."customer_addresses" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."customer_addresses" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."customer_billing_profiles" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."customer_billing_profiles" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."customer_billing_profiles" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."customers" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."customers" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."customers" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."draft_order_items" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."draft_order_items" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."draft_order_items" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."draft_orders" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."draft_orders" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."draft_orders" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."human_intervention_alerts" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."human_intervention_alerts" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."human_intervention_alerts" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."locations" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."locations" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."locations" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."menu_items" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."menu_items" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."menu_items" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."menus" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."menus" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."menus" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."messages" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."messages" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."messages" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."order_items" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."order_items" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."order_items" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."orders" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."orders" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."orders" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."payment_accounts" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."payment_accounts" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."payment_accounts" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."payment_proofs" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."payment_proofs" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."payment_proofs" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."payment_qrs" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."payment_qrs" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."payment_qrs" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."product_option_values" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."product_option_values" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."product_option_values" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."product_options" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."product_options" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."product_options" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."products" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."products" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."products" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "tenant_demo"."promotions" TO "anon";
 GRANT ALL ON TABLE "tenant_demo"."promotions" TO "authenticated";
 GRANT ALL ON TABLE "tenant_demo"."promotions" TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON SEQUENCES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON SEQUENCES TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON FUNCTIONS TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON FUNCTIONS TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON FUNCTIONS TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "control" GRANT ALL ON TABLES TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON SEQUENCES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON SEQUENCES TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON FUNCTIONS TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON FUNCTIONS TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON FUNCTIONS TO "service_role";
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "tenant_demo" GRANT ALL ON TABLES TO "service_role";
-
-
-
-

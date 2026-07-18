@@ -13,7 +13,11 @@ import {
 import { handleTransferProofClarification, tryHandleTransferProof as tryHandleTransferProofBranch } from "./transfer/proof";
 import { tryHandleSemanticOrder } from "./semantic/order";
 import { handleClarification } from "./manual/handoff";
+import { moveToManual } from "./manual/handoff";
+import { resolveEntryFlowAction } from "./entry-flow";
 import { handleCustomerOrderStatus } from "./order-status";
+import { buildWelcomeMenuText } from "../menu/service";
+import { loadCurrentMenu } from "./shared/helpers";
 import { logRoutingDiagnostic } from "./shared/tracing";
 import {
   tryHandleDeliveryAddress,
@@ -59,8 +63,29 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
     message: input.message,
     state: input.conversation.state,
   });
+
+  // Only explicit, non-mutating controls bypass semantic interpretation.
+  // A first natural-language order must always reach the semantic planner.
+  const entryAction = resolveEntryFlowAction(signals);
+  if (entryAction === "handoff") {
+    await moveToManual(input, {
+      type: "support_requested",
+      manualReason: "explicit_human_request",
+      title: "Cliente solicita atención humana",
+      description: "El cliente pidió hablar con una persona.",
+      responseText: "Claro, voy a ponerte en contacto con alguien del restaurante para que te ayude.",
+    });
+    return;
+  }
+
   if (signals.wantsOrderStatus) {
     await handleCustomerOrderStatus(input);
+    return;
+  }
+
+  if (entryAction === "show_menu") {
+    const menu = await loadCurrentMenu(input);
+    await sendAndLogText(input, buildWelcomeMenuText(menu, input.tenant.name));
     return;
   }
 

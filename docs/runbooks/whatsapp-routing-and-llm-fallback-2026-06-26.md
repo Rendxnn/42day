@@ -2,7 +2,7 @@
 
 Fecha de referencia: `2026-06-26`.
 
-> Guia operativa actualizada: desde `2026-07-13`, todo inbound textual procesable se interpreta semanticamente. Las ramas de media/ubicacion/manual y las validaciones de negocio siguen siendo deterministicas; no hay deteccion deterministica de intencion del cliente.
+> Guia operativa actualizada: desde `2026-07-18`, todo inbound textual procesable se interpreta mediante un plan semántico ID-based. Las ramas de media/ubicación/manual y las validaciones de negocio siguen siendo determinísticas; no hay detección determinística de intención del cliente.
 
 ## Estado validado
 
@@ -56,14 +56,11 @@ Quedo implementado:
 
 - soporte de `OPENROUTER_API_KEY` y `OPENROUTER_MODEL` en env/bindings,
 - carga de proveedor `openrouter` desde backend,
-- fallback real `gemini -> openrouter` para:
-  - `provider_quota_exceeded`,
-  - `provider_unavailable`,
-  - `provider_timeout`,
-  - `provider_network_error`,
-- trazabilidad de proveedor usado en metadata de routing,
-- log `semantic_parser.completed` con `provider` y `fallbackFromProviderId`,
-- snapshot de `parsed` dentro de `routing.llm`.
+- fallback real `gemini -> openrouter` cuando el intento primario no puede completar el plan semántico,
+- trazabilidad segura de proveedor, modelo, duración, código HTTP y estado upstream, sin cuerpo de respuesta ni texto del cliente,
+- log `semantic_operation_plan.completed` con proveedor, fallback, tipos de operación y conteo,
+- log `semantic_operation_plan.failed` con intentos seguros y alerta técnica deduplicada cuando ambos proveedores fallan,
+- metadata `routing.llm` con resultado y diagnósticos seguros; no se persisten dirección completa, billing ni mensaje libre.
 
 ## Pendiente operativo
 

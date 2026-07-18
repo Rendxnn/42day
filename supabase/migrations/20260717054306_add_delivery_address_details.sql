@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 0.2 seconds
-Output:
 do $$
 declare
   target_schema text;
@@ -27,7 +24,7 @@ begin
         $sql$
           alter table %1$I.locations
           alter column request_location_message set default
-          'Perfecto. Para validar si tenemos cobertura, envÃ­anos tu ubicaciÃ³n actual usando el botÃ³n de ubicaciÃ³n de WhatsApp. Si prefieres escribirla, envÃ­anos en un solo mensaje la direcciÃ³n completa con barrio, municipio y los detalles de entrega que apliquen (apto, torre, unidad, casa o referencia).'
+          'Perfecto. Para validar si tenemos cobertura, envíanos tu ubicación actual usando el botón de ubicación de WhatsApp. Si prefieres escribirla, envíanos en un solo mensaje la dirección completa con barrio, municipio y los detalles de entrega que apliquen (apto, torre, unidad, casa o referencia).'
         $sql$,
         target_schema
       );
@@ -35,10 +32,10 @@ begin
         $sql$
           update %1$I.locations
           set request_location_message =
-            'Perfecto. Para validar si tenemos cobertura, envÃ­anos tu ubicaciÃ³n actual usando el botÃ³n de ubicaciÃ³n de WhatsApp. Si prefieres escribirla, envÃ­anos en un solo mensaje la direcciÃ³n completa con barrio, municipio y los detalles de entrega que apliquen (apto, torre, unidad, casa o referencia).'
+            'Perfecto. Para validar si tenemos cobertura, envíanos tu ubicación actual usando el botón de ubicación de WhatsApp. Si prefieres escribirla, envíanos en un solo mensaje la dirección completa con barrio, municipio y los detalles de entrega que apliquen (apto, torre, unidad, casa o referencia).'
           where request_location_message in (
             'Perfecto. Para validar si tenemos cobertura, por favor envianos tu ubicacion actual usando el boton de ubicacion de WhatsApp.',
-            'Perfecto. Para validar si tenemos cobertura, por favor envianos tu ubicaciÃ³n actual usando el botÃ³n de ubicaciÃ³n de WhatsApp.'
+            'Perfecto. Para validar si tenemos cobertura, por favor envianos tu ubicación actual usando el botón de ubicación de WhatsApp.'
           )
         $sql$,
         target_schema
@@ -48,4 +45,4 @@ begin
 end;
 $$;
 
-notify pgrst, 'reload schema';
+notify pgrst, 'reload schema';;

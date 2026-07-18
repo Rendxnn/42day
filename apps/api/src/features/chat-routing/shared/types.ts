@@ -16,6 +16,7 @@ export type ResponseRoutingTrace = {
     itemCount?: number;
     editActionCount?: number;
     parsed?: SemanticParserResult;
+    diagnostics?: Record<string, unknown>;
   };
 };
 

@@ -19,7 +19,7 @@ Si alguna descripcion historica de este archivo entra en conflicto con el estand
 - Supabase Postgres como base de datos operativa.
 - PostgREST/Data API para acceso desde el Worker.
 - WhatsApp Cloud API como canal.
-- Gemini via `packages/t-router` como parser semantico acotado.
+- Gemini via `packages/t-router` como intérprete semántico primario, con OpenRouter como respaldo configurable.
 
 ## Flujo tecnico real de un mensaje entrante
 
@@ -141,17 +141,17 @@ Estado de refactor:
 
 ### `semantic_parser`
 
-Es el interprete obligatorio para todo inbound textual procesable durante el experimento vigente. No es solo para pedidos o ediciones libres; el backend conserva la validacion y aplicacion deterministica.
+Es el interprete obligatorio para todo inbound textual procesable durante el experimento vigente. No es solo para pedidos o ediciones libres; el backend conserva la validacion y aplicacion deterministica. Devuelve un único plan de operaciones JSON para el estado actual y recibe IDs del menú activo, configurables y líneas existentes del draft; las operaciones de edición usan el ID exacto de la línea.
 
 Reglas:
 
-- devuelve textos y confianza,
+- devuelve operaciones tipadas, IDs ya presentes en contexto y confianza,
 - no calcula precios,
-- no resuelve IDs canonicos,
+- no inventa IDs canónicos,
 - no decide disponibilidad,
-- no confirma ordenes.
+- no decide cobertura ni transiciones finales.
 
-Tambien puede proponer `draftFacts` para fulfillment, pago, direccion escrita y facturacion entregados anticipadamente. Cada dato lleva confianza y el backend solo persiste valores completos y validos; el modelo no define precios, IDs, cobertura ni transiciones finales.
+El backend valida el plan completo y aplica los cambios de draft y estado por RPC transaccional con control optimista de versión. Las decisiones como reutilizar billing, editar confirmación o decidir un fallback de transferencia están restringidas al estado en que son válidas y delegan al servicio de checkout existente.
 
 ### `draft_order_service`
 
@@ -238,9 +238,10 @@ La IA no reemplaza la state machine.
 Secuencia actual:
 
 1. `message_router` maneja primero ramas no textuales y de seguridad.
-2. Todo texto procesable pasa a `semantic_parser` con estado y contexto.
-3. El backend valida y resuelve la propuesta contra datos canonicos; si falla, aclara o deriva sin matcher amplio de intencion.
-4. Los diagnosticos registran proveedor, resultado semantico y razon de aplicacion/fallback.
+2. Todo texto procesable pasa a `semantic_parser` con estado, último prompt, menú y draft contextualizados.
+3. El backend valida el plan contra datos canónicos y lo aplica atómicamente; si falla, no muta y aclara o deriva sin matcher amplio de intención.
+4. Las direcciones escritas pasan por normalización, Google Geocoding y cobertura antes de permitir billing; el resultado se comunica en un outbound separado.
+5. Los diagnósticos registran proveedor, tipos de operación, resultado de cobertura y razón de aplicación/fallback sin texto ni dirección del cliente.
 
 ## Idempotencia
 

@@ -2,7 +2,7 @@
 
 > Nota: este archivo describe estado funcional y operativo. La referencia canónica de arquitectura frontend del dashboard vive en [docs/architecture/dashboard-frontend.md](/Users/rendxnn/Documents/freelance/42day/docs/architecture/dashboard-frontend.md:1).
 
-Ultima actualizacion: 2026-07-14.
+Ultima actualizacion: 2026-07-18.
 
 Estado externo reportado (requiere verificacion manual antes de una demo):
 
@@ -81,8 +81,8 @@ Eso significa poder:
 - menu publicado real desde Supabase,
 - menu conversacional con `product_options` y `product_option_values`,
 - seleccion por numero, nombre, alias o texto simple,
-- soporte multi-item simple,
-- resolucion deterministica de configurables por nombre, alias y contexto,
+- soporte multi-item mediante operaciones semánticas con IDs canónicos de menú y línea de draft,
+- validación determinística de configurables, precios, disponibilidad, cobertura y transiciones después de interpretar el plan semántico,
 - aclaracion secuencial de configurables requeridos en `awaiting_product_configuration`,
 - `draft_orders` y `draft_order_items`,
 - fulfillment, direccion y pago,
@@ -91,8 +91,9 @@ Eso significa poder:
 - orden en `pending_restaurant_confirmation`,
 - soporte de agotados y reemplazos,
 - metadata de routing por outbound,
-- fallback LLM via `t-router`, con Gemini como primario y OpenRouter como respaldo cuando el ambiente tenga el secret configurado.
-- experimento de routing semantico: todo inbound textual llega al parser; media, ubicacion y conversacion manual siguen siendo ramas previas, y el backend mantiene las validaciones de negocio.
+- fallback LLM via `t-router`, con Gemini como primario y OpenRouter como respaldo cuando el ambiente tenga el secret configurado; los intentos registran códigos seguros de proveedor y nunca contenido del cliente.
+- experimento de routing semántico: todo inbound textual llega a un único plan de operaciones; media, ubicación y conversación manual siguen siendo ramas previas, y el backend mantiene las validaciones de negocio.
+- dirección escrita con Google Geocoding y cobertura obligatoria antes de billing/confirmación: dentro de cobertura confirma primero el resultado y después continúa checkout; fuera o no resoluble solicita nueva dirección, ubicación WhatsApp o asesor.
 
 ### Dashboard restaurante
 
@@ -145,17 +146,17 @@ cliente escribe por WhatsApp
 
 ## IA: estado actual
 
-La IA no maneja las reglas de negocio. Durante el experimento actual actua como interpretador semantico de todo mensaje textual:
+La IA no maneja las reglas de negocio. Durante el experimento actual actua como interpretador semántico de todo mensaje textual:
 
 - se invoca para todo mensaje textual procesable; no hay deteccion deterministica de intencion del cliente antes de ella,
-- devuelve textos, cantidades, opciones y confianza,
-- puede extraer `optionTexts`, pero no resuelve IDs finales,
+- recibe el menú activo, configurables y líneas del draft con IDs canónicos,
+- devuelve exclusivamente operaciones tipadas permitidas en el estado: por ejemplo `add_product`, edición de línea exacta, facts de checkout y decisiones de control,
 - no calcula precios,
-- no devuelve IDs canonicos,
+- no inventa IDs, precios, totales, cobertura ni estados,
 - no decide disponibilidad,
 - no confirma ordenes.
 
-El backend siempre resuelve esa salida contra el menu real. Si no es confiable o aplicable, aclara o deriva a humano; no vuelve a un matcher deterministico amplio. En configurables, la IA solo propone texto candidato; la resolucion final, validacion de requeridos y `priceDelta` ya es 100% deterministica.
+El backend valida cada ID, configuración y transición contra el menú y draft reales. Si el plan no es confiable o aplicable, no muta el draft, aclara o deriva a humano; no vuelve a un matcher determinístico amplio. Los precios, totales, cobertura y persistencia siguen siendo 100% determinísticos.
 
 ## Verificacion actual
 

@@ -1,6 +1,7 @@
 import { calculateDraftTotals } from "@42day/core";
-import type { Conversation, DraftOrder, FulfillmentType, MenuItem, OrderBillingDetails, OrderLineItemOptionsSnapshot, PaymentMethod } from "@42day/types";
+import type { Conversation, DraftOrder, FulfillmentType, MenuItem, OrderBillingDetails, OrderLineItem, OrderLineItemOptionsSnapshot, PaymentMethod } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
+import { createSupabaseRestClient } from "../../lib/supabase-rest";
 import {
   createDraftOrderRow,
   deleteDraftOrderItem,
@@ -76,6 +77,102 @@ export async function getOrCreateActiveDraftOrder(input: {
   });
 
   return mapDraftOrder(created, []);
+}
+
+/**
+ * Reads the currently reusable draft without creating or linking anything.
+ * Semantic plans use this before validation so an invalid model response can
+ * never leave an empty draft behind.
+ */
+export async function loadActiveDraftOrder(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversation: Conversation;
+}): Promise<DraftOrder | null> {
+  const candidate = input.conversation.currentDraftOrderId
+    ? await loadDraftOrderById({
+        env: input.env,
+        schemaName: input.schemaName,
+        draftOrderId: input.conversation.currentDraftOrderId,
+      })
+    : await loadReusableDraftOrderByConversation({
+        env: input.env,
+        schemaName: input.schemaName,
+        conversationId: input.conversation.id,
+      });
+
+  if (!candidate) return null;
+
+  const items = await loadDraftOrderItems({
+    env: input.env,
+    schemaName: input.schemaName,
+    draftOrderId: candidate.id,
+  });
+  return mapDraftOrder(candidate, items.map(mapLineItem));
+}
+
+export async function applySemanticDraftOperationPlan(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversation: Conversation;
+  customerId: string;
+  locationId?: string;
+  draftOrderId?: string;
+  expectedDraftUpdatedAt?: string;
+  items: OrderLineItem[];
+  patch: {
+    fulfillmentType?: DraftOrder["fulfillmentType"];
+    paymentMethod?: DraftOrder["paymentMethod"];
+    deliveryAddress?: string | null;
+    deliveryAddressDetails?: string | null;
+    customerAddressText?: string | null;
+    resolvedDeliveryAddress?: string | null;
+    customerLatitude?: number | null;
+    customerLongitude?: number | null;
+    deliveryDistanceKm?: number | null;
+    isInsideDeliveryCoverage?: boolean | null;
+    coverageValidationMethod?: DraftOrder["coverageValidationMethod"] | null;
+    coverageConfidence?: DraftOrder["coverageConfidence"] | null;
+    coverageCheckedAt?: string | null;
+  };
+  billing?: OrderBillingDetails;
+  nextState: Conversation["state"];
+  context?: Conversation["context"];
+}): Promise<DraftOrder> {
+  const response = await createSupabaseRestClient(input.env).rpc<{ draftId?: string }>({
+    schema: input.schemaName,
+    functionName: "apply_semantic_draft_operation_plan",
+    args: {
+      p_conversation_id: input.conversation.id,
+      p_customer_id: input.customerId,
+      p_location_id: input.locationId ?? null,
+      p_expected_conversation_updated_at: input.conversation.updatedAt,
+      p_draft_order_id: input.draftOrderId ?? input.conversation.currentDraftOrderId ?? null,
+      p_expected_draft_updated_at: input.expectedDraftUpdatedAt ?? null,
+      p_items: input.items.map((item) => ({
+        menuItemId: item.menuItemId ?? null,
+        productId: item.productId ?? null,
+        comboId: item.comboId ?? null,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        options: item.options ?? null,
+        notes: item.notes ?? null,
+        lineTotal: item.lineTotal,
+      })),
+      p_patch: input.patch,
+      p_billing: input.billing ?? null,
+      p_next_state: input.nextState,
+      p_context: input.context ?? input.conversation.context,
+    },
+  });
+
+  const draftId = response.draftId;
+  if (!draftId) throw new Error("semantic_draft_operation.rpc_missing_draft");
+  const row = await loadDraftOrderById({ env: input.env, schemaName: input.schemaName, draftOrderId: draftId });
+  if (!row) throw new Error("semantic_draft_operation.draft_not_found_after_apply");
+  const items = await loadDraftOrderItems({ env: input.env, schemaName: input.schemaName, draftOrderId: draftId });
+  return mapDraftOrder(row, items.map(mapLineItem));
 }
 
 export async function addMenuItemToDraftOrder(input: {

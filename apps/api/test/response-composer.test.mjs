@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildClarificationPrompt, buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -62,6 +62,14 @@ test("da la bienvenida usando el nombre del restaurante", () => {
 
   assert.match(message, /¡Bienvenido a Restaurante Demo!/);
   assert.match(message, /¡Hola! 👋/);
+  assert.match(message, /escribe "asesor"/i);
+});
+
+test("el modo inicial no vuelve a pedir que escriba menu", () => {
+  const prompt = buildClarificationPrompt("awaiting_mode_selection");
+
+  assert.doesNotMatch(prompt, /si quieres ver el men[uú]/i);
+  assert.match(prompt, /qué deseas pedir/i);
 });
 
 test("no menciona domicilio cuando el pedido es para recoger", () => {
@@ -112,6 +120,39 @@ test("la confirmacion incluye entrega, facturacion y pago acumulados", () => {
   assert.match(message, /Samuel Rendon/);
   assert.match(message, /Dirección de facturación: Carrera 7 # 12-34/);
   assert.match(message, /Pago: efectivo/);
+});
+
+test("el snapshot de progreso muestra campos pendientes y nunca coordenadas", () => {
+  const message = buildOrderProgressSnapshot(buildDraft({
+    fulfillmentType: "delivery",
+    deliveryFee: 5000,
+    total: 17000,
+    resolvedDeliveryAddress: "Calle 10 # 5-20, Sabaneta",
+    deliveryAddressDetails: "Torre 3, apto 402",
+    customerLatitude: 6.15123,
+    customerLongitude: -75.61234,
+    paymentMethod: "cash",
+    items: [{
+      name: "Arepa",
+      quantity: 1,
+      unitPrice: 12000,
+      lineTotal: 12000,
+      notes: "sin salsa",
+      options: { resolvedOptions: [{ optionId: "option-1", optionName: "Queso", selectedValues: [{ valueId: "value-1", valueName: "Extra", priceDelta: 0 }] }] },
+    }],
+  }));
+
+  assert.match(message, /Arepa/);
+  assert.match(message, /sin salsa/);
+  assert.match(message, /Calle 10 # 5-20, Sabaneta/);
+  assert.match(message, /Torre 3, apto 402/);
+  assert.match(message, /Efectivo/);
+  assert.doesNotMatch(message, /6\.15123|-75\.61234/);
+
+  const incomplete = buildOrderProgressSnapshot(buildDraft({ items: [] }));
+  assert.match(incomplete, /Productos: Pendiente/);
+  assert.match(incomplete, /Dirección: Pendiente/);
+  assert.match(incomplete, /Total: Pendiente de definir entrega/);
 });
 
 test("explica que el pedido de delivery va en camino", () => {

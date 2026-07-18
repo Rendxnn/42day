@@ -45,7 +45,7 @@ La politica vigente es un experimento temporal de routing semantico total: todo 
 
 Las ramas no textuales o de seguridad siguen antes o fuera del parser: conversacion en `manual`, media/comprobante y ubicacion WhatsApp. Despues del parser, el backend resuelve datos canonicos y valida productos, opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
 
-Para delivery, una direccion escrita puede persistirse y geocodificarse server-side con Google Geocoding cuando la sede mantiene habilitada esa opcion (activa por defecto). El resultado guarda coordenadas, distancia, cobertura y confianza en draft/orden; una direccion no resoluble se conserva como referencia sin inventar coordenadas.
+Para delivery, una dirección escrita se geocodifica server-side con Google Geocoding cuando la sede mantiene habilitada esa opción (activa por defecto). El resultado guarda coordenadas, distancia, cobertura y confianza en draft/orden; una dirección no resoluble no permite avanzar a billing ni confirmación y el bot pide corregirla, compartir ubicación de WhatsApp o escribir `asesor`.
 
 Cuando agrega item:
 
@@ -58,14 +58,14 @@ Cuando agrega item:
 
 ### Camino semantico vigente
 
-1. el router intenta parser semantico con el estado y el ultimo prompt de conversacion,
-2. el parser devuelve textos, cantidades, posibles opciones y confianza,
-3. el backend intenta resolver eso contra el menu real y contra configurables reales,
+1. el router intenta un único plan semántico con el estado, último prompt, menú activo y draft actual,
+2. el plan devuelve solo operaciones tipadas con IDs de menú, opción o línea de draft y confianza,
+3. el backend valida esos IDs y aplica el plan contra el menú, configurables y reglas reales,
 4. si un configurable requerido queda incompleto o ambiguo, entra a `awaiting_product_configuration`,
 5. si puede aplicar el cambio, actualiza el draft,
 6. si no puede, vuelve a aclaracion o handoff; no reinterpreta la intencion con reglas deterministicas amplias.
 
-El LLM no calcula precios, no inventa productos, no decide disponibilidad y no fija el valor final de un configurable.
+El LLM no calcula precios, no inventa productos o IDs, no decide disponibilidad, cobertura ni transiciones y no fija el valor final de un configurable.
 
 ## Flow B1: aclaracion de configurables
 
@@ -94,7 +94,7 @@ Secuencia actual:
 
 El backend intenta capturar multiples senales en un mismo mensaje cuando son claras.
 
-Los datos capturados se acumulan en el `draft_order` aunque correspondan a pasos posteriores. Despues de cada actualizacion, el backend pregunta solamente el primer requisito faltante en este orden: productos, fulfillment, ubicacion/cobertura para delivery, facturacion, pago y confirmacion. La ubicacion WhatsApp sigue siendo necesaria para validar cobertura salvo configuracion explicita del tenant.
+Los datos capturados se acumulan en el `draft_order` aunque correspondan a pasos posteriores. Despues de cada actualizacion, el backend pregunta solamente el primer requisito faltante en este orden: productos, fulfillment, ubicacion/cobertura para delivery, facturacion, pago y confirmacion. Una dirección escrita solo desbloquea billing si Google la valida dentro de cobertura; si está fuera o no se resuelve, el cliente puede enviar otra, compartir ubicación WhatsApp, escoger pickup o pedir asesor.
 
 Ejemplos que debe tolerar:
 
@@ -108,6 +108,8 @@ si, esta bien
 ## Flow D: confirmacion del cliente
 
 Se soporta por texto libre.
+
+Las decisiones dependientes de estado son operaciones semánticas explícitas: reutilizar/cambiar datos de facturación, pedir factura electrónica, editar la confirmación, aceptar efectivo en fallback o conservar transferencia. Esto evita reinterpretar una confirmación corta como datos nuevos de facturación.
 
 Confirmacion positiva:
 
@@ -157,8 +159,8 @@ Estado actual implementado:
 1. el restaurante marca un item agotado,
 2. selecciona alternativas activas,
 3. la orden pasa a `needs_customer_replacement`,
-4. la conversacion pasa a `awaiting_replacement_selection`,
-5. el cliente puede responder con numero, nombre claro o `cancelar`.
+4. la conversacion pasa a `awaiting_order_adjustment`,
+5. el cliente puede modificar productos, cantidades, configuraciones y notas con lenguaje natural o cancelar.
 
 Si el cliente elige reemplazo:
 
@@ -225,7 +227,7 @@ awaiting_transfer_proof
 awaiting_transfer_fallback_payment_method
 awaiting_confirmation
 awaiting_restaurant_confirmation
-awaiting_replacement_selection
+awaiting_order_adjustment
 manual
 completed
 expired
@@ -238,12 +240,13 @@ IA para toda intencion textual:
 - pedido libre multi-producto,
 - edicion libre del draft,
 - opciones y notas expresadas en lenguaje natural,
-- frases mixtas y respuestas breves interpretadas contra el estado y ultimo prompt.
+- frases mixtas y respuestas breves interpretadas contra el estado y ultimo prompt,
+- decisiones explícitas y restringidas al estado actual, como reutilizar billing o editar confirmación.
 
 Deterministico solo para aplicar y proteger negocio:
 
 - detectar tipo de media/ubicacion y respetar `manual`,
-- resolver IDs de producto/opcion y disponibilidad real,
+- validar IDs de producto/opción/línea y disponibilidad real,
 - calcular precio, cobertura y total,
 - validar billing, configurables y transiciones permitidas.
 

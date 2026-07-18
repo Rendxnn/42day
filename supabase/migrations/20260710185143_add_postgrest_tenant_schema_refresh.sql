@@ -28,7 +28,6 @@ begin
   return schemas_csv;
 end;
 $$;
-
 revoke all on function control.refresh_postgrest_tenant_schemas() from public;
 revoke all on function control.refresh_postgrest_tenant_schemas() from anon;
 revoke all on function control.refresh_postgrest_tenant_schemas() from authenticated;

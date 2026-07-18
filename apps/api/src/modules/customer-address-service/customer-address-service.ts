@@ -39,10 +39,10 @@ export async function saveCustomerAddressFromWhatsAppLocation(input: {
   }
 
   const client = createSupabaseRestClient(input.env);
-  const addressText = input.addressText?.trim() ||
-    input.message.location.address ??
-    input.message.location.name ??
-    `Ubicacion compartida: ${input.message.location.latitude}, ${input.message.location.longitude}`;
+  const addressText = input.addressText?.trim()
+    || input.message.location.address
+    || input.message.location.name
+    || `Ubicacion compartida: ${input.message.location.latitude}, ${input.message.location.longitude}`;
 
   await unsetDefaultAddresses(client, input.schemaName, input.customerId);
 

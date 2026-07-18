@@ -25,9 +25,8 @@ export function buildPaymentPrompt(draft: DraftOrder, _menu: TodayMenuPayload): 
 
 export function buildAddMorePrompt(draft: DraftOrder): string {
   return [
-    `Perfecto ✨ Ya agregué: \n
-    ${formatDraftItemsInline(draft)}.`,
-    `Subtotal parcial: ${formatCop(draft.subtotal)}.`,
+    "Perfecto ✨ Ya actualicé tu pedido.",
+    buildOrderProgressSnapshot(draft),
     "",
     "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?",
   ].join("\n");
@@ -39,8 +38,8 @@ export function buildOrderAdjustedPrompt(draft: DraftOrder): string {
   }
 
   return [
-    `Perfecto ✨ Ya actualicé tu pedido. Por ahora llevo:\n${formatDraftItemsInline(draft)}.`,
-    `Subtotal parcial: ${formatCop(draft.subtotal)}.`,
+    "Perfecto ✨ Ya actualicé tu pedido.",
+    buildOrderProgressSnapshot(draft),
     "",
     draft.fulfillmentType && draft.paymentMethod
       ? "¿Así está bien o quieres que ajuste algo más?"
@@ -53,7 +52,7 @@ export function buildCurrentDraftText(draft: DraftOrder): string {
     return "Aún no tengo productos registrados en tu pedido.";
   }
 
-  return `Hasta el momento llevo:\n${formatDraftItemsInline(draft)}.`;
+  return buildOrderProgressSnapshot(draft);
 }
 
 export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentMethod): string {
@@ -94,8 +93,40 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
   return lines.join("\n");
 }
 
+/** A compact, customer-safe view used while the order is still being built. */
+export function buildOrderProgressSnapshot(draft: DraftOrder): string {
+  const lines = ["🧾 Pedido actual", ""];
+
+  if (draft.items.length === 0) {
+    lines.push("Productos: Pendiente");
+  } else {
+    lines.push("Productos:");
+    for (const item of draft.items) {
+      lines.push(`• ${item.quantity} x ${formatLineItemLabel(item)} — ${formatCop(item.lineTotal)}`);
+    }
+  }
+
+  lines.push(`Subtotal: ${formatCop(draft.subtotal)}`);
+  lines.push(`Entrega: ${draft.fulfillmentType === "delivery" ? "Domicilio" : draft.fulfillmentType === "pickup" ? "Para recoger" : "Pendiente"}`);
+
+  const address = draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress;
+  lines.push(`Dirección: ${address ?? "Pendiente"}`);
+  lines.push(`Indicaciones: ${draft.deliveryAddressDetails ?? "Pendiente"}`);
+  lines.push(`Pago: ${draft.paymentMethod === "cash" ? "Efectivo" : draft.paymentMethod === "transfer" ? "Transferencia" : "Pendiente"}`);
+
+  if (!draft.fulfillmentType) {
+    lines.push("Total: Pendiente de definir entrega");
+  } else {
+    lines.push(`Total: ${formatCop(draft.total)}`);
+  }
+
+  return lines.join("\n");
+}
+
 export function buildClarificationPrompt(state: DraftOrderStateLike): string {
   switch (state) {
+    case "awaiting_mode_selection":
+      return "Cuéntame qué deseas pedir y con gusto te ayudo a armar tu orden.";
     case "awaiting_guided_item_selection":
       return "Con gusto. Cuéntame qué deseas pedir del menú de hoy; puede ser por nombre o por número.";
     case "awaiting_product_configuration":
@@ -116,12 +147,16 @@ export function buildClarificationPrompt(state: DraftOrderStateLike): string {
       return "¿Prefieres pagar en efectivo o por transferencia?";
     case "awaiting_confirmation":
       return 'Si todo está bien, respóndeme "sí". Si quieres cambiar algo, dime qué ajustamos y con gusto te ayudo.';
+    case "awaiting_order_adjustment":
+      return "Dime qué productos, cantidades, configuraciones o notas deseas ajustar del pedido actual.";
+    case "awaiting_restaurant_confirmation":
+      return "Tu pedido sigue en revisión por parte del restaurante 🙌 En cuanto lo confirmen, te escribiré por aquí.";
     case "awaiting_transfer_proof":
       return "Quedo atento al comprobante de transferencia para compartirlo con el restaurante.";
     case "awaiting_transfer_fallback_payment_method":
       return "Si te parece bien, podemos continuar con pago en efectivo. ¿Te funciona así?";
     default:
-      return 'Si quieres ver el menú, escríbeme "menú". Y si prefieres hablar con alguien del restaurante, escribe "asesor".';
+      return "Cuéntame qué deseas pedir y con gusto te ayudo a armar tu orden.";
   }
 }
 
@@ -329,45 +364,6 @@ export function buildOrderSubmittedForReviewMessage(orderId: string, paymentMeth
       ? "Primero validarán la disponibilidad y, si todo está bien, te compartiré por aquí los datos para la transferencia."
       : "En cuanto lo revisen, te confirmaré por este mismo chat.",
   ].join("\n");
-}
-
-export function buildReplacementOrderNotFoundMessage(): string {
-  return "No pude ubicar el pedido que estaba pendiente por ajustar. Voy a ponerte en contacto con alguien del restaurante para ayudarte mejor.";
-}
-
-export function buildReplacementCancelledMessage(): string {
-  return "Entendido. Ya cancelé ese pedido. Gracias por avisarme.";
-}
-
-export function buildReplacementAppliedMessage(unavailableItemName: string, replacementName: string): string {
-  return `Perfecto. Cambié ${unavailableItemName} por ${replacementName}. Ahora el restaurante revisará el ajuste y te confirmaré por aquí.`;
-}
-
-export function buildReplacementOptionUnavailableMessage(): string {
-  return "Lo siento mucho. La opción que elegiste ya no está disponible. Voy a ponerte en contacto con alguien del restaurante para resolverlo contigo.";
-}
-
-export function buildReplacementUpdateFailedMessage(): string {
-  return "No pude actualizar el pedido con ese reemplazo. Voy a pasarte con alguien del restaurante para ayudarte mejor.";
-}
-
-export function buildReplacementUnresolvedMessage(): string {
-  return "No logré identificar con claridad el reemplazo que prefieres. Voy a pasarte con alguien del restaurante para que continúen contigo.";
-}
-
-export function buildReplacementSelectionPrompt(replacementOptions: Array<{
-  name: string;
-  price?: number;
-}>): string {
-  const lines = replacementOptions
-    .slice(0, 3)
-    .map((option, index) => `${index + 1}. ${option.name}${option.price !== undefined ? ` — ${formatCop(option.price)}` : ""}`);
-
-  return [
-    "Con gusto. Estas son las opciones disponibles en este momento:",
-    lines.join("\n"),
-    'Respóndeme con el número de la opción que prefieras, o escribe "cancelar" si ya no deseas continuar con ese pedido.',
-  ].join("\n\n");
 }
 
 export function formatCop(value: number): string {

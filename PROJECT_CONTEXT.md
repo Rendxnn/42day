@@ -6,7 +6,7 @@ Sistema multi-tenant de automatizacion de pedidos por WhatsApp para restaurantes
 
 ## Producto
 
-42day recibe mensajes de clientes por WhatsApp, interpreta el pedido con reglas y apoyo LLM acotado, construye un `draft_order`, calcula el total en backend, confirma con el cliente y deja una `order` lista para revision del restaurante desde dashboard.
+42day recibe mensajes de clientes por WhatsApp, interpreta el pedido mediante un plan semántico acotado, construye un `draft_order`, calcula el total en backend, confirma con el cliente y deja una `order` lista para revision del restaurante desde dashboard.
 
 ## Alcance congelado para demos
 
@@ -27,7 +27,7 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 - Lo deterministico permanece en la capa de negocio: media/ubicacion, resolucion de catalogo y opciones, precios, cobertura, billing, disponibilidad, transiciones y persistencia.
 - El modelo no calcula precios.
 - El modelo no decide disponibilidad final.
-- El modelo no devuelve IDs canonicos ni crea entidades.
+- El modelo recibe IDs canónicos de menú, opciones y líneas existentes, y solo devuelve operaciones tipadas permitidas para el estado actual; no crea entidades ni inventa identificadores.
 - Todo pedido primero existe como `draft_order`.
 - Siempre hay confirmacion del cliente antes de crear `order`.
 - Toda orden queda pendiente de revision del restaurante.
@@ -72,7 +72,7 @@ El objetivo inmediato no es produccion completa. Es una version `demo-ready` par
 
 ## Estado real actual
 
-Ultima actualizacion documental: 2026-07-13.
+Ultima actualizacion documental: 2026-07-18.
 
 Ya implementado:
 
@@ -88,7 +88,9 @@ Ya implementado:
 - dashboard para pedidos, agotados y progreso operativo,
 - consola admin de restaurantes y miembros,
 - refactor estructural en progreso de `chat-routing` y del dashboard API hacia submodulos por responsabilidad,
-- routing semantico para texto completo, con extraccion conjunta de items y hechos de checkout (fulfillment, direccion, billing y pago),
+- routing semántico total basado en un plan de operaciones ID-based para items, configurables, fulfillment, dirección, billing y pago; el plan se valida y aplica atómicamente en el tenant,
+- decisiones semánticas restringidas por estado para reutilizar/cambiar billing, editar la confirmación y resolver el fallback de transferencia,
+- direcciones escritas geocodificadas y validadas antes de facturación/confirmación; una dirección no resoluble no avanza y ofrece corrección, ubicación WhatsApp o asesor,
 - suite API inicial para billing y compatibilidad temporal con tenants legacy en lecturas de `locations`.
 
 Todavia incompleto:
@@ -148,7 +150,7 @@ Nota operativa importante:
 - `awaiting_transfer_fallback_payment_method`
 - `awaiting_confirmation`
 - `awaiting_restaurant_confirmation`
-- `awaiting_replacement_selection`
+- `awaiting_order_adjustment`
 - `manual`
 - `completed`
 - `expired`

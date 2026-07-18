@@ -15,5 +15,4 @@ begin
   end loop;
 end;
 $$;
-
 notify pgrst, 'reload schema';

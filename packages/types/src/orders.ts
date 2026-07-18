@@ -204,6 +204,7 @@ export type DraftOrder = {
   total: number;
   validationErrors?: string[];
   expiresAt?: string;
+  updatedAt?: string;
 };
 
 export type Order = {

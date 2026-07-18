@@ -5,6 +5,7 @@ import {
   parseSemanticFulfillmentSelection,
   parseSemanticPaymentMethod,
 } from "../src/modules/message-router/signal-detector.ts";
+import { resolveEntryFlowAction } from "../src/features/chat-routing/entry-flow.ts";
 
 function detect(text, state) {
   return detectSignals({
@@ -43,4 +44,15 @@ test("solo normaliza valores semanticos canonicos antes de aplicarlos al draft",
 test("solo trata como direccion deterministica un formato postal reconocible", () => {
   assert.equal(detect("calle 10 # 5-20", "awaiting_address").looksLikeAddress, true);
   assert.equal(detect("vivo por el parque central", "awaiting_address").looksLikeAddress, false);
+});
+
+test("solo los controles explicitos omiten la interpretacion semantica al iniciar", () => {
+  assert.equal(resolveEntryFlowAction(detect("hola", "awaiting_mode_selection")), "show_menu");
+  assert.equal(resolveEntryFlowAction(detect("menú", "awaiting_mode_selection")), "show_menu");
+  assert.equal(resolveEntryFlowAction(detect("asesor", "awaiting_mode_selection")), "handoff");
+  assert.equal(
+    resolveEntryFlowAction(detect("para pedirte por favor un domicilio de dos pollos asados", "awaiting_mode_selection")),
+    null,
+  );
+  assert.equal(resolveEntryFlowAction(detect("dos desayunos naturales", "awaiting_mode_selection")), null);
 });

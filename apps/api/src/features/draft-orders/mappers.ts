@@ -82,11 +82,13 @@ export function mapDraftOrder(row: DraftOrderRow, items: OrderLineItem[]): Draft
     total: row.total,
     validationErrors: row.validation_errors ?? undefined,
     expiresAt: row.expires_at ?? undefined,
+    updatedAt: row.updated_at,
   };
 }
 
 export function mapLineItem(row: DraftOrderItemRow): OrderLineItem {
   return {
+    id: row.id,
     menuItemId: row.menu_item_id ?? undefined,
     productId: row.product_id ?? undefined,
     comboId: row.combo_id ?? undefined,

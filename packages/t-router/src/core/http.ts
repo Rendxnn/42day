@@ -34,13 +34,18 @@ export async function assertProviderResponse(response: Response): Promise<void> 
 
   const body = await response.text().catch(() => "");
   const parsed = parseProviderErrorBody(body);
+  const diagnostic = {
+    httpStatus: response.status,
+    upstreamCode: parsed.code,
+    upstreamStatus: parsed.status,
+  };
 
   if (response.status === 401 || response.status === 403 || parsed.code === 401 || parsed.code === 403) {
-    throw new AiRouterError("provider_auth_failed", parsed.message || "AI provider rejected the credentials.", parsed);
+    throw new AiRouterError("provider_auth_failed", parsed.message || "AI provider rejected the credentials.", diagnostic);
   }
 
   if (response.status === 408 || response.status === 504 || parsed.code === 408 || parsed.code === 504) {
-    throw new AiRouterError("provider_timeout", parsed.message || "AI provider request timed out.", parsed);
+    throw new AiRouterError("provider_timeout", parsed.message || "AI provider request timed out.", diagnostic);
   }
 
   if (
@@ -51,7 +56,7 @@ export async function assertProviderResponse(response: Response): Promise<void> 
     parsed.status === "RESOURCE_EXHAUSTED" ||
     isQuotaError(parsed.message)
   ) {
-    throw new AiRouterError("provider_quota_exceeded", parsed.message || "AI provider quota is exhausted.", parsed);
+    throw new AiRouterError("provider_quota_exceeded", parsed.message || "AI provider quota is exhausted.", diagnostic);
   }
 
   if (
@@ -64,14 +69,14 @@ export async function assertProviderResponse(response: Response): Promise<void> 
     parsed.status === "UNAVAILABLE" ||
     parsed.message.toLowerCase().includes("no available model provider")
   ) {
-    throw new AiRouterError("provider_unavailable", parsed.message || "AI provider is unavailable.", parsed);
+    throw new AiRouterError("provider_unavailable", parsed.message || "AI provider is unavailable.", diagnostic);
   }
 
   if (response.status >= 500) {
-    throw new AiRouterError("provider_unavailable", parsed.message || "AI provider is unavailable.", parsed);
+    throw new AiRouterError("provider_unavailable", parsed.message || "AI provider is unavailable.", diagnostic);
   }
 
-  throw new AiRouterError("provider_unknown_error", parsed.message || `AI provider failed with status ${response.status}.`, parsed);
+  throw new AiRouterError("provider_unknown_error", parsed.message || `AI provider failed with status ${response.status}.`, diagnostic);
 }
 
 export function parseProviderErrorBody(body: string): {

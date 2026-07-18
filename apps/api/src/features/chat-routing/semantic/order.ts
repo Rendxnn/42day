@@ -1,1018 +1,795 @@
-import type { DraftOrder, MenuItem, TodayMenuPayload } from "@42day/types";
-import type { DetectedSignals } from "../../../modules/message-router/signal-detector";
-import type { SemanticOrderEditAction, SemanticParserResult, SemanticTextDirectives } from "../../../modules/semantic-parser/semantic-parser";
-import { parseFreeFormOrder, parseSemanticStateDirectives } from "../../../modules/semantic-parser/semantic-parser";
-import { getOrCreateActiveDraftOrder, removeItemsFromDraftOrder, setDraftOrderItemQuantity } from "../../draft-orders/service";
-import {
-  buildClarificationPrompt,
-  buildContinueWithMenuAndDraftPrompt,
-  buildElectronicBillingUnavailableMessage,
-  buildManualHandoffMessage,
-  buildOrderAdjustedPrompt,
-  buildResumeExistingOrderPrompt,
-} from "../../../modules/message-router/response-composer";
-import { buildMenuText, buildWelcomeMenuText, resolveMenuSelectionFromText } from "../../menu/service";
-import { logRoutingDiagnostic, markLlmAttempt, markLlmOutcome, redactSemanticParserResult } from "../shared/tracing";
-import { canApplySemanticDraftChangeAtState, loadCurrentMenu, mergeSemanticSignals, draftReadyForSummary, buildGuidedContext, buildEmptyDetectedSignals, isActiveOrderState } from "../shared/helpers";
-import { moveToManual } from "../manual/handoff";
-import {
-  applyDraftFacts,
-  applyKnownSignalsToDraft,
-  proceedToNextOrderStep,
-  tryHandleBillingReuseConfirmation,
-  tryHandleConfirmation,
-  tryHandleDeliveryAddress,
-  tryHandleFulfillmentSelection,
-  isElectronicBillingEnabled,
-  tryHandlePaymentMethod,
-} from "../checkout";
-import { stageConfiguredItemSelection } from "../guided/selection";
-import { updateConversationState } from "../../conversations/service";
-import { sendAndLogText } from "../outbound/send";
-import type { RouteInboundMessageInput } from "../shared/types";
-import { buildSemanticDraftFacts, hasDraftFacts } from "./draft-facts";
-import { tryHandlePendingProductConfiguration, readPendingProductConfiguration } from "../guided/product-configuration";
-import { tryHandleReplacementSelection } from "../replacements/selection";
-import { tryHandleTransferFallbackPaymentMethod } from "../transfer/fallback";
-import { readPendingBillingContext } from "../checkout/billing-helpers";
-import { getPendingCustomerReplacementOrder } from "../../orders/service";
+import { calculateDraftTotals } from "@42day/core";
+import type { DraftOrder, MenuItem, OrderLineItem, OrderLineItemOptionsSnapshot, OrderLineItemResolvedOption, TodayMenuPayload } from "@42day/types";
+import { buildClarificationPrompt, buildElectronicBillingPrompt, buildFulfillmentPrompt, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt } from "../../../modules/message-router/response-composer";
 import { loadRecentConversationMessages } from "../../../modules/message-log/message-log";
+import { applySemanticDraftOperationPlan, loadActiveDraftOrder } from "../../draft-orders/service";
+import { buildWelcomeMenuText } from "../../menu/service";
+import { getDeliveryCoverageSettings, hasValidatedDeliveryCoverage, validateDeliveryCoverageFromWrittenAddress } from "../../delivery-coverage/service";
+import { segmentDeliveryAddress } from "../../delivery-coverage/address-text";
+import { loadCustomerBillingProfiles } from "../../../modules/customer-billing-service/customer-billing-service";
+import { applyBillingDefaults } from "../checkout/billing-helpers";
+import { tryHandleBillingReuseConfirmation } from "../checkout/billing";
+import { tryHandleConfirmation } from "../checkout/confirmation";
+import { tryHandleTransferFallbackPaymentMethod } from "../transfer/fallback";
+import { moveToManual, handleClarification } from "../manual/handoff";
+import { sendAndLogText } from "../outbound/send";
+import { loadCurrentMenu } from "../shared/helpers";
+import { logRoutingDiagnostic, markLlmAttempt, markLlmOutcome } from "../shared/tracing";
+import type { RouteInboundMessageInput } from "../shared/types";
+import { buildOrderLineItemOptionsSnapshot, resolveProductConfiguration, shouldPersistConfigurationSnapshot } from "../../product-configurator/service";
+import { persistPendingProductConfiguration, readPendingProductConfiguration } from "../guided/product-configuration";
+import { cancelPendingCustomerReplacementOrder, getPendingCustomerReplacementOrder } from "../../orders/service";
+import { completeConversationAfterOrderCancellation } from "../../conversations/service";
+import { persistHumanInterventionAlert } from "../../../modules/handoff-service/handoff-service";
+import { createSupabaseRestClient } from "../../../lib/supabase-rest";
+import { SemanticOperationPlanInferenceError, allowedSemanticOperations, parseSemanticOperationPlan, semanticOperationPlanFailureDiagnostics, type SemanticBillingInput, type SemanticConfigurationSelection, type SemanticOperation, type SemanticOperationPlan } from "./operation-plan";
+
+type DraftPatch = {
+  fulfillmentType?: DraftOrder["fulfillmentType"];
+  paymentMethod?: DraftOrder["paymentMethod"];
+  deliveryAddress?: string | null;
+  deliveryAddressDetails?: string | null;
+  customerAddressText?: string | null;
+  resolvedDeliveryAddress?: string | null;
+  customerLatitude?: number | null;
+  customerLongitude?: number | null;
+  deliveryDistanceKm?: number | null;
+  isInsideDeliveryCoverage?: boolean | null;
+  coverageValidationMethod?: DraftOrder["coverageValidationMethod"] | null;
+  coverageConfidence?: DraftOrder["coverageConfidence"] | null;
+  coverageCheckedAt?: string | null;
+};
+
+type AddressCoverageOutcome = "inside" | "outside" | "outside_allowed" | "unresolved" | "provider_error";
+
+type AddressResolution = {
+  patch: DraftPatch;
+  coverageOutcome: AddressCoverageOutcome;
+  validationMethod?: DraftOrder["coverageValidationMethod"];
+  confidence?: DraftOrder["coverageConfidence"];
+};
+
+type ValidatedPlan = {
+  items: OrderLineItem[];
+  patch: DraftPatch;
+  billing?: NonNullable<DraftOrder["billing"]>;
+  hasMutation: boolean;
+  hasItemMutation: boolean;
+  advancesCheckout: boolean;
+  addressResolution?: AddressResolution;
+};
+
+type NextStep = {
+  state: RouteInboundMessageInput["conversation"]["state"];
+  context?: Record<string, unknown>;
+  billingReuseLabel?: string;
+  addressCoverageOutcome?: AddressCoverageOutcome;
+};
 
 export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): Promise<boolean> {
   const menu = await loadCurrentMenu(input);
-  const baseSignals = buildEmptyDetectedSignals(input.message.text);
-  let parsed: SemanticParserResult;
-  let providerId: "gemini" | "openrouter" = "gemini";
-
-  try {
-    markLlmAttempt(input);
-    const execution = await parseFreeFormOrder({
-      env: input.env,
-      tenantId: input.tenant.id,
-      rawMessage: input.message.text ?? baseSignals.normalizedText,
-      activeMenu: menu,
-      conversationState: input.conversation.state,
-      stateContext: await buildSemanticStateContext(input, menu),
-    });
-    parsed = execution.parsed;
-    providerId = execution.providerId;
-    try {
-      parsed = await enrichStateDirectivesIfNeeded(input, parsed);
-    } catch (error) {
-      logRoutingDiagnostic(input, "semantic_state_directives.failed", {
-        provider: providerId,
-        reason: error instanceof Error ? error.message : String(error),
-        retainedBaseParse: redactSemanticParserResult(parsed),
-      });
-    }
-    logRoutingDiagnostic(input, "semantic_parser.completed", {
-      provider: execution.providerId,
-      fallbackFromProviderId: execution.fallbackFromProviderId,
-      parsed: redactSemanticParserResult(parsed),
-    });
-  } catch (error) {
-    markLlmOutcome(input, {
-      used: false,
-      outcome: "skipped_or_failed",
-      provider: providerId,
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    logRoutingDiagnostic(input, "semantic_parser.skipped_or_failed", {
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    return false;
-  }
-
-  if (parsed.needsHuman || parsed.intent === "support") {
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: "support_or_handoff",
-    });
-    await moveToManual(input, {
-      type: "parser_failed",
-      manualReason: "parser_requested_human",
-      title: "Pedido necesita revision",
-      description: "El parser semantico marco la conversacion para revision humana.",
-      responseText: buildManualHandoffMessage(),
-    });
-    return true;
-  }
-
-  if (parsed.confidence < 0.55 || !menu.location) {
-    markLlmOutcome(input, {
-      used: false,
-      outcome: "low_confidence",
-      provider: providerId,
-      parsed,
-      reason: !menu.location ? "menu_location_missing" : "confidence_below_threshold",
-    });
-    return false;
-  }
-
-  const semanticSignals = mergeSemanticSignals(baseSignals, parsed);
-
-  const canApplyDraftChange = canApplySemanticDraftChangeAtState(input.conversation.state);
-  const draftFacts = buildSemanticDraftFacts(parsed, semanticSignals);
-  logRoutingDiagnostic(input, "semantic_draft_facts.evaluated", {
-    canApplyDraftChange,
-    proposedFacts: redactSemanticParserResult(parsed).draftFacts ?? null,
-    acceptedFacts: {
-      fulfillmentType: draftFacts.fulfillmentType ?? null,
-      paymentMethod: draftFacts.paymentMethod ?? null,
-      hasDeliveryAddress: Boolean(draftFacts.deliveryAddressText),
-      billingType: draftFacts.billing?.type ?? null,
-    },
-  });
-
-  if (await tryHandleSemanticStateResponse(input, {
-    menu,
-    parsed,
-    semanticSignals,
-    providerId,
-  })) {
-    return true;
-  }
-
-  if (draftFacts.billing?.type === "electronic" && !(await isElectronicBillingEnabled(input, menu.location?.id))) {
-    await sendAndLogText(input, buildElectronicBillingUnavailableMessage());
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: "electronic_billing_disabled",
-    });
-    return true;
-  }
-
-  if (canApplyDraftChange && hasDraftFacts(draftFacts) && (parsed.intent === "unknown" || parsed.items.length === 0)) {
-    const draft = await getOrCreateActiveDraftOrder({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversation: input.conversation,
-      customerId: input.conversation.customerId,
-      locationId: menu.location?.id,
-      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
-    });
-    const updatedDraft = await applyDraftFacts(input, { menu, draft, facts: draftFacts });
-    if (draftFacts.deliveryAddressText?.trim() && updatedDraft.fulfillmentType === "delivery") {
-      await tryHandleDeliveryAddress(input, {
-        looksLikeAddress: true,
-        addressText: draftFacts.deliveryAddressText,
-        addressDetails: draftFacts.deliveryAddressDetails ?? undefined,
-        paymentMethod: draftFacts.paymentMethod,
-      });
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: providerId,
-        parsed,
-        reason: "semantic_delivery_address_validated",
-      });
-      return true;
-    }
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: "semantic_draft_facts_applied",
-    });
-    await proceedToNextOrderStep(input, { menu, draft: updatedDraft });
-    return true;
-  }
-
-  if ((parsed.intent === "menu" || semanticSignals.isGreeting) && canApplyDraftChange) {
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: semanticSignals.isGreeting ? "semantic_greeting" : "semantic_menu_question",
-    });
-    await handleSemanticGreetingOrMenu(input, menu, semanticSignals.isGreeting);
-    return true;
-  }
-
-  if ((parsed.intent === "order_edit" || (input.conversation.state === "awaiting_order_adjustment" && parsed.items.length > 0)) && canApplyDraftChange) {
-    const handledEdit = await tryApplySemanticEdit(input, {
-      menu,
-      parsed,
-      signals: semanticSignals,
-    });
-    if (handledEdit) {
-      return true;
-    }
-  }
-
-  if (parsed.intent !== "order" || parsed.items.length === 0 || !canApplyDraftChange) {
-    markLlmOutcome(input, {
-      used: false,
-      outcome: "not_order",
-      provider: providerId,
-      parsed,
-      reason: !canApplyDraftChange
-        ? "semantic_action_not_allowed_in_current_state"
-        : parsed.intent !== "order" ? "intent_not_order" : "empty_items",
-    });
-    return false;
-  }
-
-  let updatedDraft: DraftOrder | null = null;
-  let lastSelectedItem: MenuItem | null = null;
-  let resolvedCount = 0;
-  const unresolvedItems: Array<{ index: number; productText: string; reason: string }> = [];
-
-  for (const [index, item] of parsed.items.entries()) {
-    const resolved = resolveMenuSelectionFromText(menu, item.productText);
-    const selectedItem = resolved?.item ?? null;
-    if (!selectedItem) {
-      unresolvedItems.push({ index, productText: item.productText, reason: "menu_match_not_found_or_ambiguous" });
-      logRoutingDiagnostic(input, "semantic_draft_item_unresolved", { itemIndex: index, productText: item.productText, reason: "menu_match_not_found_or_ambiguous" });
-      continue;
-    }
-
-    logRoutingDiagnostic(input, "semantic_draft_item_resolved", {
-      itemIndex: index,
-      requestedProductText: item.productText,
-      requestedQuantity: item.quantity ?? null,
-      resolvedMenuItemId: selectedItem.id,
-      resolvedMenuItemName: selectedItem.displayName ?? selectedItem.product?.name ?? null,
-      matcherQuantity: resolved?.quantity ?? null,
-    });
-
-    const queuedItems = parsed.items.slice(index + 1).flatMap((queuedItem) => {
-      const queuedSelection = resolveMenuSelectionFromText(menu, queuedItem.productText);
-      if (!queuedSelection) {
-        return [];
-      }
-
-      return [{
-        menuItemId: queuedSelection.item.id,
-        quantity: Math.max(1, Math.round(queuedItem.quantity ?? queuedSelection.quantity ?? 1)),
-        source: "semantic" as const,
-        rawItemText: queuedItem.productText,
-        rawOptionTexts: queuedItem.optionTexts,
-        notes: queuedItem.notes,
-      }];
-    });
-
-    const stageResult = await stageConfiguredItemSelection(input, {
-      menu,
-      selectedItem,
-      quantity: Math.max(1, Math.round(item.quantity ?? resolved?.quantity ?? 1)),
-      source: "semantic",
-      rawItemText: item.productText,
-      rawOptionTexts: item.optionTexts,
-      notes: item.notes,
-      queuedItems,
-    });
-    logRoutingDiagnostic(input, "semantic_draft_item_stage_result", {
-      itemIndex: index,
-      productText: item.productText,
-      selectedMenuItemId: selectedItem.id,
-      result: stageResult.kind,
-      draft: stageResult.kind === "added"
-        ? { id: stageResult.draft.id, items: stageResult.draft.items.map((draftItem) => ({ name: draftItem.name, quantity: draftItem.quantity })) }
-        : undefined,
-    });
-    if (stageResult.kind === "prompted") {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: providerId,
-        parsed,
-        reason: "semantic_order_clarification_requested",
-      });
-      return true;
-    }
-
-    if (stageResult.kind !== "added") {
-      continue;
-    }
-
-    lastSelectedItem = selectedItem;
-    resolvedCount += 1;
-    updatedDraft = stageResult.draft;
-  }
-
-  if (!updatedDraft || !lastSelectedItem || resolvedCount === 0) {
-    markLlmOutcome(input, {
-      used: false,
-      outcome: "unresolved",
-      provider: providerId,
-      parsed,
-      reason: "items_not_resolved_against_menu",
-    });
-    return false;
-  }
-
-  if (unresolvedItems.length > 0) {
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: providerId,
-      parsed,
-      reason: "semantic_order_partially_applied",
-    });
-    await updateConversationState({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_more_items",
-      resetClarificationAttempts: true,
-    });
-    await sendAndLogText(
-      input,
-      `Pude agregar ${updatedDraft.items.map((draftItem) => `${draftItem.quantity} x ${draftItem.name}`).join(", ")}, pero no pude identificar ${unresolvedItems.map((unresolvedItem) => `“${unresolvedItem.productText}”`).join(", ")}. ¿Puedes escribir ese producto nuevamente como aparece en el menú?`,
-    );
-    return true;
-  }
-
-  markLlmOutcome(input, {
-    used: true,
-    outcome: "handled",
-    provider: providerId,
-    parsed,
-    reason: "semantic_order_applied",
-  });
-
-  updatedDraft = await applyDraftFacts(input, { menu, draft: updatedDraft, facts: draftFacts });
-
-  if (draftFacts.deliveryAddressText?.trim() && updatedDraft.fulfillmentType === "delivery") {
-    await tryHandleDeliveryAddress(input, {
-      looksLikeAddress: true,
-      addressText: draftFacts.deliveryAddressText,
-      addressDetails: draftFacts.deliveryAddressDetails ?? undefined,
-      paymentMethod: draftFacts.paymentMethod,
-    });
-    return true;
-  }
-
-  await continueAfterSemanticEdit(input, {
-    menu,
-    draft: updatedDraft,
-    signals: semanticSignals,
-    contextItem: lastSelectedItem,
-  });
-  return true;
-}
-
-async function tryHandleSemanticStateResponse(input: RouteInboundMessageInput, payload: {
-  menu: TodayMenuPayload;
-  parsed: SemanticParserResult;
-  semanticSignals: DetectedSignals;
-  providerId: "gemini" | "openrouter";
-}): Promise<boolean> {
-  if (input.conversation.state === "awaiting_product_configuration") {
-    const handled = await tryHandlePendingProductConfiguration(input, {
-      semanticAnswer: payload.parsed.textDirectives?.productConfiguration?.confidence !== undefined
-        && payload.parsed.textDirectives.productConfiguration.confidence < 0.6
-        ? null
-        : payload.parsed.textDirectives?.productConfiguration
-          ? {
-              optionTexts: payload.parsed.textDirectives.productConfiguration.optionTexts,
-              notes: payload.parsed.textDirectives.productConfiguration.notes,
-              confidence: payload.parsed.textDirectives.productConfiguration.confidence,
-            }
-          : null,
-      signals: payload.semanticSignals,
-    });
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_product_configuration_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.product_configuration_applied", {});
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_order_adjustment" && payload.parsed.textDirectives?.replacementRejectAll) {
-    return tryHandleReplacementSelection(input, {
-      ...payload.semanticSignals,
-      confirmation: "no",
-    });
-  }
-
-  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
-    const transferSignals = {
-      ...payload.semanticSignals,
-      paymentMethod: mapTransferFallbackPayment(payload.parsed),
-      confirmation: mapTransferFallbackConfirmation(payload.parsed),
-    };
-    const handled = await tryHandleTransferFallbackPaymentMethod(input, transferSignals);
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_transfer_fallback_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.transfer_fallback_applied", {
-        transferFallbackDecision: payload.parsed.textDirectives?.transferFallbackDecision ?? null,
-      });
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_transfer_proof") {
-    return false;
-  }
-
-  if (
-    input.conversation.state === "awaiting_address"
-    && (
-      payload.parsed.addressText?.trim()
-      || payload.parsed.draftFacts?.deliveryAddressText?.trim()
-    )
-  ) {
-    const handled = await tryHandleDeliveryAddress(input, {
-      looksLikeAddress: true,
-      addressText: payload.parsed.addressText?.trim() ?? payload.parsed.draftFacts?.deliveryAddressText?.trim(),
-      addressDetails: payload.parsed.addressDetails?.trim() ?? payload.parsed.draftFacts?.deliveryAddressDetails?.trim(),
-      paymentMethod: payload.semanticSignals.paymentMethod,
-    });
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_delivery_address_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.address_applied", {});
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_more_items" && payload.semanticSignals.doneAddingItems) {
-    await proceedToNextOrderStep(input);
-    markLlmOutcome(input, {
-      used: true,
-      outcome: "handled",
-      provider: payload.providerId,
-      parsed: payload.parsed,
-      reason: "semantic_continue_checkout",
-    });
-    logRoutingDiagnostic(input, "semantic_state.continue_checkout_applied", {});
-    return true;
-  }
-
-  if (
-    input.conversation.state === "awaiting_more_items"
-    || input.conversation.state === "awaiting_fulfillment_type"
-    || input.conversation.state === "awaiting_confirmation"
-  ) {
-    const handled = await tryHandleFulfillmentSelection(input, payload.semanticSignals);
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_fulfillment_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.fulfillment_applied", {
-        fulfillmentType: payload.semanticSignals.fulfillmentType ?? null,
-      });
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_billing_reuse_confirmation") {
-    const handled = await tryHandleBillingReuseConfirmation(input, {
-      ...payload.semanticSignals,
-      billingDecision: payload.parsed.textDirectives?.billingDecision ?? null,
-    });
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_billing_reuse_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.billing_reuse_applied", {
-        billingDecision: payload.parsed.textDirectives?.billingDecision ?? null,
-      });
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_payment_method" || input.conversation.state === "awaiting_confirmation") {
-    const handled = await tryHandlePaymentMethod(input, payload.semanticSignals);
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_payment_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.payment_applied", {
-        paymentMethod: payload.semanticSignals.paymentMethod ?? null,
-      });
-      return true;
-    }
-  }
-
-  if (input.conversation.state === "awaiting_confirmation") {
-    const handled = await tryHandleConfirmation(input, payload.semanticSignals);
-    if (handled) {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        provider: payload.providerId,
-        parsed: payload.parsed,
-        reason: "semantic_confirmation_applied",
-      });
-      logRoutingDiagnostic(input, "semantic_state.confirmation_applied", {
-        confirmation: payload.semanticSignals.confirmation ?? null,
-      });
-      return true;
-    }
-  }
-
-  return false;
-}
-
-async function handleSemanticGreetingOrMenu(
-  input: RouteInboundMessageInput,
-  menu: TodayMenuPayload,
-  isGreeting: boolean,
-): Promise<void> {
-  if (isActiveOrderState(input.conversation.state) && input.conversation.currentDraftOrderId) {
-    const draft = await getOrCreateActiveDraftOrder({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversation: input.conversation,
-      customerId: input.conversation.customerId,
-      locationId: menu.location?.id,
-      deliveryFeeFixed: menu.location?.deliveryFeeFixed,
-    });
-
-    if (draft.items.length > 0) {
-      if (!isGreeting) {
-        await updateConversationState({
-          env: input.env,
-          schemaName: input.tenant.schemaName,
-          conversationId: input.conversation.id,
-          state: "awaiting_more_items",
-          resetClarificationAttempts: true,
-        }).catch(() => undefined);
-
-        await sendAndLogText(input, buildContinueWithMenuAndDraftPrompt(buildMenuText(menu), draft));
-        return;
-      }
-
-      await sendAndLogText(input, buildResumeExistingOrderPrompt(draft, buildClarificationPrompt(input.conversation.state)));
-      return;
-    }
-  }
-
-  await updateConversationState({
+  const existingDraft = await loadActiveDraftOrder({
     env: input.env,
     schemaName: input.tenant.schemaName,
-    conversationId: input.conversation.id,
-    state: "awaiting_guided_item_selection",
-    context: {
-      flow: "guided",
-      activeMenuId: menu.menu?.id,
-      activeLocationId: menu.location?.id,
-    },
-    resetClarificationAttempts: true,
-  }).catch(() => undefined);
-
-  await sendAndLogText(
-    input,
-    isGreeting ? buildWelcomeMenuText(menu, input.tenant.name) : buildMenuText(menu),
-  );
-}
-
-async function buildSemanticStateContext(input: RouteInboundMessageInput, menu: TodayMenuPayload): Promise<Record<string, unknown>> {
-  const context: Record<string, unknown> = {};
-  const [lastOutboundMessage] = await loadRecentConversationMessages({
+    conversation: input.conversation,
+  });
+  const [lastOutbound] = await loadRecentConversationMessages({
     env: input.env,
     schemaName: input.tenant.schemaName,
     conversationId: input.conversation.id,
     direction: "outbound",
     limit: 1,
   });
-
-  if (lastOutboundMessage?.text) {
-    context.lastAssistantPrompt = lastOutboundMessage.text;
-  }
-
-  const pendingBilling = readPendingBillingContext(input.conversation.context);
-  if (pendingBilling) {
-    context.pendingBilling = {
-      type: pendingBilling.type,
-      hasReusableProfile: Boolean(pendingBilling.reuseProfile),
-      expectedActions: ["reuse", "change", "switch_to_electronic"],
-    };
-  }
-
-  const pendingConfig = readPendingProductConfiguration(input.conversation);
-  if (pendingConfig) {
-    const item = menu.items.find((entry) => entry.id === pendingConfig.menuItemId);
-    const option = item?.product?.options?.find((entry) => entry.id === pendingConfig.pendingOptionId);
-    context.pendingProductConfiguration = {
-      itemName: item?.displayName ?? item?.product?.name ?? null,
-      optionName: option?.name ?? pendingConfig.pendingOptionName,
-      optionType: option?.type ?? pendingConfig.pendingOptionType,
-      values: option?.type === "text"
-        ? []
-        : option?.values.filter((value) => value.isActive).map((value) => value.name) ?? [],
-      expectedActions: ["answer_pending_option"],
-    };
-  }
-
-  if (input.conversation.state === "awaiting_order_adjustment") {
-    const pendingReplacement = await getPendingCustomerReplacementOrder({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      currentDraftOrderId: input.conversation.currentDraftOrderId,
-    }).catch(() => null);
-    if (pendingReplacement) {
-      context.pendingReplacement = {
-        replacementOptions: pendingReplacement.replacementOptions.map((option) => option.name),
-        expectedActions: ["adjust_order", "cancel_order", "ask_human"],
-      };
-    }
-  }
-
-  if (input.conversation.state === "awaiting_more_items") {
-    context.expectedActions = ["add_more_items", "continue_checkout"];
-  }
-
-  if (input.conversation.state === "awaiting_confirmation") {
-    context.expectedActions = ["confirm_order", "change_order", "reject_confirmation"];
-  }
-
-  if (input.conversation.state === "awaiting_transfer_fallback_payment_method") {
-    context.expectedActions = ["accept_cash_fallback", "insist_on_transfer"];
-  }
-
-  return context;
-}
-
-async function enrichStateDirectivesIfNeeded(
-  input: RouteInboundMessageInput,
-  parsed: SemanticParserResult,
-): Promise<SemanticParserResult> {
-  if (!needsStateDirectiveOverlay(input.conversation.state, parsed)) {
-    return parsed;
-  }
-
-  const stateContext = await buildSemanticStateContext(input, await loadCurrentMenu(input));
-  const directiveExecution = await parseSemanticStateDirectives({
-    env: input.env,
-    tenantId: input.tenant.id,
-    rawMessage: input.message.text ?? "",
-    conversationState: input.conversation.state,
-    stateContext,
-  });
-
-  const mergedDirectives = {
-    ...(parsed.textDirectives ?? {}),
-    ...directiveExecution.directives,
-  } satisfies SemanticTextDirectives;
-
-  logRoutingDiagnostic(input, "semantic_state_directives.completed", {
-    provider: directiveExecution.providerId,
-    fallbackFromProviderId: directiveExecution.fallbackFromProviderId,
-    directives: redactSemanticStateDirectives(mergedDirectives),
-  });
-
-  return {
-    ...parsed,
-    textDirectives: mergedDirectives,
-  };
-}
-
-function mapTransferFallbackPayment(parsed: SemanticParserResult): "cash" | "transfer" | null {
-  const decision = parsed.textDirectives?.transferFallbackDecision;
-  if (decision === "cash" || decision === "confirm_cash") return "cash";
-  if (decision === "transfer" || decision === "reject_cash") return "transfer";
-  return null;
-}
-
-function mapTransferFallbackConfirmation(parsed: SemanticParserResult): "yes" | "no" | "change" | null {
-  const decision = parsed.textDirectives?.transferFallbackDecision;
-  if (decision === "confirm_cash") return "yes";
-  if (decision === "reject_cash") return "no";
-  return parsed.textDirectives?.confirmation ?? null;
-}
-
-function needsStateDirectiveOverlay(
-  state: RouteInboundMessageInput["conversation"]["state"],
-  parsed: SemanticParserResult,
-): boolean {
-  switch (state) {
-    case "awaiting_billing_reuse_confirmation":
-      return !parsed.textDirectives?.billingDecision && !parsed.textDirectives?.confirmation;
-    case "awaiting_more_items":
-      return parsed.textDirectives?.continueCheckout !== true;
-    case "awaiting_confirmation":
-      return !parsed.textDirectives?.confirmation;
-    case "awaiting_order_adjustment":
-      return !parsed.textDirectives?.replacementChoiceText && parsed.textDirectives?.replacementRejectAll !== true;
-    case "awaiting_transfer_fallback_payment_method":
-      return !parsed.textDirectives?.transferFallbackDecision;
-    case "awaiting_product_configuration":
-      return !parsed.textDirectives?.productConfiguration?.optionTexts?.length;
-    default:
-      return false;
-  }
-}
-
-function redactSemanticStateDirectives(directives: SemanticTextDirectives): Record<string, unknown> {
-  return {
-    ...directives,
-    replacementChoiceText: directives.replacementChoiceText ? "[redacted]" : directives.replacementChoiceText,
-    productConfiguration: directives.productConfiguration
-      ? {
-          confidence: directives.productConfiguration.confidence,
-          optionCount: directives.productConfiguration.optionTexts?.length ?? 0,
-          noteCount: directives.productConfiguration.notes?.length ?? 0,
-        }
-      : directives.productConfiguration,
-  };
-}
-
-async function tryApplySemanticEdit(input: RouteInboundMessageInput, payload: {
-  menu: TodayMenuPayload;
-  parsed: SemanticParserResult;
-  signals: DetectedSignals;
-}): Promise<boolean> {
-  const draft = await getOrCreateActiveDraftOrder({
-    env: input.env,
-    schemaName: input.tenant.schemaName,
-    conversation: input.conversation,
-    customerId: input.conversation.customerId,
-    locationId: payload.menu.location?.id,
-    deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-  });
-  const actions = normalizeSemanticEditActions(payload.parsed);
-
-  if (actions.length === 0) {
-    return false;
-  }
-
-  let updatedDraft = draft;
-  let changed = false;
-  let contextItem: MenuItem | null = null;
-
   const pendingAdjustment = input.conversation.state === "awaiting_order_adjustment"
     ? await getPendingCustomerReplacementOrder({
         env: input.env,
         schemaName: input.tenant.schemaName,
         conversationId: input.conversation.id,
         currentDraftOrderId: input.conversation.currentDraftOrderId,
-      })
+      }).catch(() => undefined)
     : undefined;
+  const pendingConfiguration = readPendingProductConfiguration(input.conversation);
 
-  if (input.conversation.state === "awaiting_order_adjustment" && !pendingAdjustment) {
-    await moveToManual(input, {
-      type: "technical_error",
-      manualReason: "order_adjustment_not_found",
-      title: "No se encontro el pedido para ajustar",
-      description: "La conversacion estaba ajustando un pedido sin disponibilidad, pero no se encontro la orden asociada.",
-      responseText: "No pude ubicar el pedido que estabamos ajustando. Voy a ponerte en contacto con alguien del restaurante para ayudarte.",
+  markLlmAttempt(input);
+  let parsed: SemanticOperationPlan;
+  let providerId: "gemini" | "openrouter" = "gemini";
+  try {
+    const execution = await parseSemanticOperationPlan({
+      env: input.env,
+      tenantId: input.tenant.id,
+      rawMessage: input.message.text ?? "",
+      conversation: input.conversation,
+      menu,
+      draft: existingDraft,
+      lastAssistantPrompt: lastOutbound?.text,
+      allowedOperations: allowedSemanticOperations(input.conversation.state),
+      pendingAdjustment: pendingAdjustment
+        ? { unavailableMenuItemIds: pendingAdjustment.order.restaurantReviewMetadata?.unavailableItems?.map((item) => item.menuItemId).filter((id): id is string => Boolean(id)) ?? [] }
+        : undefined,
+      pendingConfiguration: pendingConfiguration
+        ? {
+            menuItemId: pendingConfiguration.menuItemId,
+            quantity: pendingConfiguration.quantity,
+            pendingOptionId: pendingConfiguration.pendingOptionId,
+            configuration: toSemanticConfigurationSelections(pendingConfiguration.resolvedOptions),
+            notes: pendingConfiguration.notes,
+          }
+        : undefined,
     });
+    parsed = execution.plan;
+    providerId = execution.providerId;
+    logRoutingDiagnostic(input, "semantic_operation_plan.completed", {
+      provider: execution.providerId,
+      fallbackFromProviderId: execution.fallbackFromProviderId,
+      attempts: execution.attempts,
+      confidence: parsed.confidence,
+      operationTypes: parsed.operations.map((operation) => operation.type),
+      operationCount: parsed.operations.length,
+    });
+  } catch (error) {
+    const diagnostics = semanticOperationPlanFailureDiagnostics(error);
+    logRoutingDiagnostic(input, "semantic_operation_plan.failed", {
+      provider: providerId,
+      reason: classifySemanticFailure(error),
+      ...diagnostics,
+      menuItemCount: menu.items.length,
+      draftLineCount: existingDraft?.items.length ?? 0,
+      allowedOperationCount: allowedSemanticOperations(input.conversation.state).length,
+    });
+    markLlmOutcome(input, {
+      used: false,
+      outcome: "skipped_or_failed",
+      provider: providerId,
+      reason: "semantic_operation_plan_provider_failure",
+      diagnostics,
+    });
+    await handleSemanticProviderFailure(input, diagnostics);
     return true;
   }
 
-  if (pendingAdjustment?.order.restaurantReviewMetadata?.unavailableItems) {
-    for (const unavailableItem of pendingAdjustment.order.restaurantReviewMetadata.unavailableItems) {
-      const result = await removeItemsFromDraftOrder({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        draftOrderId: updatedDraft.id,
-        targetText: unavailableItem.name,
-        deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-      });
-      updatedDraft = result.draft;
-    }
+  if (parsed.confidence < 0.55 || parsed.operations.length === 0) {
+    markLlmOutcome(input, { used: false, outcome: parsed.confidence < 0.55 ? "low_confidence" : "unresolved", provider: providerId, reason: "semantic_operation_plan_empty_or_low_confidence" });
+    await handleClarification(input, buildClarificationPrompt(input.conversation.state), "semantic_operation_plan_unresolved");
+    return true;
   }
 
-  for (const action of actions) {
-    if (action.confidence !== undefined && action.confidence < 0.45) {
-      continue;
-    }
-
-    if (action.type === "remove") {
-      const targetText = action.targetText ?? action.productText ?? undefined;
-      const targetItem = targetText ? resolveMenuSelectionFromText(payload.menu, targetText)?.item ?? null : null;
-      const result = await removeItemsFromDraftOrder({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        draftOrderId: updatedDraft.id,
-        menuItem: targetItem ?? undefined,
-        targetText,
-        quantity: action.quantity ?? undefined,
-        deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-      });
-
-      updatedDraft = result.draft;
-      changed = changed || result.changed;
-      contextItem = contextItem ?? targetItem;
-      continue;
-    }
-
-    if (action.type === "set_quantity") {
-      const targetText = action.targetText ?? action.productText ?? undefined;
-      const targetItem = targetText ? resolveMenuSelectionFromText(payload.menu, targetText)?.item ?? null : null;
-      if (!action.quantity && action.quantity !== 0) {
-        continue;
-      }
-
-      const result = await setDraftOrderItemQuantity({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        draftOrderId: updatedDraft.id,
-        menuItem: targetItem ?? undefined,
-        targetText,
-        quantity: action.quantity,
-        deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-      });
-
-      updatedDraft = result.draft;
-      changed = changed || result.changed;
-      contextItem = contextItem ?? targetItem;
-      continue;
-    }
-
-    if (action.type === "replace") {
-      const targetText = action.targetText ?? undefined;
-      const targetItem = targetText ? resolveMenuSelectionFromText(payload.menu, targetText)?.item ?? null : null;
-      const removeResult = await removeItemsFromDraftOrder({
-        env: input.env,
-        schemaName: input.tenant.schemaName,
-        draftOrderId: updatedDraft.id,
-        menuItem: targetItem ?? undefined,
-        targetText,
-        deliveryFeeFixed: payload.menu.location?.deliveryFeeFixed,
-      });
-
-      updatedDraft = removeResult.draft;
-      changed = changed || removeResult.changed;
-      contextItem = contextItem ?? targetItem;
-    }
-
-    const productText = action.productText ?? undefined;
-    const resolved = productText ? resolveMenuSelectionFromText(payload.menu, productText) : null;
-    const selectedItem = resolved?.item ?? null;
-    if (!selectedItem) {
-      continue;
-    }
-
-    const stageResult = await stageConfiguredItemSelection(input, {
-      menu: payload.menu,
-      selectedItem,
-      quantity: Math.max(1, Math.round(action.quantity ?? resolved?.quantity ?? (actions.length === 1 && pendingAdjustment ? pendingAdjustment.order.restaurantReviewMetadata?.unavailableItems?.[0]?.quantity : undefined) ?? 1)),
-      source: "semantic",
-      rawItemText: productText,
-      rawOptionTexts: action.optionTexts,
-      notes: action.notes,
+  if (parsed.operations.some((operation) => operation.type === "request_human")) {
+    await moveToManual(input, {
+      type: "support_requested",
+      manualReason: "semantic_operation_requested_human",
+      title: "Cliente solicita atención humana",
+      description: "El cliente pidió hablar con una persona.",
+      responseText: "Claro, voy a ponerte en contacto con alguien del restaurante para que te ayude.",
     });
-    if (stageResult.kind === "prompted") {
-      markLlmOutcome(input, {
-        used: true,
-        outcome: "handled",
-        parsed: payload.parsed,
-        reason: "semantic_edit_clarification_requested",
-      });
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_request_human" });
+    return true;
+  }
+
+  if (parsed.operations.some((operation) => operation.type === "show_menu")) {
+    await sendAndLogText(input, [buildWelcomeMenuText(menu, input.tenant.name), existingDraft ? buildOrderProgressSnapshot(existingDraft) : ""].filter(Boolean).join("\n\n"));
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_show_menu" });
+    return true;
+  }
+
+  const controlOperations = parsed.operations.filter((operation) => [
+    "reuse_billing_profile",
+    "change_billing",
+    "switch_to_electronic_billing",
+    "edit_order",
+    "accept_cash_fallback",
+    "keep_transfer",
+  ].includes(operation.type));
+  if (controlOperations.length > 0) {
+    if (parsed.operations.length !== 1 || controlOperations.length !== 1) {
+      await handleClarification(input, "Primero resolvamos una sola decisión del pedido para continuar.", "semantic_control_mixed");
       return true;
     }
-    if (stageResult.kind !== "added") {
+    const handled = await tryHandleSemanticControl(input, controlOperations[0]!);
+    markLlmOutcome(input, {
+      used: handled,
+      outcome: handled ? "handled" : "unresolved",
+      provider: providerId,
+      reason: `semantic_${controlOperations[0]!.type}`,
+    });
+    return handled;
+  }
+
+  if (parsed.operations.some((operation) => operation.type === "confirm_order") && parsed.operations.length === 1) {
+    const handled = await tryHandleConfirmation(input, { confirmation: "yes" });
+    markLlmOutcome(input, { used: handled, outcome: handled ? "handled" : "unresolved", provider: providerId, reason: "semantic_confirm_order" });
+    return handled;
+  }
+
+  if (parsed.operations.some((operation) => operation.type === "cancel_order")) {
+    if (input.conversation.state !== "awaiting_order_adjustment" || parsed.operations.length !== 1 || !pendingAdjustment) {
+      await handleClarification(input, "En este momento solo puedo cancelar el pedido que está pendiente por ajustar. Dime qué deseas cambiar o escribe asesor para recibir ayuda.", "semantic_cancel_not_allowed");
+      return true;
+    }
+    await cancelPendingCustomerReplacementOrder({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+      currentDraftOrderId: input.conversation.currentDraftOrderId,
+    });
+    await completeConversationAfterOrderCancellation({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversationId: input.conversation.id,
+    });
+    await sendAndLogText(input, "Entendido. Ya cancelé ese pedido. Gracias por avisarme.");
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_cancel_order_adjustment" });
+    return true;
+  }
+
+  const validation = await validateOperationPlan(input, { menu, draft: existingDraft, plan: parsed, pendingAdjustment, pendingConfiguration });
+  if (validation.kind === "pending_configuration") {
+    await persistPendingProductConfiguration(input, validation.payload);
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_operation_pending_configuration" });
+    return true;
+  }
+  if (validation.kind === "invalid") {
+    logRoutingDiagnostic(input, "semantic_operation_plan.rejected", { code: validation.code, operationTypes: parsed.operations.map((operation) => operation.type) });
+    markLlmOutcome(input, { used: false, outcome: "unresolved", provider: providerId, reason: validation.code });
+    await handleClarification(input, validation.message, validation.code);
+    return true;
+  }
+
+  if (!validation.value.hasMutation) {
+    if (existingDraft) {
+      const next = await resolveNextStep(input, existingDraft, menu, {
+        isAdjustment: false,
+        hasItemMutation: false,
+        advancesCheckout: true,
+      });
+      await sendOrderStepMessage(input, existingDraft, menu, next);
+    } else {
+      await handleClarification(input, buildClarificationPrompt(input.conversation.state), "semantic_operation_no_mutation");
+    }
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_continue_checkout" });
+    return true;
+  }
+
+  const next = await resolveNextStep(input, projectDraft(existingDraft, validation.value, menu), menu, {
+    isAdjustment: input.conversation.state === "awaiting_order_adjustment",
+    hasItemMutation: validation.value.hasItemMutation,
+    advancesCheckout: validation.value.advancesCheckout,
+    addressResolution: validation.value.addressResolution,
+  });
+  try {
+    const draft = await applySemanticDraftOperationPlan({
+      env: input.env,
+      schemaName: input.tenant.schemaName,
+      conversation: input.conversation,
+      customerId: input.conversation.customerId,
+      locationId: existingDraft?.locationId ?? menu.location?.id,
+      draftOrderId: existingDraft?.id,
+      expectedDraftUpdatedAt: existingDraft?.updatedAt,
+      items: validation.value.items,
+      patch: validation.value.patch,
+      billing: validation.value.billing,
+      nextState: next.state,
+      context: contextAfterSemanticPlan(input, next.context, pendingConfiguration),
+    });
+    logRoutingDiagnostic(input, "semantic_operation_plan.applied", { operationTypes: parsed.operations.map((operation) => operation.type), nextState: next.state, itemCount: draft.items.length, total: draft.total });
+    await sendOrderStepMessage(input, draft, menu, next);
+    markLlmOutcome(input, { used: true, outcome: "handled", provider: providerId, reason: "semantic_operation_plan_applied" });
+    return true;
+  } catch (error) {
+    logRoutingDiagnostic(input, "semantic_operation_plan.transaction_failed", { reason: classifySemanticFailure(error), operationTypes: parsed.operations.map((operation) => operation.type) });
+    markLlmOutcome(input, { used: false, outcome: "unresolved", provider: providerId, reason: "semantic_operation_transaction_failed" });
+    await handleClarification(input, "Tu pedido no cambió porque detecté una actualización reciente. Revisemos el estado actual antes de continuar.", "semantic_operation_transaction_failed");
+    return true;
+  }
+}
+
+async function validateOperationPlan(
+  input: RouteInboundMessageInput,
+  payload: {
+    menu: TodayMenuPayload;
+    draft: DraftOrder | null;
+    plan: SemanticOperationPlan;
+    pendingAdjustment?: Awaited<ReturnType<typeof getPendingCustomerReplacementOrder>>;
+    pendingConfiguration?: ReturnType<typeof readPendingProductConfiguration>;
+  },
+): Promise<{ kind: "valid"; value: ValidatedPlan } | { kind: "invalid"; code: string; message: string } | { kind: "pending_configuration"; payload: Parameters<typeof persistPendingProductConfiguration>[1] }> {
+  const allowed = new Set(allowedSemanticOperations(input.conversation.state));
+  const baseItems = payload.draft?.items.map((item) => structuredClone(item)) ?? [];
+  const items = baseItems;
+  const patch: DraftPatch = {};
+  let billing = payload.draft?.billing;
+  let hasMutation = false;
+  let hasItemMutation = false;
+  let advancesCheckout = false;
+  let addressResolution: AddressResolution | undefined;
+  const unavailableMenuItemIds = new Set(payload.pendingAdjustment?.order.restaurantReviewMetadata?.unavailableItems?.map((item) => item.menuItemId).filter((id): id is string => Boolean(id)) ?? []);
+  const addOperations = payload.plan.operations.filter((operation) => operation.type === "add_product");
+
+  for (const operation of payload.plan.operations) {
+    if (!allowed.has(operation.type) || (operation.confidence !== undefined && operation.confidence < 0.55)) {
+      return invalid("semantic_operation_not_allowed", "No pude aplicar ese cambio en este momento. Dime qué deseas ajustar del pedido actual.");
+    }
+    if (operation.type === "continue_checkout") {
+      advancesCheckout = true;
       continue;
     }
-
-    updatedDraft = stageResult.draft;
-    changed = true;
-    contextItem = selectedItem;
+    if (operation.type === "confirm_order" || operation.type === "cancel_order" || operation.type === "request_human" || operation.type === "show_menu") {
+      return invalid("semantic_operation_mixed_control", "Primero confirmemos o ajustemos el pedido actual, por favor.");
+    }
+    if (operation.type === "add_product") {
+      const selected = operation.menuItemId ? payload.menu.items.find((item) => item.id === operation.menuItemId) : undefined;
+      if (
+        !selected
+        || !selected.isAvailable
+        || selected.product?.isActive === false
+        || unavailableMenuItemIds.has(selected.id)
+        || (payload.pendingConfiguration && selected.id !== payload.pendingConfiguration.menuItemId)
+      ) {
+        return invalid("semantic_add_product_invalid_menu_item", "Uno de los productos que mencionaste ya no está disponible. ¿Quieres elegir otra opción?");
+      }
+      const pendingSelections = payload.pendingConfiguration ? toSemanticConfigurationSelections(payload.pendingConfiguration.resolvedOptions) : [];
+      const resolved = resolveConfiguration(
+        selected,
+        mergeConfigurationSelections(pendingSelections, operation.configuration),
+        operation.notes ?? payload.pendingConfiguration?.notes,
+      );
+      if (resolved.kind === "needs_configuration") {
+        return {
+          kind: "pending_configuration",
+          payload: {
+            menu: payload.menu,
+            selectedItem: selected,
+            quantity: inferProductQuantity(operation, addOperations, payload.pendingAdjustment, payload.pendingConfiguration),
+            source: "semantic",
+            rawItemText: selected.displayName ?? selected.product?.name,
+            rawOptionTexts: resolved.rawOptionTexts,
+            notes: operation.notes ?? [],
+            resolution: resolved.resolution,
+          },
+        };
+      }
+      if (resolved.kind === "invalid") return invalid("semantic_configuration_invalid", "Necesito confirmar una opción del producto antes de cambiar tu pedido.");
+      items.push({
+        menuItemId: selected.id,
+        productId: selected.productId,
+        comboId: selected.comboId,
+        name: selected.displayName ?? selected.product?.name ?? "Producto",
+        quantity: inferProductQuantity(operation, addOperations, payload.pendingAdjustment, payload.pendingConfiguration),
+        unitPrice: resolved.resolution.pricing.resolvedUnitPrice,
+        options: shouldPersistConfigurationSnapshot({ menuItem: selected, resolution: resolved.resolution }) ? buildOrderLineItemOptionsSnapshot(resolved.resolution) : undefined,
+        notes: uniqueNotes(operation.notes).join("; ") || undefined,
+        lineTotal: inferProductQuantity(operation, addOperations, payload.pendingAdjustment, payload.pendingConfiguration) * resolved.resolution.pricing.resolvedUnitPrice,
+      });
+      hasMutation = true;
+      hasItemMutation = true;
+      continue;
+    }
+    if (operation.type === "remove_draft_line") {
+      const index = findExactDraftLine(items, operation.draftOrderItemId);
+      if (index < 0) return invalid("semantic_draft_line_not_found", "No pude encontrar exactamente ese producto en tu pedido actual.");
+      items.splice(index, 1);
+      hasMutation = true;
+      hasItemMutation = true;
+      continue;
+    }
+    if (operation.type === "set_line_quantity") {
+      const index = findExactDraftLine(items, operation.draftOrderItemId);
+      if (index < 0 || !operation.quantity) return invalid("semantic_quantity_invalid", "No pude identificar la línea o cantidad que deseas cambiar.");
+      const item = items[index]!;
+      item.quantity = Math.max(1, Math.round(operation.quantity));
+      item.lineTotal = item.quantity * item.unitPrice;
+      hasMutation = true;
+      hasItemMutation = true;
+      continue;
+    }
+    if (operation.type === "set_line_notes") {
+      const index = findExactDraftLine(items, operation.draftOrderItemId);
+      if (index < 0) return invalid("semantic_draft_line_not_found", "No pude encontrar exactamente ese producto en tu pedido actual.");
+      items[index]!.notes = uniqueNotes(operation.notes).join("; ") || undefined;
+      hasMutation = true;
+      hasItemMutation = true;
+      continue;
+    }
+    if (operation.type === "set_line_configuration") {
+      const index = findExactDraftLine(items, operation.draftOrderItemId);
+      const line = index >= 0 ? items[index] : undefined;
+      const menuItem = line?.menuItemId ? payload.menu.items.find((item) => item.id === line.menuItemId) : undefined;
+      if (!line || !menuItem) return invalid("semantic_draft_line_not_found", "No pude encontrar exactamente ese producto en tu pedido actual.");
+      const resolved = resolveConfiguration(menuItem, operation.configuration, operation.notes ?? line.notes?.split("; "));
+      if (resolved.kind !== "resolved") return invalid("semantic_configuration_invalid", "Necesito confirmar una opción del producto antes de cambiar tu pedido.");
+      line.options = shouldPersistConfigurationSnapshot({ menuItem, resolution: resolved.resolution }) ? buildOrderLineItemOptionsSnapshot(resolved.resolution) : undefined;
+      line.notes = uniqueNotes(operation.notes ?? line.notes?.split("; ")).join("; ") || undefined;
+      line.unitPrice = resolved.resolution.pricing.resolvedUnitPrice;
+      line.lineTotal = line.quantity * line.unitPrice;
+      hasMutation = true;
+      hasItemMutation = true;
+      continue;
+    }
+    if (operation.type === "set_fulfillment") {
+      if (!operation.fulfillmentType) return invalid("semantic_fulfillment_invalid", "¿Prefieres domicilio o recoger en el local?");
+      patch.fulfillmentType = operation.fulfillmentType;
+      if (operation.fulfillmentType === "pickup") clearDeliveryPatch(patch);
+      hasMutation = true;
+      advancesCheckout = true;
+      continue;
+    }
+    if (operation.type === "set_payment_method") {
+      if (!operation.paymentMethod) return invalid("semantic_payment_invalid", "¿Prefieres pagar en efectivo o por transferencia?");
+      patch.paymentMethod = operation.paymentMethod;
+      hasMutation = true;
+      advancesCheckout = true;
+      continue;
+    }
+    if (operation.type === "set_delivery_address") {
+      if (!operation.addressText?.trim()) return invalid("semantic_address_invalid", "Compárteme una dirección completa para continuar.");
+      const candidateFulfillment = patch.fulfillmentType ?? payload.draft?.fulfillmentType;
+      if (candidateFulfillment !== "delivery") return invalid("semantic_address_without_delivery", "Primero confirmemos que el pedido será a domicilio.");
+      const addressResult = await resolveWrittenAddress(input, payload.menu, operation.addressText, operation.addressDetails);
+      Object.assign(patch, addressResult.patch);
+      addressResolution = addressResult;
+      logRoutingDiagnostic(input, "semantic_delivery_address.coverage_evaluated", {
+        outcome: addressResult.coverageOutcome,
+        validationMethod: addressResult.validationMethod,
+        confidence: addressResult.confidence,
+      });
+      hasMutation = true;
+      advancesCheckout = true;
+      continue;
+    }
+    if (operation.type === "set_billing") {
+      const resolvedBilling = validateBilling(operation.billing, projectDraft(payload.draft, {
+        items,
+        patch,
+        billing,
+        hasMutation,
+        hasItemMutation,
+        advancesCheckout,
+      }, payload.menu));
+      if (!resolvedBilling) return invalid("semantic_billing_invalid", "Necesito los datos completos de facturación para guardar esa información.");
+      billing = resolvedBilling;
+      hasMutation = true;
+      advancesCheckout = true;
+    }
   }
 
-  if (!changed) {
-    markLlmOutcome(input, {
-      used: false,
-      outcome: "unresolved",
-      parsed: payload.parsed,
-      reason: "edit_actions_not_applied",
-    });
-    return false;
+  if (input.conversation.state === "awaiting_order_adjustment" && items.length === 0) {
+    return invalid("semantic_adjustment_empty_order", "El pedido no puede quedar sin productos. Dime qué productos deseas agregar.");
   }
-
-  markLlmOutcome(input, {
-    used: true,
-    outcome: "handled",
-    parsed: payload.parsed,
-    reason: "semantic_edit_applied",
-  });
-
-  updatedDraft = await applyKnownSignalsToDraft(input, {
-    menu: payload.menu,
-    draft: updatedDraft,
-    signals: payload.signals,
-  });
-
-  await continueAfterSemanticEdit(input, {
-    menu: payload.menu,
-    draft: updatedDraft,
-    signals: payload.signals,
-    contextItem,
-  });
-  return true;
+  return { kind: "valid", value: { items, patch, billing, hasMutation, hasItemMutation, advancesCheckout, addressResolution } };
 }
 
-
-function normalizeSemanticEditActions(parsed: SemanticParserResult): SemanticOrderEditAction[] {
-  const actions = [...(parsed.editActions ?? [])];
-
-  if (actions.length === 0 && parsed.items.length > 0) {
-    actions.push(
-      ...parsed.items.map((item) => ({
-        type: "add" as const,
-        productText: item.productText,
-        quantity: item.quantity,
-        confidence: item.confidence,
-        optionTexts: item.optionTexts,
-        notes: item.notes,
-      })),
-    );
+function resolveConfiguration(menuItem: MenuItem, configuration: SemanticConfigurationSelection[] | undefined, notes?: string[]) {
+  const rawOptionTexts: Array<{ groupText?: string; valueText: string }> = [];
+  for (const selection of configuration ?? []) {
+    const option = menuItem.product?.options?.find((candidate) => candidate.id === selection.optionId);
+    if (!option) return { kind: "invalid" as const };
+    if (option.type === "text") {
+      if (!selection.textValue?.trim() || (selection.valueIds?.length ?? 0) > 0) return { kind: "invalid" as const };
+      rawOptionTexts.push({ groupText: option.name, valueText: selection.textValue.trim() });
+      continue;
+    }
+    if (selection.textValue || !(selection.valueIds?.length)) return { kind: "invalid" as const };
+    for (const valueId of selection.valueIds) {
+      const value = option.values.find((candidate) => candidate.id === valueId && candidate.isActive);
+      if (!value) return { kind: "invalid" as const };
+      rawOptionTexts.push({ groupText: option.name, valueText: value.name });
+    }
   }
-
-  return actions;
+  const resolution = resolveProductConfiguration({ menuItem, source: "semantic", rawOptionTexts, freeTextNotes: uniqueNotes(notes) });
+  if (resolution.status === "needs_clarification") return { kind: "needs_configuration" as const, resolution, rawOptionTexts };
+  if (resolution.status !== "resolved") return { kind: "invalid" as const };
+  return { kind: "resolved" as const, resolution };
 }
 
-async function continueAfterSemanticEdit(input: RouteInboundMessageInput, payload: {
-  menu: TodayMenuPayload;
-  draft: DraftOrder;
-  signals: DetectedSignals;
-  contextItem: MenuItem | null;
-}): Promise<void> {
-  const context = payload.contextItem ? buildGuidedContext(payload.menu, payload.contextItem) : undefined;
+async function resolveWrittenAddress(input: RouteInboundMessageInput, menu: TodayMenuPayload, text: string, details?: string | null): Promise<AddressResolution> {
+  const segmented = segmentDeliveryAddress({ addressText: text, details: details ?? undefined });
+  const patch: DraftPatch = {
+    deliveryAddress: segmented.addressText,
+    deliveryAddressDetails: segmented.details,
+    customerAddressText: segmented.addressText,
+    resolvedDeliveryAddress: segmented.addressText,
+    customerLatitude: null,
+    customerLongitude: null,
+    deliveryDistanceKm: null,
+    isInsideDeliveryCoverage: null,
+    coverageValidationMethod: "not_validated",
+    coverageConfidence: "failed",
+    coverageCheckedAt: null,
+  };
+  const settings = await getDeliveryCoverageSettings({ env: input.env, schemaName: input.tenant.schemaName, locationId: menu.location?.id });
+  try {
+    const validation = await validateDeliveryCoverageFromWrittenAddress({ env: input.env, schemaName: input.tenant.schemaName, locationId: menu.location?.id, addressText: segmented.addressText });
+    if (validation) {
+      patch.customerLatitude = validation.latitude;
+      patch.customerLongitude = validation.longitude;
+      patch.deliveryDistanceKm = validation.distanceKm;
+      patch.isInsideDeliveryCoverage = validation.isInsideCoverage;
+      patch.coverageValidationMethod = validation.validationMethod;
+      patch.coverageConfidence = validation.confidence;
+      patch.coverageCheckedAt = new Date().toISOString();
+      patch.customerAddressText = validation.formattedAddress;
+      patch.resolvedDeliveryAddress = validation.formattedAddress;
+      if (validation.isInsideCoverage) {
+        return {
+          patch,
+          coverageOutcome: "inside",
+          validationMethod: validation.validationMethod,
+          confidence: validation.confidence,
+        };
+      }
+      return {
+        patch,
+        coverageOutcome: settings?.allowOutOfCoverageOrders ? "outside_allowed" : "outside",
+        validationMethod: validation.validationMethod,
+        confidence: validation.confidence,
+      };
+    }
+  } catch {
+    return { patch, coverageOutcome: "provider_error", validationMethod: "not_validated", confidence: "failed" };
+  }
+  return { patch, coverageOutcome: "unresolved", validationMethod: "not_validated", confidence: "failed" };
+}
 
-  if (input.conversation.state === "awaiting_order_adjustment") {
-    await proceedToNextOrderStep(input, { menu: payload.menu, draft: payload.draft, context });
+function validateBilling(input: SemanticBillingInput | null | undefined, draft: DraftOrder): NonNullable<DraftOrder["billing"]> | null {
+  if (!input) return null;
+  if (input.type === "normal" && input.fullName?.trim()) {
+    return applyBillingDefaults({ type: "normal", fullName: input.fullName.trim(), billingAddress: input.billingAddress?.trim() || undefined }, draft);
+  }
+  if (input.type === "electronic" && input.legalName?.trim() && input.taxId?.trim() && input.email?.includes("@")) {
+    return { type: "electronic", legalName: input.legalName.trim(), taxId: input.taxId.trim(), email: input.email.trim() };
+  }
+  return null;
+}
+
+function projectDraft(base: DraftOrder | null, value: ValidatedPlan, menu: TodayMenuPayload): DraftOrder {
+  const fulfillmentType = value.patch.fulfillmentType ?? base?.fulfillmentType;
+  const totals = calculateDraftTotals({ items: value.items, fulfillmentType, deliveryFeeFixed: menu.location?.deliveryFeeFixed ?? 0, discountTotal: base?.discountTotal ?? 0 });
+  return {
+    id: base?.id ?? "",
+    status: base?.status ?? "draft",
+    locationId: base?.locationId ?? menu.location?.id,
+    fulfillmentType,
+    serviceTiming: base?.serviceTiming ?? "asap",
+    deliveryAddress: value.patch.deliveryAddress ?? base?.deliveryAddress,
+    deliveryAddressDetails: value.patch.deliveryAddressDetails ?? base?.deliveryAddressDetails,
+    customerAddressText: value.patch.customerAddressText ?? base?.customerAddressText,
+    resolvedDeliveryAddress: value.patch.resolvedDeliveryAddress ?? base?.resolvedDeliveryAddress,
+    customerLatitude: value.patch.customerLatitude ?? base?.customerLatitude,
+    customerLongitude: value.patch.customerLongitude ?? base?.customerLongitude,
+    deliveryDistanceKm: value.patch.deliveryDistanceKm ?? base?.deliveryDistanceKm,
+    isInsideDeliveryCoverage: value.patch.isInsideDeliveryCoverage ?? base?.isInsideDeliveryCoverage,
+    coverageValidationMethod: value.patch.coverageValidationMethod ?? base?.coverageValidationMethod,
+    coverageConfidence: value.patch.coverageConfidence ?? base?.coverageConfidence,
+    coverageCheckedAt: value.patch.coverageCheckedAt ?? base?.coverageCheckedAt,
+    paymentMethod: value.patch.paymentMethod ?? base?.paymentMethod,
+    billing: value.billing ?? base?.billing,
+    items: value.items,
+    ...totals,
+    validationErrors: base?.validationErrors,
+  };
+}
+
+async function resolveNextStep(input: RouteInboundMessageInput, draft: DraftOrder, menu: TodayMenuPayload, flow: {
+  isAdjustment: boolean;
+  hasItemMutation: boolean;
+  advancesCheckout: boolean;
+  addressResolution?: AddressResolution;
+}): Promise<NextStep> {
+  if (flow.addressResolution?.coverageOutcome === "outside" || flow.addressResolution?.coverageOutcome === "unresolved" || flow.addressResolution?.coverageOutcome === "provider_error") {
+    return { state: "awaiting_address", addressCoverageOutcome: flow.addressResolution.coverageOutcome };
+  }
+  if (flow.isAdjustment) return { state: "awaiting_confirmation" };
+  if (draft.items.length === 0) return { state: "awaiting_guided_item_selection" };
+  if (
+    flow.hasItemMutation
+    && !flow.advancesCheckout
+    && ["awaiting_mode_selection", "awaiting_guided_item_selection", "awaiting_more_items"].includes(input.conversation.state)
+  ) {
+    return { state: "awaiting_more_items" };
+  }
+  if (!draft.fulfillmentType) return { state: "awaiting_fulfillment_type" };
+  const settings = await getDeliveryCoverageSettings({ env: input.env, schemaName: input.tenant.schemaName, locationId: draft.locationId ?? menu.location?.id });
+  const allowsValidatedOutOfCoverageDelivery = settings?.allowOutOfCoverageOrders === true
+    && draft.coverageValidationMethod === "geocoded_address"
+    && draft.isInsideDeliveryCoverage === false;
+  if (draft.fulfillmentType === "delivery" && !hasValidatedDeliveryCoverage(draft) && !allowsValidatedOutOfCoverageDelivery) return { state: "awaiting_address" };
+  if (!draft.billing?.type) {
+    const profiles = await loadCustomerBillingProfiles({ env: input.env, schemaName: input.tenant.schemaName, customerId: input.conversation.customerId });
+    const normal = profiles.find((profile) => profile.type === "normal");
+    if (normal) {
+      return {
+        state: "awaiting_billing_reuse_confirmation",
+        context: {
+          ...input.conversation.context,
+          pendingBilling: { type: "normal", shouldReuseDeliveryAddress: draft.fulfillmentType === "delivery", reuseProfileId: normal.id, fullName: normal.fullName, billingAddress: normal.billingAddress },
+        },
+        billingReuseLabel: normal.fullName ?? "información guardada",
+      };
+    }
+    return { state: "awaiting_normal_billing_info" };
+  }
+  if (!draft.paymentMethod) return { state: "awaiting_payment_method" };
+  return { state: "awaiting_confirmation" };
+}
+
+async function sendOrderStepMessage(input: RouteInboundMessageInput, draft: DraftOrder, menu: TodayMenuPayload, next: NextStep): Promise<void> {
+  if (next.addressCoverageOutcome === "outside") {
+    await sendAndLogText(input, "No tenemos cobertura para esa dirección. Envíame otra dirección completa, comparte tu ubicación de WhatsApp, elige recoger en el local o escribe “asesor” si prefieres ayuda.");
     return;
   }
+  if (next.addressCoverageOutcome === "unresolved" || next.addressCoverageOutcome === "provider_error") {
+    await sendAndLogText(input, "No pude validar esa dirección todavía. Envíame una dirección más completa o comparte tu ubicación de WhatsApp. Si prefieres, escribe “asesor” para recibir ayuda.");
+    return;
+  }
+  if (next.addressCoverageOutcome === "inside") {
+    await sendAndLogText(input, "Perfecto, validamos tu dirección y está dentro de cobertura.");
+  }
+  if (next.addressCoverageOutcome === "outside_allowed") {
+    await sendAndLogText(input, "La dirección está fuera de la cobertura habitual, pero el restaurante permite continuar con el domicilio.");
+  }
+  const snapshot = buildOrderProgressSnapshot(draft);
+  let prompt: string;
+  switch (next.state) {
+    case "awaiting_fulfillment_type": prompt = buildFulfillmentPrompt(menu); break;
+    case "awaiting_address": prompt = "Compárteme tu ubicación de WhatsApp o una dirección completa para validar el domicilio."; break;
+    case "awaiting_billing_reuse_confirmation": prompt = `Tengo datos de facturación guardados a nombre de ${next.billingReuseLabel}. ¿Los dejamos igual o deseas cambiarlos?`; break;
+    case "awaiting_normal_billing_info": prompt = buildNormalBillingPrompt({ fulfillmentType: draft.fulfillmentType, billingAddress: draft.resolvedDeliveryAddress ?? draft.deliveryAddress }); break;
+    case "awaiting_electronic_billing_info": prompt = buildElectronicBillingPrompt(); break;
+    case "awaiting_payment_method": prompt = buildPaymentPrompt(draft, menu); break;
+    case "awaiting_confirmation": prompt = `${buildOrderSummaryText(draft, draft.paymentMethod ?? "cash")}\n\nResponde “sí” para confirmarlo o dime qué deseas ajustar.`; break;
+    case "awaiting_more_items": prompt = "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?"; break;
+    case "awaiting_guided_item_selection": prompt = "Cuéntame qué productos deseas agregar al pedido."; break;
+    default: prompt = buildClarificationPrompt(next.state); break;
+  }
+  await sendAndLogText(input, `${snapshot}\n\n${prompt}`);
+}
 
-  if (payload.draft.items.length === 0) {
-    await updateConversationState({
+async function tryHandleSemanticControl(input: RouteInboundMessageInput, operation: SemanticOperation): Promise<boolean> {
+  switch (operation.type) {
+    case "reuse_billing_profile":
+      return tryHandleBillingReuseConfirmation(input, { billingDecision: "reuse" });
+    case "change_billing":
+      return tryHandleBillingReuseConfirmation(input, { billingDecision: "change" });
+    case "switch_to_electronic_billing":
+      return tryHandleBillingReuseConfirmation(input, { billingDecision: "switch_to_electronic" });
+    case "edit_order":
+      return tryHandleConfirmation(input, { confirmation: "change" });
+    case "accept_cash_fallback":
+      return tryHandleTransferFallbackPaymentMethod(input, { paymentMethod: "cash" });
+    case "keep_transfer":
+      return tryHandleTransferFallbackPaymentMethod(input, { paymentMethod: "transfer" });
+    default:
+      return false;
+  }
+}
+
+function inferProductQuantity(
+  operation: SemanticOperation,
+  additions: SemanticOperation[],
+  pendingAdjustment: Awaited<ReturnType<typeof getPendingCustomerReplacementOrder>> | undefined,
+  pendingConfiguration: ReturnType<typeof readPendingProductConfiguration> | undefined,
+): number {
+  if (operation.quantity) return Math.max(1, Math.round(operation.quantity));
+  if (pendingConfiguration) return pendingConfiguration.quantity;
+  const unavailable = pendingAdjustment?.order.restaurantReviewMetadata?.unavailableItems ?? [];
+  return additions.length === 1 && unavailable.length === 1 ? Math.max(1, unavailable[0]!.quantity) : 1;
+}
+
+function toSemanticConfigurationSelections(options: OrderLineItemResolvedOption[]): SemanticConfigurationSelection[] {
+  return options
+    .filter((option): option is OrderLineItemResolvedOption & { optionId: string } => Boolean(option.optionId))
+    .map((option) => ({
+      optionId: option.optionId,
+      valueIds: option.selectedValues?.map((value) => value.valueId).filter((id): id is string => Boolean(id)),
+      textValue: option.textValue ?? null,
+    }));
+}
+
+function mergeConfigurationSelections(
+  existing: SemanticConfigurationSelection[],
+  proposed: SemanticConfigurationSelection[] | undefined,
+): SemanticConfigurationSelection[] {
+  const byOptionId = new Map(existing.map((selection) => [selection.optionId, selection]));
+  for (const selection of proposed ?? []) {
+    byOptionId.set(selection.optionId, selection);
+  }
+  return [...byOptionId.values()];
+}
+
+function contextAfterSemanticPlan(
+  input: RouteInboundMessageInput,
+  nextContext: NextStep["context"],
+  pendingConfiguration: ReturnType<typeof readPendingProductConfiguration>,
+): Record<string, unknown> | undefined {
+  if (!pendingConfiguration) return nextContext;
+  const context = { ...(nextContext ?? input.conversation.context) };
+  delete context.pendingConfig;
+  return context;
+}
+
+function findExactDraftLine(items: OrderLineItem[], id: string | null | undefined): number {
+  return id ? items.findIndex((item) => item.id === id) : -1;
+}
+
+function uniqueNotes(notes: string[] | null | undefined): string[] {
+  return Array.from(new Set((notes ?? []).map((note) => note.trim()).filter(Boolean)));
+}
+
+function clearDeliveryPatch(patch: DraftPatch): void {
+  patch.deliveryAddress = undefined;
+  patch.deliveryAddressDetails = undefined;
+  patch.customerAddressText = undefined;
+  patch.resolvedDeliveryAddress = undefined;
+  patch.customerLatitude = undefined;
+  patch.customerLongitude = undefined;
+  patch.deliveryDistanceKm = undefined;
+  patch.isInsideDeliveryCoverage = undefined;
+  patch.coverageValidationMethod = "not_validated";
+  patch.coverageConfidence = undefined;
+  patch.coverageCheckedAt = undefined;
+}
+
+function invalid(code: string, message: string) {
+  return { kind: "invalid" as const, code, message };
+}
+
+function classifySemanticFailure(error: unknown): string {
+  if (error instanceof SemanticOperationPlanInferenceError) {
+    const finalFailure = semanticOperationPlanFailureDiagnostics(error).finalFailure;
+    if (finalFailure && typeof finalFailure === "object" && "errorCode" in finalFailure && typeof finalFailure.errorCode === "string") {
+      return finalFailure.errorCode;
+    }
+  }
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("timeout")) return "provider_timeout";
+  if (message.includes("network")) return "provider_network_error";
+  if (message.includes("quota")) return "provider_quota_exceeded";
+  if (message.includes("stale")) return "concurrency_conflict";
+  if (message.includes("supabase_rpc_failed")) return "draft_operation_rpc_failed";
+  if (message.includes("semantic_parser.not_configured")) return "semantic_provider_not_configured";
+  return "unknown_failure";
+}
+
+async function handleSemanticProviderFailure(
+  input: RouteInboundMessageInput,
+  diagnostics: Record<string, unknown>,
+): Promise<void> {
+  const client = createSupabaseRestClient(input.env);
+  const [existingAlert] = await client.select<{ id: string }>({
+    schema: input.tenant.schemaName,
+    table: "human_intervention_alerts",
+    query: {
+      select: "id",
+      conversation_id: `eq.${input.conversation.id}`,
+      type: "eq.technical_error",
+      status: "in.(open,acknowledged)",
+      limit: 1,
+    },
+  }).catch(() => []);
+
+  if (!existingAlert) {
+    await persistHumanInterventionAlert({
       env: input.env,
       schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_guided_item_selection",
-      context,
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-
-    await sendAndLogText(input, buildOrderAdjustedPrompt(payload.draft));
-    return;
-  }
-
-  if (payload.signals.fulfillmentType || payload.signals.paymentMethod) {
-    await proceedToNextOrderStep(input, {
-      menu: payload.menu,
-      draft: payload.draft,
-      context,
+      alert: {
+        conversationId: input.conversation.id,
+        draftOrderId: input.conversation.currentDraftOrderId,
+        type: "technical_error",
+        title: "No se pudo interpretar un pedido",
+        description: "El proveedor de IA no pudo completar una operación semántica. El pedido no fue modificado.",
+        metadata: {
+          source: "semantic_operation_plan",
+          ...diagnostics,
+        },
+      },
+    }).catch((alertError: unknown) => {
+      logRoutingDiagnostic(input, "semantic_operation_plan.alert_failed", {
+        reason: classifySemanticFailure(alertError),
+      });
     });
-    return;
   }
 
-  if (input.conversation.state === "awaiting_confirmation" && draftReadyForSummary(payload.draft)) {
-    await updateConversationState({
-      env: input.env,
-      schemaName: input.tenant.schemaName,
-      conversationId: input.conversation.id,
-      state: "awaiting_confirmation",
-      context,
-      resetClarificationAttempts: true,
-    }).catch(() => undefined);
-
-    await sendAndLogText(input, buildOrderAdjustedPrompt(payload.draft));
-    return;
-  }
-
-  await updateConversationState({
-    env: input.env,
-    schemaName: input.tenant.schemaName,
-    conversationId: input.conversation.id,
-    state: "awaiting_more_items",
-    context,
-    resetClarificationAttempts: true,
-  }).catch(() => undefined);
-
-  await sendAndLogText(input, buildOrderAdjustedPrompt(payload.draft));
+  await sendAndLogText(
+    input,
+    "Estoy teniendo un inconveniente temporal para procesar tu pedido. Tu pedido no cambió. Inténtalo de nuevo en unos minutos o escribe asesor para recibir ayuda.",
+  );
 }

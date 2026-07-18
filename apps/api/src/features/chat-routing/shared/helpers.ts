@@ -40,43 +40,6 @@ export function buildGuidedContext(menu: TodayMenuPayload, selectedItem: MenuIte
   };
 }
 
-export function resolveReplacementOptionSelection(input: {
-  normalizedText: string;
-  numericSelection: number | null;
-  replacementOptions: Array<{
-    menuItemId: string;
-    name: string;
-    price?: number;
-  }>;
-}): {
-  menuItemId: string;
-  name: string;
-  price?: number;
-} | null {
-  if (input.numericSelection !== null) {
-    const option = input.replacementOptions[input.numericSelection - 1];
-    return option ?? null;
-  }
-
-  if (!input.normalizedText) {
-    return null;
-  }
-
-  const exactMatch = input.replacementOptions.find(
-    (option) => normalizeReplacementSelectionText(option.name) === input.normalizedText,
-  );
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  const partialMatches = input.replacementOptions.filter((option) => {
-    const normalizedName = normalizeReplacementSelectionText(option.name);
-    return normalizedName.includes(input.normalizedText) || input.normalizedText.includes(normalizedName);
-  });
-
-  return partialMatches.length === 1 ? (partialMatches[0] ?? null) : null;
-}
-
 export function mergeSemanticSignals(signals: DetectedSignals, parsed: SemanticParserResult): DetectedSignals {
   const fulfillmentText = parsed.draftFacts?.fulfillmentConfidence !== undefined && parsed.draftFacts.fulfillmentConfidence < 0.75
     ? undefined
@@ -172,16 +135,6 @@ export function isActiveOrderState(state: Conversation["state"]): boolean {
     "awaiting_transfer_proof",
     "awaiting_transfer_fallback_payment_method",
   ].includes(state);
-}
-
-function normalizeReplacementSelectionText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function parseSemanticConfirmation(text: string | null | undefined): "yes" | "no" | "change" | null {

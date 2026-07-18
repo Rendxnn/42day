@@ -83,7 +83,6 @@ begin
   execute format('alter default privileges in schema %I grant all privileges on routines to service_role', target_schema);
   execute format('alter default privileges in schema %I grant all privileges on sequences to service_role', target_schema);
 end $$;
-
 create or replace function control.provision_restaurant_tenant(
   p_name text,
   p_slug text,
@@ -331,10 +330,8 @@ begin
   where t.id = tenant_id;
 end;
 $$;
-
 revoke all on function control.provision_restaurant_tenant(text, text, text, text, text, text, boolean, text, text, text, integer) from public;
 revoke all on function control.provision_restaurant_tenant(text, text, text, text, text, text, boolean, text, text, text, integer) from anon;
 revoke all on function control.provision_restaurant_tenant(text, text, text, text, text, text, boolean, text, text, text, integer) from authenticated;
 grant execute on function control.provision_restaurant_tenant(text, text, text, text, text, text, boolean, text, text, text, integer) to service_role;
-
 notify pgrst, 'reload schema';
