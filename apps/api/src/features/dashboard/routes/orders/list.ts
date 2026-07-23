@@ -9,6 +9,7 @@ import {
   isOpenDraftOrder,
   mapOpenConversationSummary,
   mapOpenOrderSummary,
+  mapConversationAutomation,
   mapOrderLineItem,
   mapOrderSummary,
   mapOrderSummaryAsOpenSummary,
@@ -170,10 +171,15 @@ export function registerOrdersListRoute(routes: Hono<{
       itemsByDraftOrderId.set(item.draft_order_id, current);
     }
 
-    const summaries = orders.map((order) => ({
-      ...mapOrderSummary(order, customerById.get(order.customer_id)),
-      items: (itemsByOrderId.get(order.id) ?? []).map(mapOrderLineItem),
-    }));
+    const summaries = orders.map((order) => {
+      const conversation = order.draft_order_id ? conversationByDraftOrderId.get(order.draft_order_id) : undefined;
+      return {
+        ...mapOrderSummary(order, customerById.get(order.customer_id)),
+        conversationId: conversation?.id,
+        conversationAutomation: conversation ? mapConversationAutomation(conversation) : undefined,
+        items: (itemsByOrderId.get(order.id) ?? []).map(mapOrderLineItem),
+      };
+    });
 
     const openOrdersByKey = new Map<string, OpenOrderSummary>();
     for (const conversation of conversations.filter(isOpenConversation)) {

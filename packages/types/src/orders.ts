@@ -33,6 +33,7 @@ export type CoverageConfidence = "high" | "medium" | "low" | "failed";
 export type OrdersBucket = "pending_confirmation" | "active" | "history" | "all";
 export type CustomerNotificationStatus = "pending" | "sent" | "failed";
 export type OrderCustomerNotificationType = "accepted" | "out_of_stock" | "order_status";
+export type KitchenProgress = 0 | 25 | 50 | 75 | 100;
 export type OpenOrderStatus =
   | Exclude<DraftOrderStatus, "confirmed" | "cancelled" | "expired">
   | OrderStatus
@@ -245,6 +246,10 @@ export type Order = {
   customerNotificationStatus?: CustomerNotificationStatus;
   customerNotificationError?: string;
   paymentConfirmedAt?: string;
+  kitchenProgress: KitchenProgress;
+  kitchenStageLabel?: string;
+  kitchenProgressUpdatedAt?: string;
+  kitchenProgressUpdatedBy?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -285,7 +290,13 @@ export type OrderSummary = {
   customerNotificationStatus?: CustomerNotificationStatus;
   customerNotificationError?: string;
   paymentConfirmedAt?: string;
+  paymentProofFileId?: string;
+  kitchenProgress: KitchenProgress;
+  kitchenStageLabel?: string;
+  kitchenProgressUpdatedAt?: string;
+  kitchenProgressUpdatedBy?: string;
   conversationId?: string;
+  conversationAutomation?: ConversationAutomation;
   whatsappUrl?: string;
   createdAt: string;
   updatedAt: string;

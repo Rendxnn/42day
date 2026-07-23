@@ -71,6 +71,7 @@ publicCartaRoutes.get("/public/:tenantSlug/carta", async (c) => {
           select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
           menu_id: `eq.${menu.id}`,
           is_available: "eq.true",
+          removed_at: "is.null",
           order: "sort_order.asc",
         },
       })
@@ -98,6 +99,7 @@ publicCartaRoutes.get("/public/:tenantSlug/carta", async (c) => {
     location: location ? mapLocation(location) : undefined,
     menu: menu ? mapMenu(menu) : undefined,
     items: itemRows
+      .filter((item) => !item.product_id || productById.has(item.product_id))
       .map((item) => mapMenuItem(item, productById.get(item.product_id ?? "")))
       .filter((item) => item.product?.isActive !== false),
   };

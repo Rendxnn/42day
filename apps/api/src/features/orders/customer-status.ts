@@ -1,4 +1,4 @@
-import type { FulfillmentType, OrderStatus } from "@42day/types";
+import type { FulfillmentType, KitchenProgress, OrderStatus } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
@@ -6,6 +6,8 @@ export type CustomerOrderStatus = {
   id: string;
   status: OrderStatus;
   fulfillmentType: FulfillmentType;
+  kitchenProgress?: KitchenProgress;
+  kitchenStageLabel?: string;
   updatedAt: string;
 };
 
@@ -43,12 +45,14 @@ export async function getLatestCustomerOrderStatus(input: {
     id: string;
     status: OrderStatus;
     fulfillment_type: FulfillmentType;
+    kitchen_progress?: KitchenProgress | null;
+    kitchen_stage_label?: string | null;
     updated_at: string;
   }>({
     schema: input.schemaName,
     table: "orders",
     query: {
-      select: "id,status,fulfillment_type,updated_at",
+      select: "id,status,fulfillment_type,kitchen_progress,kitchen_stage_label,updated_at",
       draft_order_id: `in.(${Array.from(draftOrderIds).join(",")})`,
       order: "updated_at.desc",
       limit: 1,
@@ -63,6 +67,8 @@ export async function getLatestCustomerOrderStatus(input: {
     id: order.id,
     status: order.status,
     fulfillmentType: order.fulfillment_type,
+    kitchenProgress: order.kitchen_progress ?? 0,
+    kitchenStageLabel: order.kitchen_stage_label ?? undefined,
     updatedAt: order.updated_at,
   };
 }

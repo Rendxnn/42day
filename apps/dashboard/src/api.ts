@@ -4,6 +4,7 @@ import type {
   ConversationAutomation,
   DeliveryCoverageSettings,
   HumanInterventionAlert,
+  KitchenProgress,
   MenuItem,
   DashboardNotificationRecord,
   OrderCustomerNotificationType,
@@ -11,6 +12,7 @@ import type {
   OrdersBucket,
   OrdersDashboardPayload,
   OrderStatus,
+  OrderSummary,
   Product,
   PublicCartaPayload,
   RejectOutOfStockOrderRequest,
@@ -184,6 +186,71 @@ export type AdminRestaurant = {
   };
 };
 
+export type RestaurantAnalyticsPayload = {
+  dataStatus: "ready" | "empty";
+  metrics: {
+    agentServedConversations: number;
+    purchaseIntentConversations: number;
+    agentConfirmedOrders: number;
+    closeRatePercent: number | null;
+    humanInterventionConversations: number;
+    averageFirstResponseMinutes: number | null;
+    averageCompletionMinutes: number | null;
+    totalValue: number;
+    averageTicket: number;
+    manualCorrections: number;
+    manualCorrectionRatePercent: number | null;
+  };
+  funnel: {
+    items: Array<{ key: string; label: string; value: number }>;
+    losses: Record<string, number>;
+  };
+  timing: {
+    averageFirstResponseMinutes: number | null;
+    averageCompletionMinutes: number | null;
+    responseSampleSize: number;
+    completionSampleSize: number;
+    completionBuckets: Array<{ key: string; label: string; value: number }>;
+    underFivePercent: number | null;
+    underTenPercent: number | null;
+  };
+  activity: {
+    daily: Array<{ date: string; value: number }>;
+    hourly: Array<{ hour: number; value: number }>;
+  };
+  abandonment: {
+    value: number;
+    byCurrentState: Array<{ key: string; value: number }>;
+    note: string;
+  };
+  humanIntervention: {
+    conversations: number;
+    alerts: number;
+    unresolved: number;
+    reasons: Array<{ key: string; value: number }>;
+  };
+  quality: {
+    withoutManualCorrection: number;
+    restaurantCorrections: number;
+    unavailableItemEvents: number;
+    cancelledAfterAvailabilityIssue: number;
+    incompleteOrders: number | null;
+    duplicateOrders: number | null;
+  };
+  limitations: string[];
+};
+
+export type RestaurantAnalyticsSnapshot = {
+  id: string;
+  tenantId: string;
+  rangeStart: string;
+  rangeEnd: string;
+  timezone: string;
+  payload: RestaurantAnalyticsPayload;
+  previousPayload: RestaurantAnalyticsPayload;
+  calculatedAt: string;
+};
+
 export type CreateAdminRestaurantPayload = {
   name: string;
   slug?: string;
@@ -331,6 +398,19 @@ export function listAdminRestaurants() {
   return request<{ restaurants: AdminRestaurant[] }>("/admin/restaurants");
 }
 
+export function listRestaurantAnalytics(startDate: string, endDate: string) {
+  return request<{ range: { startDate: string; endDate: string }; snapshots: RestaurantAnalyticsSnapshot[] }>(
+    `/admin/analytics?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+  );
+}
+
+export function calculateRestaurantAnalytics(restaurantId: string, startDate: string, endDate: string) {
+  return request<{ snapshot: RestaurantAnalyticsSnapshot }>(`/admin/analytics/restaurants/${restaurantId}/calculate`, {
+    method: "POST",
+    body: JSON.stringify({ startDate, endDate }),
+  });
+}
+
 export function createAdminRestaurant(payload: CreateAdminRestaurantPayload) {
   return request<{ restaurant: AdminRestaurant; owner?: AdminRestaurantMember; temporaryPassword?: string }>("/admin/restaurants", {
     method: "POST",
@@ -439,6 +519,20 @@ export function getOrderPaymentProof(tenantSlug: string, orderId: string) {
 export function confirmOrderPaymentProof(tenantSlug: string, orderId: string) {
   return request<{ ok: true }>(`/${tenantSlug}/orders/${orderId}/payment-proof/confirm`, {
     method: "POST",
+  });
+}
+
+export function updateOrderKitchenProgress(
+  tenantSlug: string,
+  orderId: string,
+  patch: {
+    progress?: KitchenProgress;
+    label?: string | null;
+  },
+) {
+  return request<OrderSummary>(`/${tenantSlug}/orders/${orderId}/kitchen-progress`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
   });
 }
 

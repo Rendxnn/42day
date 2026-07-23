@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import type { ConversationAutomation, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { ConversationAutomation, KitchenProgress, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
@@ -10,6 +10,7 @@ import {
   rejectOrderOutOfStock,
   retryOrderCustomerNotification,
   updateConversationAutomation,
+  updateOrderKitchenProgress,
   updateOrderStatus,
 } from "./api";
 import {
@@ -19,8 +20,13 @@ import {
   ChevronRight,
   ClipboardList,
   ExternalLink,
+  Eye,
+  LayoutGrid,
+  List,
+  Lock,
   Loader2,
   MessageSquareWarning,
+  Pencil,
   RefreshCcw,
   Store,
   Truck,
@@ -45,9 +51,11 @@ type OrdersViewProps = {
 };
 
 type OrdersFilter = "open" | "pending" | "confirmed" | "closed";
+type OrdersLayout = "queue" | "board";
 type ClosedRange = "today" | "7d" | "30d" | "custom";
 type PendingLane = "restaurant" | "customer";
 type ReplacementScope = "same" | "other";
+type OperationalStageId = "open" | "review" | "preparing" | "ready" | "finished";
 
 type OrdersFilterConfig = {
   id: OrdersFilter;
@@ -80,6 +88,8 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   activeOrdersLocale = locale;
   const filterTabs = useMemo(() => getFilterTabs(locale), [locale]);
   const [filter, setFilter] = useState<OrdersFilter>("open");
+  const [queueStage, setQueueStage] = useState<OperationalStageId>("open");
+  const [layout, setLayout] = useState<OrdersLayout>("queue");
   const [pendingLane, setPendingLane] = useState<PendingLane>("restaurant");
   const [closedRange, setClosedRange] = useState<ClosedRange>("today");
   const [customClosedDate, setCustomClosedDate] = useState(() => getLocalDateKey(new Date()));
@@ -212,35 +222,52 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
     [allOrders],
   );
   const pendingLaneOrders = pendingLane === "restaurant" ? pendingRestaurantOrders : pendingCustomerOrders;
+  const operationalGroups = useMemo(
+    () => getOperationalGroups(allOrders, openOrders, closedOrders),
+    [allOrders, closedOrders, openOrders],
+  );
+  const queueStageTabs = useMemo(() => [
+    {
+      id: "open" as const,
+      label: locale === "en" ? "Open" : "Abiertos",
+      count: operationalGroups.activeOpenChats.length + operationalGroups.rebuildingOrders.length,
+    },
+    {
+      id: "review" as const,
+      label: locale === "en" ? "Review" : "Por confirmar",
+      count: operationalGroups.reviewOrders.length,
+    },
+    {
+      id: "preparing" as const,
+      label: locale === "en" ? "Preparing" : "En preparación",
+      count: operationalGroups.paymentReviewOrders.length + operationalGroups.paymentValidatedOrders.length,
+    },
+    {
+      id: "ready" as const,
+      label: locale === "en" ? "Ready" : "Listos",
+      count: operationalGroups.readyDeliveryOrders.length + operationalGroups.readyPickupOrders.length,
+    },
+    {
+      id: "finished" as const,
+      label: locale === "en" ? "Finished" : "Finalizados",
+      count: operationalGroups.finishedOrders.length,
+    },
+  ], [locale, operationalGroups]);
 
   useEffect(() => {
-    if (filter === "open") {
-      setSelectedOrderId("");
-      setSelectedOrder(null);
-      setDetailError("");
-      setDetailOpen(false);
-      return;
-    }
-
-    if (filteredOrders.length === 0) {
-      setSelectedOrderId("");
-      setSelectedOrder(null);
-      setDetailError("");
-      return;
-    }
-
-    if (!filteredOrders.some((order) => order.id === selectedOrderId)) {
+    if (selectedOrderId && !allOrders.some((order) => order.id === selectedOrderId)) {
       setSelectedOrderId("");
       setSelectedOrder(null);
       setDetailOpen(false);
     }
-  }, [filter, filteredOrders, selectedOrderId]);
+  }, [allOrders, selectedOrderId]);
 
   useEffect(() => {
     if (!focusOrderId) return;
     const target = allOrders.find((order) => order.id === focusOrderId);
     if (!target) return;
 
+    setQueueStage(getOperationalStageId(target));
     if (pendingStatuses.includes(target.status)) {
       setFilter("pending");
     } else if (confirmedStatuses.includes(target.status)) {
@@ -375,7 +402,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
     }
   }
 
-  async function handleViewPaymentProof(order: OrderDetail) {
+  async function handleViewPaymentProof(order: Pick<OrderSummary, "id">) {
     setActionKey(`proof:view:${order.id}`);
     try {
       const blob = await getOrderPaymentProof(tenantSlug, order.id);
@@ -389,7 +416,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
     }
   }
 
-  async function handleConfirmPaymentProof(order: OrderDetail) {
+  async function handleConfirmPaymentProof(order: Pick<OrderSummary, "id">) {
     setActionKey(`proof:confirm:${order.id}`);
     try {
       await confirmOrderPaymentProof(tenantSlug, order.id);
@@ -412,6 +439,70 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
     } finally {
       setActionKey("");
     }
+  }
+
+  async function handleBoardStatusMove(order: OrderSummary, nextStatus: Extract<OrderStatus, "accepted" | "preparing" | "on_the_way" | "delivered">) {
+    const action = nextStatus === "accepted" ? `accept:${order.id}` : `status:${order.id}:${nextStatus}`;
+    const copy = {
+      accepted: locale === "en" ? "Order confirmed and ready for preparation." : "Pedido confirmado y listo para preparación.",
+      preparing: locale === "en" ? "Order moved to preparation." : "Pedido movido a preparación.",
+      on_the_way: order.fulfillmentType === "delivery"
+        ? (locale === "en" ? "Order marked as on the way." : "Pedido marcado en camino.")
+        : (locale === "en" ? "Order marked as ready for pickup." : "Pedido marcado listo para recoger."),
+      delivered: locale === "en" ? "Order completed and moved to finished." : "Pedido finalizado y movido a completados.",
+    }[nextStatus];
+
+    setActionKey(action);
+    try {
+      if (nextStatus === "accepted") {
+        await acceptOrder(tenantSlug, order.id);
+      } else {
+        await updateOrderStatus(tenantSlug, order.id, { status: nextStatus });
+      }
+      onNotify(copy);
+      await refreshAfterMutation(order.id);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not move the order." : "No se pudo mover el pedido.", locale));
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  function notifyBlockedMove() {
+    onNotify(locale === "en" ? "Complete the stage to drag" : "Completar etapa para arrastrar");
+  }
+
+  function handleStageDrop(order: OrderSummary, targetStage: OperationalStageId) {
+    const nextStatus = resolveDropStatus(order, targetStage);
+    if (!nextStatus) {
+      if (getOperationalStageId(order) !== targetStage) notifyBlockedMove();
+      return;
+    }
+    void handleBoardStatusMove(order, nextStatus);
+  }
+
+  async function handleKitchenProgress(
+    order: OrderSummary,
+    patch: { progress?: KitchenProgress; label?: string | null },
+  ) {
+    setActionKey(`kitchen:${order.id}`);
+    try {
+      await updateOrderKitchenProgress(tenantSlug, order.id, patch);
+      onNotify(locale === "en" ? "Kitchen progress updated." : "Progreso de cocina actualizado.");
+      await refreshAfterMutation(order.id);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not update kitchen progress." : "No se pudo actualizar el progreso de cocina.", locale));
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  function openOrderFromBoard(order: OrderSummary) {
+    // Keep the operational context visible: board cards open their detail in
+    // the bottom sheet instead of redirecting the restaurant to the queue.
+    setDetailError("");
+    setSelectedOrderId(order.id);
+    setDetailOpen(true);
   }
 
   async function handleCancelOrder(order: OrderDetail) {
@@ -439,6 +530,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
 
     const linked = allOrders.find((order) => order.id === openOrder.linkedOrderId);
     if (linked) {
+      setQueueStage(getOperationalStageId(linked));
       setFilter(resolveFilterForOrderStatus(linked.status));
     }
     setSelectedOrderId(openOrder.linkedOrderId);
@@ -463,38 +555,30 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
 
   return (
     <section className="space-y-4 sm:space-y-6">
-      <div className="app-panel rounded-[20px] px-4 py-3 sm:rounded-[22px] sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Live operation" : "Operacion en vivo"}</p>
-            <h2 className="mt-1 text-lg font-semibold text-[var(--text-strong)]">{locale === "en" ? "Order queue" : "Bandeja de pedidos"}</h2>
-          </div>
-          <div className="grid w-full grid-cols-4 gap-1.5 sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-            <MetricChip label={locale === "en" ? "Open" : "Abiertos"} value={counts.open} />
-            <MetricChip label={locale === "en" ? "Pending" : "Pendientes"} value={counts.pending} />
-            <MetricChip label={locale === "en" ? "Confirmed" : "Confirmados"} value={counts.confirmed} />
-            <MetricChip label={locale === "en" ? "Closed" : "Cerrados"} value={counts.closed} />
-          </div>
-        </div>
-      </div>
-
       <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
-        <div className="app-panel grid flex-1 grid-cols-4 gap-1 rounded-[20px] p-1.5 sm:gap-2 sm:rounded-[22px] sm:p-2">
-          {filterTabs.map((tab) => {
-            const active = filter === tab.id;
+        <div className={`${layout === "board" ? "hidden" : "grid"} app-panel flex-1 grid-cols-5 gap-1 rounded-[20px] p-1.5 sm:gap-2 sm:rounded-[22px] sm:p-2`}>
+          {queueStageTabs.map((tab) => {
+            const active = queueStage === tab.id;
             return (
               <button
-                className={`min-h-12 rounded-[15px] border px-1.5 py-2 text-center transition sm:min-h-[58px] sm:px-3 ${
-                  getFilterTabClasses(tab.id, active)
+                className={`min-h-12 rounded-[15px] border px-1 py-2 text-center transition sm:min-h-[58px] sm:px-3 ${
+                  active
+                    ? "border-[rgba(137,164,196,0.28)] bg-[var(--surface-pending)] text-[var(--text-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]"
+                    : "border-transparent text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"
                 }`}
                 key={tab.id}
-                onClick={() => setFilter(tab.id)}
+                onClick={() => {
+                  setQueueStage(tab.id);
+                  setSelectedOrderId("");
+                  setSelectedOrder(null);
+                  setDetailOpen(false);
+                }}
                 type="button"
               >
                 <div className="flex flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2">
-                  <span className="text-[11px] font-semibold sm:text-sm">{tab.label}</span>
-                  <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:min-w-7 sm:px-2 sm:text-xs ${getFilterCountClasses(tab.id, active)}`}>
-                    {counts[tab.id]}
+                  <span className="text-[10px] font-semibold sm:text-sm">{tab.label}</span>
+                  <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:min-w-7 sm:px-2 sm:text-xs ${active ? "bg-[rgba(137,164,196,0.2)] text-[#4d6783]" : "bg-[rgba(118,93,71,0.08)] text-[var(--text-faint)]"}`}>
+                    {tab.count}
                   </span>
                 </div>
               </button>
@@ -502,19 +586,79 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
           })}
         </div>
 
-        <button
-          className="inline-flex h-11 self-end items-center justify-center gap-2 rounded-[14px] border border-[rgba(255,242,227,0.12)] bg-[var(--surface-dark-button)] px-3 text-xs font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.12)] disabled:cursor-not-allowed disabled:opacity-60 lg:h-[58px] lg:min-w-[120px] lg:text-sm"
-          disabled={ordersRefreshing}
-          onClick={() => void loadOrders("refresh")}
-          type="button"
-        >
-          {ordersRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCcw size={16} />}
-          {locale === "en" ? "Refresh" : "Actualizar"}
-        </button>
+        <div className="flex items-center gap-2 self-end">
+          <OrdersLayoutToggle layout={layout} locale={locale} onChange={setLayout} />
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(255,242,227,0.12)] bg-[var(--surface-dark-button)] px-3 text-xs font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.12)] disabled:cursor-not-allowed disabled:opacity-60 lg:h-[58px] lg:min-w-[120px] lg:text-sm"
+            disabled={ordersRefreshing}
+            onClick={() => void loadOrders("refresh")}
+            type="button"
+          >
+            {ordersRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCcw size={16} />}
+            {locale === "en" ? "Refresh" : "Actualizar"}
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(360px,440px)_minmax(0,1fr)]">
-        <div className="app-panel overflow-hidden rounded-[22px] sm:rounded-[24px]">
+      <div className={`${layout === "board" ? "block" : "hidden"} app-panel overflow-hidden rounded-[20px] sm:rounded-[22px]`}>
+        <div className="px-4 pt-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+          {locale === "en" ? "Finished order range" : "Rango de pedidos finalizados"}
+        </div>
+        <ClosedOrdersFilter
+          customDate={customClosedDate}
+          locale={locale}
+          range={closedRange}
+          onChangeCustomDate={setCustomClosedDate}
+          onChangeRange={setClosedRange}
+        />
+      </div>
+
+      {layout === "board" ? (
+        <OrdersBoard
+          actionKey={actionKey}
+          allOrders={allOrders}
+          closedOrders={closedOrders}
+          locale={locale}
+          onBlockedMove={notifyBlockedMove}
+          onCancel={(order) => void openCancelConfirmation(order.id)}
+          onConfirmPayment={(order) => void handleConfirmPaymentProof(order)}
+          onDropOrder={handleStageDrop}
+          onKitchenProgress={(order, patch) => void handleKitchenProgress(order, patch)}
+          onMove={(order, status) => void handleBoardStatusMove(order, status)}
+          onOpenChat={setOpenConversationDetail}
+          onOpenOrder={openOrderFromBoard}
+          onToggleAutomation={(automation, enabled) => requestConversationAutomation(automation, enabled)}
+          onViewPayment={(order) => void handleViewPaymentProof(order)}
+          openOrders={openOrders}
+        />
+      ) : null}
+
+      <div className={`${layout === "board" ? "hidden" : "grid"} gap-4 xl:grid-cols-[minmax(360px,440px)_minmax(0,1fr)]`}>
+        <RestoredOrdersQueueList
+          actionKey={actionKey}
+          customClosedDate={customClosedDate}
+          groups={operationalGroups}
+          locale={locale}
+          loading={ordersLoading}
+          error={ordersError}
+          onAccept={(order) => void handleAccept(order.id)}
+          onCancel={(order) => void openCancelConfirmation(order.id)}
+          onChangeClosedDate={setCustomClosedDate}
+          onChangeClosedRange={setClosedRange}
+          onConfirmPayment={(order) => void handleConfirmPaymentProof(order)}
+          onKitchenProgress={(order, patch) => void handleKitchenProgress(order, patch)}
+          onMove={(order, status) => void handleBoardStatusMove(order, status)}
+          onOpenChat={setOpenConversationDetail}
+          onOpenOrder={(order) => openOrderDetail(order.id)}
+          onOpenWhatsapp={(order) => openWhatsAppConversation(order.whatsappUrl)}
+          onReportOutOfStock={(order) => void openOutOfStock(order.id)}
+          onToggleAutomation={(automation, enabled) => requestConversationAutomation(automation, enabled)}
+          onViewPayment={(order) => void handleViewPaymentProof(order)}
+          range={closedRange}
+          stage={queueStage}
+        />
+
+        <div className="hidden app-panel overflow-hidden rounded-[22px] sm:rounded-[24px]">
           <div className="flex items-center justify-between border-b border-[rgba(118,93,71,0.12)] px-4 py-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{getFilterLabel(filter, locale)}</p>
@@ -568,9 +712,14 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                   locale={locale}
                   onAccept={() => void handleAccept(order.id)}
                   onCancel={() => void openCancelConfirmation(order.id)}
+                  onConfirmPayment={() => void handleConfirmPaymentProof(order)}
+                  onKitchenProgress={(patch) => void handleKitchenProgress(order, patch)}
+                  onMove={(status) => void handleBoardStatusMove(order, status)}
                   onOpen={() => openOrderDetail(order.id)}
                   onOpenWhatsapp={() => openWhatsAppConversation(order.whatsappUrl)}
                   onReportOutOfStock={() => void openOutOfStock(order.id)}
+                  onToggleAutomation={(enabled) => requestConversationAutomation(order.conversationAutomation, enabled)}
+                  onViewPayment={() => void handleViewPaymentProof(order)}
                   order={order}
                 />
               ))}
@@ -757,8 +906,15 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
       </div>
 
       {detailOpen ? (
-        <div className="fixed inset-0 z-40 flex items-end bg-[rgba(14,11,9,0.58)] backdrop-blur-sm xl:hidden" onClick={() => setDetailOpen(false)}>
-          <div className="app-panel app-scrollbar max-h-[92dvh] w-full overflow-y-auto rounded-t-[28px]" onClick={(event) => event.stopPropagation()}>
+        <div className={`fixed inset-0 z-40 flex items-end bg-[rgba(14,11,9,0.58)] backdrop-blur-sm ${layout === "board" ? "" : "xl:hidden"}`} onClick={() => setDetailOpen(false)}>
+          <div
+            aria-label={locale === "en" ? "Order detail" : "Detalle del pedido"}
+            aria-modal="true"
+            className={`app-panel app-scrollbar max-h-[92dvh] w-full overflow-y-auto rounded-t-[28px] ${layout === "board" ? "order-detail-sheet mx-auto max-w-[1160px] rounded-t-[32px]" : ""}`}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            {layout === "board" ? <div aria-hidden="true" className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-[rgba(118,93,71,0.28)]" /> : null}
             {detailLoading ? (
               <LoadingBlock copy={locale === "en" ? "Loading order details..." : "Cargando detalle del pedido..."} />
             ) : detailError ? (
@@ -835,6 +991,925 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
       )}
     </section>
   );
+}
+
+function OrdersLayoutToggle({
+  layout,
+  locale,
+  onChange,
+}: {
+  layout: OrdersLayout;
+  locale: "en" | "es";
+  onChange: (layout: OrdersLayout) => void;
+}) {
+  return (
+    <div className="app-panel flex h-11 items-center gap-1 rounded-[14px] p-1 lg:h-[58px] lg:rounded-[18px]" role="group" aria-label={locale === "en" ? "Order view" : "Vista de pedidos"}>
+      <button
+        aria-pressed={layout === "queue"}
+        className={`inline-flex h-full items-center justify-center gap-2 rounded-[10px] px-3 text-xs font-bold transition ${layout === "queue" ? "bg-[var(--panel-strong)] text-[var(--text-strong)] shadow-sm" : "text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"}`}
+        onClick={() => onChange("queue")}
+        title={locale === "en" ? "Queue view" : "Vista de bandeja"}
+        type="button"
+      >
+        <List size={16} />
+        <span className="hidden sm:inline">{locale === "en" ? "Queue" : "Bandeja"}</span>
+      </button>
+      <button
+        aria-pressed={layout === "board"}
+        className={`inline-flex h-full items-center justify-center gap-2 rounded-[10px] px-3 text-xs font-bold transition ${layout === "board" ? "bg-[var(--panel-strong)] text-[var(--text-strong)] shadow-sm" : "text-[var(--text-soft)] hover:bg-[var(--surface-muted)]"}`}
+        onClick={() => onChange("board")}
+        title={locale === "en" ? "Board view" : "Vista de tablero"}
+        type="button"
+      >
+        <LayoutGrid size={16} />
+        <span className="hidden sm:inline">{locale === "en" ? "Board" : "Tablero"}</span>
+      </button>
+    </div>
+  );
+}
+
+type OperationalOrdersProps = {
+  actionKey: string;
+  allOrders: OrderSummary[];
+  closedOrders: OrderSummary[];
+  locale: "en" | "es";
+  onBlockedMove: () => void;
+  onCancel: (order: OrderSummary) => void;
+  onConfirmPayment: (order: OrderSummary) => void;
+  onDropOrder: (order: OrderSummary, stage: OperationalStageId) => void;
+  onKitchenProgress: (order: OrderSummary, patch: { progress?: KitchenProgress; label?: string | null }) => void;
+  onMove: (order: OrderSummary, status: Extract<OrderStatus, "accepted" | "preparing" | "on_the_way" | "delivered">) => void;
+  onOpenChat: (order: OpenOrderSummary) => void;
+  onOpenOrder: (order: OrderSummary) => void;
+  onToggleAutomation: (automation: ConversationAutomation | undefined, enabled: boolean) => void;
+  onViewPayment: (order: OrderSummary) => void;
+  openOrders: OpenOrderSummary[];
+};
+
+function getOperationalGroups(allOrders: OrderSummary[], openOrders: OpenOrderSummary[], closedOrders: OrderSummary[]) {
+  const rebuildingOrders = allOrders.filter((order) => order.status === "needs_customer_replacement");
+  const boardOrderIds = new Set(allOrders.map((order) => order.id));
+  const activeOpenChats = openOrders.filter((order) => !order.linkedOrderId || !boardOrderIds.has(order.linkedOrderId));
+  const reviewOrders = allOrders.filter((order) => ["new", "pending_restaurant_confirmation"].includes(order.status));
+  const paymentReviewOrders = allOrders.filter((order) =>
+    order.status === "payment_pending_review"
+    || (["accepted", "preparing"].includes(order.status) && order.paymentMethod === "transfer" && !order.paymentConfirmedAt));
+  const paymentValidatedOrders = allOrders.filter((order) =>
+    ["accepted", "preparing"].includes(order.status)
+    && (order.paymentMethod === "cash" || Boolean(order.paymentConfirmedAt)));
+  const readyDeliveryOrders = allOrders.filter((order) => order.status === "on_the_way" && order.fulfillmentType === "delivery");
+  const readyPickupOrders = allOrders.filter((order) => order.status === "on_the_way" && order.fulfillmentType === "pickup");
+
+  return {
+    rebuildingOrders,
+    activeOpenChats,
+    reviewOrders,
+    paymentReviewOrders,
+    paymentValidatedOrders,
+    readyDeliveryOrders,
+    readyPickupOrders,
+    finishedOrders: closedOrders,
+  };
+}
+
+function OrdersBoard({
+  actionKey,
+  allOrders,
+  closedOrders,
+  locale,
+  onBlockedMove,
+  onCancel,
+  onConfirmPayment,
+  onDropOrder,
+  onKitchenProgress,
+  onMove,
+  onOpenChat,
+  onOpenOrder,
+  onToggleAutomation,
+  onViewPayment,
+  openOrders,
+}: OperationalOrdersProps) {
+  const {
+    rebuildingOrders,
+    activeOpenChats,
+    reviewOrders,
+    paymentReviewOrders,
+    paymentValidatedOrders,
+    readyDeliveryOrders,
+    readyPickupOrders,
+    finishedOrders,
+  } = getOperationalGroups(allOrders, openOrders, closedOrders);
+  const renderOrderCard = (order: OrderSummary) => (
+    <BoardOrderCard
+      actionKey={actionKey}
+      key={order.id}
+      locale={locale}
+      onBlockedMove={onBlockedMove}
+      onCancel={() => onCancel(order)}
+      onConfirmPayment={onConfirmPayment}
+      onKitchenProgress={onKitchenProgress}
+      onMove={onMove}
+      onOpen={() => onOpenOrder(order)}
+      onToggleAutomation={(enabled) => onToggleAutomation(order.conversationAutomation, enabled)}
+      onViewPayment={onViewPayment}
+      order={order}
+    />
+  );
+
+  const columns: Array<{
+    id: string;
+    title: string;
+    description: string;
+    tone: string;
+    labelTone: string;
+    count: number;
+    content: ReactNode;
+  }> = [
+    {
+      id: "open",
+      title: locale === "en" ? "Open chats" : "Chats abiertos",
+      description: locale === "en" ? "New conversations and orders being rebuilt" : "Conversaciones nuevas y pedidos que se están rearmando",
+      tone: "border-[rgba(97,135,158,0.22)] bg-[rgba(220,231,244,0.52)]",
+      labelTone: "bg-[rgba(97,135,158,0.16)] text-[#46697c]",
+      count: activeOpenChats.length + rebuildingOrders.length,
+      content: (
+        <>
+          {rebuildingOrders.length > 0 ? (
+            <BoardSubsection count={rebuildingOrders.length} label={locale === "en" ? "Rebuilding order" : "Rearmando pedido"} tone="warning">
+              {rebuildingOrders.map(renderOrderCard)}
+            </BoardSubsection>
+          ) : null}
+          {activeOpenChats.length > 0 ? (
+            <BoardSubsection count={activeOpenChats.length} label={locale === "en" ? "Building order" : "Armando pedido"} tone="info">
+              {activeOpenChats.map((order) => <BoardOpenChatCard actionKey={actionKey} key={order.id} locale={locale} onOpen={() => onOpenChat(order)} onToggleAutomation={(enabled) => onToggleAutomation(order.conversationAutomation, enabled)} order={order} />)}
+            </BoardSubsection>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: "review",
+      title: locale === "en" ? "Restaurant review" : "Por confirmar",
+      description: locale === "en" ? "The restaurant must confirm availability" : "El restaurante debe confirmar disponibilidad",
+      tone: "border-[rgba(193,157,98,0.26)] bg-[rgba(246,237,213,0.72)]",
+      labelTone: "bg-[rgba(193,157,98,0.2)] text-[#826239]",
+      count: reviewOrders.length,
+      content: reviewOrders.map(renderOrderCard),
+    },
+    {
+      id: "preparing",
+      title: locale === "en" ? "In preparation" : "En preparación",
+      description: locale === "en" ? "Validate payment and move the kitchen forward" : "Valida el pago y avanza el trabajo de cocina",
+      tone: "border-[rgba(132,111,164,0.22)] bg-[rgba(235,229,244,0.72)]",
+      labelTone: "bg-[rgba(132,111,164,0.16)] text-[#65567f]",
+      count: paymentReviewOrders.length + paymentValidatedOrders.length,
+      content: (
+        <>
+          <BoardSubsection count={paymentReviewOrders.length} label={locale === "en" ? "Payment to validate" : "Por validar pago"} tone="payment">
+            {paymentReviewOrders.map(renderOrderCard)}
+          </BoardSubsection>
+          <BoardSubsection count={paymentValidatedOrders.length} label={locale === "en" ? "Payment validated" : "Pago validado"} tone="success">
+            {paymentValidatedOrders.map(renderOrderCard)}
+          </BoardSubsection>
+        </>
+      ),
+    },
+    {
+      id: "ready",
+      title: locale === "en" ? "Ready for pickup / delivery" : "Listo para recoger / domicilio",
+      description: locale === "en" ? "Finish when delivery or pickup is complete" : "Finaliza cuando se entregue o se recoja",
+      tone: "border-[rgba(90,111,170,0.22)] bg-[rgba(224,231,247,0.7)]",
+      labelTone: "bg-[rgba(90,111,170,0.16)] text-[#4c5f8f]",
+      count: readyDeliveryOrders.length + readyPickupOrders.length,
+      content: (
+        <>
+          <BoardSubsection count={readyDeliveryOrders.length} label={locale === "en" ? "Home delivery" : "Domicilio"} tone="delivery">
+            {readyDeliveryOrders.map(renderOrderCard)}
+          </BoardSubsection>
+          <BoardSubsection count={readyPickupOrders.length} label={locale === "en" ? "Pickup" : "Para recoger"} tone="pickup">
+            {readyPickupOrders.map(renderOrderCard)}
+          </BoardSubsection>
+        </>
+      ),
+    },
+    {
+      id: "finished",
+      title: locale === "en" ? "Finished" : "Finalizados",
+      description: locale === "en" ? "Delivered or cancelled" : "Entregados o cancelados",
+      tone: "border-[rgba(118,93,71,0.16)] bg-[rgba(239,234,228,0.78)]",
+      labelTone: "bg-[rgba(118,93,71,0.12)] text-[var(--text-soft)]",
+      count: finishedOrders.length,
+      content: finishedOrders.map(renderOrderCard),
+    },
+  ];
+
+  const totalActionable = rebuildingOrders.length + reviewOrders.length + paymentReviewOrders.length + paymentValidatedOrders.length + readyDeliveryOrders.length + readyPickupOrders.length;
+
+  return (
+    <section className="app-panel overflow-hidden rounded-[24px] sm:rounded-[26px]">
+      <div className="flex flex-col gap-3 border-b border-[rgba(118,93,71,0.12)] px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Operational board" : "Tablero operativo"}</p>
+          <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{locale === "en" ? "See the next move at a glance" : "Ve de un vistazo qué falta mover"}</h2>
+          <p className="mt-1 text-xs leading-5 text-[var(--text-soft)]">{locale === "en" ? "Each card changes color with its real status. Actions use the same order flow as the queue." : "Cada tarjeta cambia de color con su estado real. Las acciones usan el mismo flujo seguro de la bandeja."}</p>
+        </div>
+        <div className="rounded-2xl bg-[rgba(197,123,87,0.1)] px-4 py-3 text-sm font-bold text-[var(--warning)]">
+          {totalActionable} {locale === "en" ? "card(s) need progress" : "tarjeta(s) requieren avance"}
+        </div>
+      </div>
+
+      <div className="app-scrollbar overflow-x-auto p-3 sm:p-4">
+        <div className="grid min-w-[1500px] grid-cols-5 gap-3">
+          {columns.map((column) => (
+            <section
+              className={`flex max-h-[calc(100vh-250px)] min-h-[520px] flex-col rounded-[22px] border transition ${column.tone}`}
+              key={column.id}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const order = allOrders.find((candidate) => candidate.id === event.dataTransfer.getData("application/x-parahoy-order"));
+                if (order) onDropOrder(order, column.id as OperationalStageId);
+              }}
+            >
+              <header className="border-b border-[rgba(118,93,71,0.1)] px-4 py-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[var(--text-strong)]">{column.title}</h3>
+                    <p className="mt-1 text-[11px] leading-4 text-[var(--text-soft)]">{column.description}</p>
+                  </div>
+                  <span className={`inline-flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-extrabold ${column.labelTone}`}>{column.count}</span>
+                </div>
+              </header>
+              <div className="app-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+                {column.count === 0 ? (
+                  <div className="rounded-[18px] border border-dashed border-[rgba(118,93,71,0.16)] bg-white/40 px-3 py-8 text-center text-xs leading-5 text-[var(--text-faint)]">
+                    {locale === "en" ? "Nothing in this stage." : "No hay pedidos en esta etapa."}
+                  </div>
+                ) : column.content}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BoardSubsection({
+  children,
+  count,
+  label,
+  tone,
+}: {
+  children: ReactNode;
+  count: number;
+  label: string;
+  tone: "delivery" | "info" | "payment" | "pickup" | "success" | "warning";
+}) {
+  const tones = {
+    delivery: "border-[#6b82b3]/20 bg-[#6b82b3]/10 text-[#4c5f8f]",
+    info: "border-[#5f879e]/20 bg-[#5f879e]/10 text-[#46697c]",
+    payment: "border-[#c57b57]/20 bg-[#c57b57]/10 text-[#9a5d40]",
+    pickup: "border-[#4f7a61]/20 bg-[#4f7a61]/10 text-[#426b52]",
+    success: "border-[#5e895f]/20 bg-[#5e895f]/10 text-[#426b52]",
+    warning: "border-[#d56f43]/25 bg-[#fff0e7] text-[#9f4d2b]",
+  }[tone];
+
+  return (
+    <section className="space-y-2.5">
+      <div className={`flex items-center justify-between rounded-xl border px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.1em] ${tones}`}>
+        <span>{label}</span>
+        <span>{count}</span>
+      </div>
+      {count > 0 ? children : <p className="px-2 py-2 text-center text-[11px] text-[var(--text-faint)]">—</p>}
+    </section>
+  );
+}
+
+function RestoredOrdersQueueList({
+  actionKey,
+  customClosedDate,
+  error,
+  groups,
+  loading,
+  locale,
+  onAccept,
+  onCancel,
+  onChangeClosedDate,
+  onChangeClosedRange,
+  onConfirmPayment,
+  onKitchenProgress,
+  onMove,
+  onOpenChat,
+  onOpenOrder,
+  onOpenWhatsapp,
+  onReportOutOfStock,
+  onToggleAutomation,
+  onViewPayment,
+  range,
+  stage,
+}: {
+  actionKey: string;
+  customClosedDate: string;
+  error: string;
+  groups: ReturnType<typeof getOperationalGroups>;
+  loading: boolean;
+  locale: "en" | "es";
+  onAccept: (order: OrderSummary) => void;
+  onCancel: (order: OrderSummary) => void;
+  onChangeClosedDate: (value: string) => void;
+  onChangeClosedRange: (range: ClosedRange) => void;
+  onConfirmPayment: (order: OrderSummary) => void;
+  onKitchenProgress: (order: OrderSummary, patch: { progress?: KitchenProgress; label?: string | null }) => void;
+  onMove: (order: OrderSummary, status: Extract<OrderStatus, "accepted" | "preparing" | "on_the_way" | "delivered">) => void;
+  onOpenChat: (order: OpenOrderSummary) => void;
+  onOpenOrder: (order: OrderSummary) => void;
+  onOpenWhatsapp: (order: OrderSummary) => void;
+  onReportOutOfStock: (order: OrderSummary) => void;
+  onToggleAutomation: (automation: ConversationAutomation | undefined, enabled: boolean) => void;
+  onViewPayment: (order: OrderSummary) => void;
+  range: ClosedRange;
+  stage: OperationalStageId;
+}) {
+  const metadata = {
+    open: {
+      title: locale === "en" ? "Open chats" : "Abiertos",
+      description: locale === "en" ? "Customers building or rebuilding an order" : "Clientes armando o rearmando su pedido",
+      count: groups.activeOpenChats.length + groups.rebuildingOrders.length,
+    },
+    review: {
+      title: locale === "en" ? "Restaurant review" : "Por confirmar",
+      description: locale === "en" ? "Orders waiting for the restaurant decision" : "Pedidos esperando la decisión del restaurante",
+      count: groups.reviewOrders.length,
+    },
+    preparing: {
+      title: locale === "en" ? "In preparation" : "En preparación",
+      description: locale === "en" ? "Payment validation and kitchen progress" : "Validación de pago y avance de cocina",
+      count: groups.paymentReviewOrders.length + groups.paymentValidatedOrders.length,
+    },
+    ready: {
+      title: locale === "en" ? "Ready for pickup / delivery" : "Listo para recoger / domicilio",
+      description: locale === "en" ? "Orders ready for pickup or on delivery" : "Pedidos listos para recoger o en domicilio",
+      count: groups.readyDeliveryOrders.length + groups.readyPickupOrders.length,
+    },
+    finished: {
+      title: locale === "en" ? "Finished" : "Finalizados",
+      description: locale === "en" ? "Delivered and cancelled orders" : "Pedidos entregados y cancelados",
+      count: groups.finishedOrders.length,
+    },
+  }[stage];
+
+  const renderOrder = (order: OrderSummary) => (
+    <OperationalOrderCard
+      actionKey={actionKey}
+      key={order.id}
+      locale={locale}
+      onAccept={() => onAccept(order)}
+      onCancel={() => onCancel(order)}
+      onConfirmPayment={() => onConfirmPayment(order)}
+      onKitchenProgress={(patch) => onKitchenProgress(order, patch)}
+      onMove={(status) => onMove(order, status)}
+      onOpen={() => onOpenOrder(order)}
+      onOpenWhatsapp={() => onOpenWhatsapp(order)}
+      onReportOutOfStock={() => onReportOutOfStock(order)}
+      onToggleAutomation={(enabled) => onToggleAutomation(order.conversationAutomation, enabled)}
+      onViewPayment={() => onViewPayment(order)}
+      order={order}
+    />
+  );
+
+  let content: ReactNode;
+  if (stage === "open") {
+    content = (
+      <>
+        {groups.rebuildingOrders.length > 0 ? (
+          <QueueListSection label={locale === "en" ? "Rebuilding order" : "Rearmando pedido"}>
+            {groups.rebuildingOrders.map(renderOrder)}
+          </QueueListSection>
+        ) : null}
+        {groups.activeOpenChats.length > 0 ? (
+          <QueueListSection label={locale === "en" ? "Building order" : "Armando pedido"}>
+            {groups.activeOpenChats.map((order) => (
+              <OpenConversationCard
+                actionKey={actionKey}
+                key={order.id}
+                locale={locale}
+                onOpenDetail={() => onOpenChat(order)}
+                onOpenLinkedOrder={undefined}
+                onToggleAutomation={(enabled) => onToggleAutomation(order.conversationAutomation, enabled)}
+                order={order}
+              />
+            ))}
+          </QueueListSection>
+        ) : null}
+      </>
+    );
+  } else if (stage === "review") {
+    content = groups.reviewOrders.map(renderOrder);
+  } else if (stage === "preparing") {
+    content = (
+      <>
+        <QueueListSection label={locale === "en" ? "Payment to validate" : "Por validar pago"}>
+          {groups.paymentReviewOrders.map(renderOrder)}
+        </QueueListSection>
+        <QueueListSection label={locale === "en" ? "Payment validated" : "Pago validado"}>
+          {groups.paymentValidatedOrders.map(renderOrder)}
+        </QueueListSection>
+      </>
+    );
+  } else if (stage === "ready") {
+    content = (
+      <>
+        <QueueListSection label={locale === "en" ? "Home delivery" : "Domicilio"}>
+          {groups.readyDeliveryOrders.map(renderOrder)}
+        </QueueListSection>
+        <QueueListSection label={locale === "en" ? "Pickup" : "Para recoger"}>
+          {groups.readyPickupOrders.map(renderOrder)}
+        </QueueListSection>
+      </>
+    );
+  } else {
+    content = groups.finishedOrders.map(renderOrder);
+  }
+
+  return (
+    <div className="app-panel overflow-hidden rounded-[22px] sm:rounded-[24px]">
+      <div className="flex items-center justify-between border-b border-[rgba(118,93,71,0.12)] px-4 py-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{metadata.title}</p>
+          <p className="mt-1 text-xs text-[var(--text-soft)]">{metadata.description}</p>
+        </div>
+        <span className="rounded-full bg-[rgba(118,93,71,0.09)] px-2.5 py-1 text-xs font-semibold text-[var(--text-soft)]">{metadata.count}</span>
+      </div>
+      {stage === "finished" ? (
+        <ClosedOrdersFilter
+          customDate={customClosedDate}
+          locale={locale}
+          range={range}
+          onChangeCustomDate={onChangeClosedDate}
+          onChangeRange={onChangeClosedRange}
+        />
+      ) : null}
+      {loading ? (
+        <LoadingBlock copy={locale === "en" ? "Loading orders..." : "Cargando pedidos..."} />
+      ) : error ? (
+        <ErrorBlock message={error} />
+      ) : metadata.count === 0 ? (
+        <div className="px-4 py-12 text-center text-sm text-[var(--text-faint)]">
+          {locale === "en" ? "There are no orders in this stage." : "No hay pedidos en esta etapa."}
+        </div>
+      ) : (
+        <div className="app-scrollbar max-h-none space-y-3 overflow-y-auto p-3 sm:p-4 xl:max-h-[780px]">{content}</div>
+      )}
+    </div>
+  );
+}
+
+function QueueListSection({ children, label }: { children: ReactNode; label: string }) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  if (!hasChildren) return null;
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-3 px-1 pt-1">
+        <p className="shrink-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-faint)]">{label}</p>
+        <span className="h-px flex-1 bg-[rgba(118,93,71,0.12)]" />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function OrdersQueue(props: OperationalOrdersProps) {
+  const {
+    rebuildingOrders,
+    activeOpenChats,
+    reviewOrders,
+    paymentReviewOrders,
+    paymentValidatedOrders,
+    readyDeliveryOrders,
+    readyPickupOrders,
+    finishedOrders,
+  } = getOperationalGroups(props.allOrders, props.openOrders, props.closedOrders);
+
+  const renderOrderCard = (order: OrderSummary) => (
+    <BoardOrderCard
+      actionKey={props.actionKey}
+      key={order.id}
+      locale={props.locale}
+      onBlockedMove={props.onBlockedMove}
+      onCancel={() => props.onCancel(order)}
+      onConfirmPayment={props.onConfirmPayment}
+      onKitchenProgress={props.onKitchenProgress}
+      onMove={props.onMove}
+      onOpen={() => props.onOpenOrder(order)}
+      onToggleAutomation={(enabled) => props.onToggleAutomation(order.conversationAutomation, enabled)}
+      onViewPayment={props.onViewPayment}
+      order={order}
+    />
+  );
+
+  const sections: Array<{
+    id: OperationalStageId;
+    title: string;
+    description: string;
+    tone: string;
+    count: number;
+    content: ReactNode;
+  }> = [
+    {
+      id: "open",
+      title: props.locale === "en" ? "Open chats" : "Chats abiertos",
+      description: props.locale === "en" ? "Building or rebuilding an order" : "Armando o rearmando el pedido",
+      tone: "border-[rgba(97,135,158,0.22)] bg-[rgba(220,231,244,0.52)]",
+      count: activeOpenChats.length + rebuildingOrders.length,
+      content: (
+        <>
+          <BoardSubsection count={rebuildingOrders.length} label={props.locale === "en" ? "Rebuilding order" : "Rearmando pedido"} tone="warning">
+            {rebuildingOrders.map(renderOrderCard)}
+          </BoardSubsection>
+          <BoardSubsection count={activeOpenChats.length} label={props.locale === "en" ? "Building order" : "Armando pedido"} tone="info">
+            {activeOpenChats.map((order) => <BoardOpenChatCard actionKey={props.actionKey} key={order.id} locale={props.locale} onOpen={() => props.onOpenChat(order)} onToggleAutomation={(enabled) => props.onToggleAutomation(order.conversationAutomation, enabled)} order={order} />)}
+          </BoardSubsection>
+        </>
+      ),
+    },
+    {
+      id: "review",
+      title: props.locale === "en" ? "Restaurant review" : "Por confirmar",
+      description: props.locale === "en" ? "The restaurant validates availability" : "El restaurante valida disponibilidad",
+      tone: "border-[rgba(193,157,98,0.26)] bg-[rgba(246,237,213,0.72)]",
+      count: reviewOrders.length,
+      content: reviewOrders.map(renderOrderCard),
+    },
+    {
+      id: "preparing",
+      title: props.locale === "en" ? "In preparation" : "En preparación",
+      description: props.locale === "en" ? "Payment and kitchen progress" : "Pago y avance de cocina",
+      tone: "border-[rgba(132,111,164,0.22)] bg-[rgba(235,229,244,0.72)]",
+      count: paymentReviewOrders.length + paymentValidatedOrders.length,
+      content: (
+        <>
+          <BoardSubsection count={paymentReviewOrders.length} label={props.locale === "en" ? "Payment to validate" : "Por validar pago"} tone="payment">
+            {paymentReviewOrders.map(renderOrderCard)}
+          </BoardSubsection>
+          <BoardSubsection count={paymentValidatedOrders.length} label={props.locale === "en" ? "Payment validated" : "Pago validado"} tone="success">
+            {paymentValidatedOrders.map(renderOrderCard)}
+          </BoardSubsection>
+        </>
+      ),
+    },
+    {
+      id: "ready",
+      title: props.locale === "en" ? "Ready for pickup / delivery" : "Listo para recoger / domicilio",
+      description: props.locale === "en" ? "Waiting for pickup or delivery" : "Esperando recogida o entrega",
+      tone: "border-[rgba(90,111,170,0.22)] bg-[rgba(224,231,247,0.7)]",
+      count: readyDeliveryOrders.length + readyPickupOrders.length,
+      content: (
+        <>
+          <BoardSubsection count={readyDeliveryOrders.length} label={props.locale === "en" ? "Home delivery" : "Domicilio"} tone="delivery">
+            {readyDeliveryOrders.map(renderOrderCard)}
+          </BoardSubsection>
+          <BoardSubsection count={readyPickupOrders.length} label={props.locale === "en" ? "Pickup" : "Para recoger"} tone="pickup">
+            {readyPickupOrders.map(renderOrderCard)}
+          </BoardSubsection>
+        </>
+      ),
+    },
+    {
+      id: "finished",
+      title: props.locale === "en" ? "Finished" : "Finalizados",
+      description: props.locale === "en" ? "Delivered or cancelled in the selected range" : "Entregados o cancelados en el rango elegido",
+      tone: "border-[rgba(118,93,71,0.16)] bg-[rgba(239,234,228,0.78)]",
+      count: finishedOrders.length,
+      content: finishedOrders.map(renderOrderCard),
+    },
+  ];
+
+  return (
+    <section className="app-panel overflow-hidden rounded-[24px] sm:rounded-[26px]">
+      <div className="border-b border-[rgba(118,93,71,0.12)] px-4 py-4 sm:px-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{props.locale === "en" ? "Section view" : "Vista por secciones"}</p>
+        <h2 className="mt-1 text-lg font-bold text-[var(--text-strong)]">{props.locale === "en" ? "The same operation, in a vertical flow" : "La misma operación, en flujo vertical"}</h2>
+      </div>
+      <div className="grid gap-4 p-3 sm:p-4 lg:grid-cols-2 2xl:grid-cols-3">
+        {sections.map((section) => (
+          <section
+            className={`rounded-[22px] border p-3 transition ${section.tone}`}
+            key={section.id}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const order = props.allOrders.find((candidate) => candidate.id === event.dataTransfer.getData("application/x-parahoy-order"));
+              if (order) props.onDropOrder(order, section.id);
+            }}
+          >
+            <header className="mb-3 flex items-start justify-between gap-3 border-b border-[rgba(118,93,71,0.1)] px-1 pb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-[var(--text-strong)]">{section.title}</h3>
+                <p className="mt-1 text-[11px] leading-4 text-[var(--text-soft)]">{section.description}</p>
+              </div>
+              <span className="rounded-full bg-white/65 px-2.5 py-1 text-xs font-extrabold text-[var(--text-soft)]">{section.count}</span>
+            </header>
+            <div className="space-y-3">
+              {section.count > 0 ? section.content : (
+                <p className="rounded-[16px] border border-dashed border-[rgba(118,93,71,0.16)] bg-white/35 px-3 py-6 text-center text-xs text-[var(--text-faint)]">
+                  {props.locale === "en" ? "Nothing in this stage." : "No hay pedidos en esta etapa."}
+                </p>
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BoardOpenChatCard({
+  actionKey,
+  locale,
+  onOpen,
+  onToggleAutomation,
+  order,
+}: {
+  actionKey: string;
+  locale: "en" | "es";
+  onOpen: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
+  order: OpenOrderSummary;
+}) {
+  const humanReview = Boolean(order.conversationAutomation && !order.conversationAutomation.effectiveEnabled);
+  const automation = order.conversationAutomation;
+  return (
+    <article className="rounded-[18px] border border-[rgba(97,135,158,0.18)] border-l-4 border-l-[#5f879e] bg-[rgba(255,251,246,0.94)] p-3 shadow-[0_7px_18px_rgba(58,49,42,0.06)]">
+      <div className="flex items-start justify-between gap-2">
+        <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.1em] ${humanReview ? "bg-[rgba(197,123,87,0.16)] text-[var(--warning)]" : "bg-[rgba(97,135,158,0.14)] text-[#46697c]"}`}>{humanReview ? (locale === "en" ? "Human review" : "Revisión humana") : (locale === "en" ? "AI assisting" : "IA atendiendo")}</span>
+        <span className="text-[10px] font-semibold text-[var(--text-faint)]">{formatRelativeTime(order.updatedAt, locale)}</span>
+      </div>
+      <button className="mt-3 w-full text-left" onClick={onOpen} type="button">
+        <p className="truncate text-sm font-extrabold text-[var(--text-strong)]">{order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Unnamed customer" : "Cliente sin nombre")}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-soft)]">{getOrderItemsSummary(order.items ?? [], locale)}</p>
+      </button>
+      <div className="mt-3 flex items-center justify-between gap-2"><span className="text-xs font-bold text-[var(--text-strong)]">{formatPrice(order.total, locale)}</span>{order.whatsappUrl ? <a className="text-xs font-bold text-[var(--success)] hover:underline" href={order.whatsappUrl} rel="noreferrer" target="_blank">WhatsApp</a> : null}</div>
+      {automation && !automation.terminal ? (
+        <AutomationSwitch
+          busy={actionKey === `automation:${automation.conversationId}`}
+          className="mt-2 !h-9 w-full !text-[11px]"
+          enabled={automation.enabled}
+          locale={locale}
+          onToggle={() => onToggleAutomation(!automation.enabled)}
+        />
+      ) : null}
+    </article>
+  );
+}
+
+function BoardOrderCard({
+  actionKey,
+  locale,
+  onBlockedMove,
+  onCancel,
+  onConfirmPayment,
+  onKitchenProgress,
+  onMove,
+  onOpen,
+  onToggleAutomation,
+  onViewPayment,
+  order,
+}: {
+  actionKey: string;
+  locale: "en" | "es";
+  onBlockedMove: () => void;
+  onCancel: () => void;
+  onConfirmPayment: (order: OrderSummary) => void;
+  onKitchenProgress: (order: OrderSummary, patch: { progress?: KitchenProgress; label?: string | null }) => void;
+  onMove: (order: OrderSummary, status: Extract<OrderStatus, "accepted" | "preparing" | "on_the_way" | "delivered">) => void;
+  onOpen: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
+  onViewPayment: (order: OrderSummary) => void;
+  order: OrderSummary;
+}) {
+  const progress = order.kitchenProgress ?? 0;
+  const [sliderProgress, setSliderProgress] = useState<KitchenProgress>(progress);
+  const [editingStage, setEditingStage] = useState(false);
+  const [stageLabel, setStageLabel] = useState(order.kitchenStageLabel ?? "");
+  const action = getBoardNextAction(order, locale);
+  const palette = getBoardOrderCardPalette(order);
+  const automation = order.conversationAutomation;
+  const isMoving = action ? actionKey === (action.status === "accepted" ? `accept:${order.id}` : `status:${order.id}:${action.status}`) : false;
+  const kitchenUpdating = actionKey === `kitchen:${order.id}`;
+  const awaitingTransferProof = ["accepted", "preparing"].includes(order.status) && order.paymentMethod === "transfer" && !order.paymentConfirmedAt;
+  const isKitchenOrder = ["accepted", "preparing"].includes(order.status) && !awaitingTransferProof;
+  const isPaymentReview = order.status === "payment_pending_review";
+  const requiresAttention = ["new", "pending_restaurant_confirmation", "needs_customer_replacement", "payment_pending_review"].includes(order.status);
+  const visibleStageLabel = sliderProgress === progress && order.kitchenStageLabel?.trim()
+    ? order.kitchenStageLabel.trim()
+    : getDefaultKitchenStageLabel(sliderProgress, locale);
+  const canCancel = !closedStatuses.includes(order.status);
+  const dragTarget = getNextOperationalStageId(order);
+
+  useEffect(() => {
+    setSliderProgress(progress);
+    setStageLabel(order.kitchenStageLabel ?? "");
+  }, [order.id, order.kitchenStageLabel, progress]);
+
+  function commitKitchenProgress(nextProgress: KitchenProgress = sliderProgress) {
+    if (nextProgress === progress || kitchenUpdating) return;
+    onKitchenProgress(order, { progress: nextProgress, label: null });
+  }
+
+  return (
+    <article
+      className={`rounded-[18px] border border-l-4 p-3 shadow-[0_7px_18px_rgba(58,49,42,0.06)] transition hover:-translate-y-0.5 ${dragTarget ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed"} ${palette}`}
+      draggable
+      onDragStart={(event) => {
+        if ((event.target as HTMLElement).closest("button, a, input")) {
+          event.preventDefault();
+          return;
+        }
+        if (!dragTarget) {
+          event.preventDefault();
+          onBlockedMove();
+          return;
+        }
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-parahoy-order", order.id);
+        event.dataTransfer.setData("text/plain", order.id);
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <OrderStatusBadge locale={locale} status={order.status} />
+        {requiresAttention ? <span className="rounded-full bg-[rgba(197,123,87,0.14)] px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[var(--warning)]">{order.status === "needs_customer_replacement" ? (locale === "en" ? "Rebuilding" : "Rearmando") : (locale === "en" ? "Action" : "Acción")}</span> : null}
+      </div>
+      <button className="mt-3 w-full text-left" onClick={onOpen} type="button">
+        <div className="flex items-baseline justify-between gap-2"><p className="min-w-0 truncate text-sm font-extrabold text-[var(--text-strong)]">{order.customerName?.trim() || order.customerPhone || (locale === "en" ? "Unnamed customer" : "Cliente sin nombre")}</p><p className="shrink-0 text-sm font-extrabold text-[var(--text-strong)]">{formatPrice(order.total, locale)}</p></div>
+        <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-soft)]">{getOrderItemsSummary(order.items ?? [], locale)}</p>
+      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-semibold text-[var(--text-faint)]"><span>{formatRelativeTime(order.updatedAt, locale)}</span><span>•</span><span>{order.fulfillmentType === "delivery" ? (locale === "en" ? "Delivery" : "Domicilio") : (locale === "en" ? "Pickup" : "Recoge")}</span><span>•</span><span>{order.items?.length ?? 0} {locale === "en" ? "items" : "items"}</span></div>
+
+      {isPaymentReview ? (
+        <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+          <button aria-label={locale === "en" ? "View payment proof" : "Ver comprobante"} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-[#5f879e]/25 bg-white/60 px-3 text-[11px] font-bold text-[#46697c] transition hover:bg-white disabled:opacity-60" disabled={actionKey === `proof:view:${order.id}`} onClick={() => onViewPayment(order)} type="button">
+            {actionKey === `proof:view:${order.id}` ? <Loader2 className="animate-spin" size={13} /> : <Eye size={13} />}
+            {locale === "en" ? "Proof" : "Comprobante"}
+          </button>
+          <button className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5e895f] px-3 text-[11px] font-extrabold text-white transition hover:bg-[#4d784f] disabled:opacity-60" disabled={actionKey === `proof:confirm:${order.id}`} onClick={() => onConfirmPayment(order)} type="button">
+            {actionKey === `proof:confirm:${order.id}` ? <Loader2 className="animate-spin" size={13} /> : <Check size={13} />}
+            {locale === "en" ? "Validate payment" : "Validar pago"}
+          </button>
+        </div>
+      ) : null}
+      {awaitingTransferProof ? (
+        <div className="mt-3 rounded-xl border border-dashed border-[#5f879e]/25 bg-white/45 px-3 py-2 text-center text-[11px] font-bold leading-4 text-[#46697c]">
+          {locale === "en" ? "Waiting for the customer's payment proof" : "Esperando el comprobante del cliente"}
+        </div>
+      ) : null}
+
+      {isKitchenOrder ? (
+        <div className="mt-3 rounded-[14px] border border-[rgba(101,86,127,0.14)] bg-white/55 p-2.5">
+          <div className="flex items-center gap-2">
+            <input
+              aria-label={locale === "en" ? "Kitchen progress" : "Progreso de cocina"}
+              className="h-2 flex-1 cursor-ew-resize accent-[#806b9d]"
+              disabled={kitchenUpdating}
+              draggable={false}
+              max={100}
+              min={0}
+              onBlur={(event) => commitKitchenProgress(Number(event.currentTarget.value) as KitchenProgress)}
+              onChange={(event) => setSliderProgress(Number(event.target.value) as KitchenProgress)}
+              onKeyUp={(event) => {
+                if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+                  commitKitchenProgress(Number(event.currentTarget.value) as KitchenProgress);
+                }
+              }}
+              onPointerUp={(event) => commitKitchenProgress(Number(event.currentTarget.value) as KitchenProgress)}
+              step={25}
+              type="range"
+              value={sliderProgress}
+            />
+            <span className="w-8 text-right text-[10px] font-extrabold text-[#65567f]">{sliderProgress}%</span>
+          </div>
+          {editingStage ? (
+            <div className="mt-2 flex items-center gap-1.5">
+              <input autoFocus className="min-w-0 flex-1 rounded-lg border border-[rgba(101,86,127,0.18)] bg-white px-2 py-1.5 text-[11px] text-[var(--text-strong)] outline-none focus:border-[#806b9d]" maxLength={60} onChange={(event) => setStageLabel(event.target.value)} placeholder={getDefaultKitchenStageLabel(sliderProgress, locale)} value={stageLabel} />
+              <button aria-label={locale === "en" ? "Save label" : "Guardar texto"} className="grid h-7 w-7 place-items-center rounded-lg bg-[#806b9d] text-white" disabled={kitchenUpdating} onClick={() => { onKitchenProgress(order, { label: stageLabel.trim() || null }); setEditingStage(false); }} type="button"><Check size={12} /></button>
+              <button aria-label={locale === "en" ? "Cancel editing" : "Cancelar edición"} className="grid h-7 w-7 place-items-center rounded-lg text-[var(--text-faint)] hover:bg-black/5" onClick={() => { setStageLabel(order.kitchenStageLabel ?? ""); setEditingStage(false); }} type="button"><X size={12} /></button>
+            </div>
+          ) : (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] font-bold text-[#65567f]">{visibleStageLabel}</span>
+              <button aria-label={locale === "en" ? "Edit kitchen label" : "Editar texto de cocina"} className="grid h-5 w-5 shrink-0 place-items-center rounded text-[rgba(101,86,127,0.52)] transition hover:bg-[rgba(101,86,127,0.1)] hover:text-[#65567f]" onClick={() => setEditingStage(true)} type="button"><Pencil size={10} /></button>
+            </div>
+          )}
+          {sliderProgress === 100 ? (
+            <div className="mt-2 rounded-lg bg-[rgba(79,122,97,0.12)] px-2 py-2 text-center text-[10px] font-extrabold leading-4 text-[var(--success)]">
+              {locale === "en" ? "Ready: move it to pickup / delivery" : "Listo: avanza a recoger / domicilio"}
+            </div>
+          ) : <p className="mt-2 text-center text-[10px] font-bold text-[var(--text-faint)]">{locale === "en" ? "Drag the bar in 25% steps" : "Desliza la barra en pasos de 25%"}</p>}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex items-center gap-2">
+        {action ? <button className={`inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-xl px-3 text-xs font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${action.tone}`} disabled={isMoving} onClick={() => onMove(order, action.status)} type="button">{isMoving ? <Loader2 className="animate-spin" size={14} /> : <ChevronRight size={14} />}{isMoving ? (locale === "en" ? "Moving..." : "Moviendo...") : action.label}</button> : <button className="inline-flex min-h-9 flex-1 items-center justify-center rounded-xl border border-[rgba(118,93,71,0.12)] px-3 text-xs font-bold text-[var(--text-soft)] transition hover:bg-[rgba(118,93,71,0.06)]" onClick={onOpen} type="button">{locale === "en" ? "View detail" : "Ver detalle"}</button>}
+        {order.whatsappUrl ? <a aria-label={locale === "en" ? "Open WhatsApp" : "Abrir WhatsApp"} className="grid h-9 w-9 place-items-center rounded-xl border border-[rgba(79,122,97,0.2)] text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)]" href={order.whatsappUrl} rel="noreferrer" target="_blank"><ExternalLink size={14} /></a> : null}
+      </div>
+      {(automation && !automation.terminal) || canCancel ? (
+        <div className="mt-2 flex items-center gap-2 border-t border-[rgba(118,93,71,0.1)] pt-2">
+          {automation && !automation.terminal ? (
+            <AutomationSwitch
+              busy={actionKey === `automation:${automation.conversationId}`}
+              className="!h-9 min-w-0 flex-1 !text-[11px]"
+              enabled={automation.enabled}
+              locale={locale}
+              onToggle={() => onToggleAutomation(!automation.enabled)}
+            />
+          ) : null}
+          {canCancel ? (
+            <button
+              aria-label={locale === "en" ? "Cancel order" : "Cancelar pedido"}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(180,94,84,0.2)] text-[#914d47] transition hover:bg-[rgba(180,94,84,0.08)]"
+              onClick={onCancel}
+              title={locale === "en" ? "Cancel order" : "Cancelar pedido"}
+              type="button"
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {!dragTarget && !closedStatuses.includes(order.status) ? (
+        <div className="mt-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--text-faint)]">
+          <Lock size={10} />
+          {locale === "en" ? "Complete stage to drag" : "Completar etapa para arrastrar"}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function getBoardNextAction(order: OrderSummary, locale: "en" | "es") {
+  if (order.status === "pending_restaurant_confirmation") return { status: "accepted" as const, label: locale === "en" ? "Confirm order" : "Confirmar pedido", tone: "bg-[#6f926f] hover:bg-[#5c7f5c]" };
+  const paymentValidated = order.paymentMethod === "cash" || Boolean(order.paymentConfirmedAt);
+  if (["accepted", "preparing"].includes(order.status) && paymentValidated && (order.kitchenProgress ?? 0) === 100) return { status: "on_the_way" as const, label: order.fulfillmentType === "delivery" ? (locale === "en" ? "Send to delivery" : "Enviar a domicilio") : (locale === "en" ? "Ready for pickup" : "Listo para recoger"), tone: "bg-[#5f729e] hover:bg-[#4e618c]" };
+  if (order.status === "on_the_way") return { status: "delivered" as const, label: locale === "en" ? "Complete order" : "Finalizar pedido", tone: "bg-[#6f7e69] hover:bg-[#5d6b58]" };
+  return undefined;
+}
+
+function getOperationalStageId(order: OrderSummary): OperationalStageId {
+  if (order.status === "needs_customer_replacement") return "open";
+  if (["new", "pending_restaurant_confirmation"].includes(order.status)) return "review";
+  if (["accepted", "preparing", "payment_pending_review"].includes(order.status)) return "preparing";
+  if (order.status === "on_the_way") return "ready";
+  return "finished";
+}
+
+function getNextOperationalStageId(order: OrderSummary): OperationalStageId | null {
+  if (order.status === "pending_restaurant_confirmation") return "preparing";
+
+  const paymentValidated = order.paymentMethod === "cash" || Boolean(order.paymentConfirmedAt);
+  if (["accepted", "preparing"].includes(order.status) && paymentValidated && (order.kitchenProgress ?? 0) === 100) {
+    return "ready";
+  }
+
+  if (order.status === "on_the_way") return "finished";
+  return null;
+}
+
+function resolveDropStatus(
+  order: OrderSummary,
+  targetStage: OperationalStageId,
+): Extract<OrderStatus, "accepted" | "on_the_way" | "delivered"> | null {
+  if (getNextOperationalStageId(order) !== targetStage) return null;
+  if (targetStage === "preparing") return "accepted";
+  if (targetStage === "ready") return "on_the_way";
+  if (targetStage === "finished") return "delivered";
+  return null;
+}
+
+function getBoardOrderCardPalette(order: OrderSummary) {
+  if (order.status === "on_the_way") {
+    return order.fulfillmentType === "delivery"
+      ? "border-[rgba(90,111,170,0.28)] border-l-[#5f729e] bg-[rgba(239,244,255,0.98)]"
+      : "border-[rgba(79,122,97,0.28)] border-l-[#4f7a61] bg-[rgba(239,250,243,0.98)]";
+  }
+
+  return {
+    new: "border-[rgba(193,157,98,0.26)] border-l-[#9d7e42] bg-[rgba(255,250,238,0.96)]",
+    pending_restaurant_confirmation: "border-[rgba(193,157,98,0.3)] border-l-[#b28a43] bg-[rgba(255,249,233,0.98)]",
+    needs_customer_replacement: "border-[rgba(213,111,67,0.34)] border-l-[#d56f43] bg-[rgba(255,239,230,0.99)]",
+    payment_pending_review: "border-[rgba(97,135,158,0.24)] border-l-[#5f879e] bg-[rgba(242,248,251,0.98)]",
+    accepted: "border-[rgba(79,122,97,0.24)] border-l-[#5e895f] bg-[rgba(241,249,242,0.98)]",
+    preparing: "border-[rgba(132,111,164,0.24)] border-l-[#806b9d] bg-[rgba(247,244,252,0.98)]",
+    on_the_way: "",
+    delivered: "border-[rgba(79,122,97,0.18)] border-l-[#75846f] bg-[rgba(246,249,244,0.96)]",
+    cancelled: "border-[rgba(180,94,84,0.22)] border-l-[#b45e54] bg-[rgba(253,244,242,0.96)]",
+  }[order.status];
+}
+
+function getDefaultKitchenStageLabel(progress: KitchenProgress, locale: "en" | "es") {
+  const labels = locale === "en"
+    ? { 0: "Queued", 25: "Preparing ingredients", 50: "In the oven", 75: "Plating", 100: "Served" }
+    : { 0: "En cola", 25: "Preparando ingredientes", 50: "En el horno", 75: "Emplatando", 100: "Servido" };
+  return labels[progress];
 }
 
 function ClosedOrdersFilter({
@@ -1009,22 +2084,41 @@ function OperationalOrderCard({
   locale,
   onAccept,
   onCancel,
+  onConfirmPayment,
+  onKitchenProgress,
+  onMove,
   onOpen,
   onOpenWhatsapp,
   onReportOutOfStock,
+  onToggleAutomation,
+  onViewPayment,
   order,
 }: {
   actionKey: string;
   locale: "en" | "es";
   onAccept: () => void;
   onCancel: () => void;
+  onConfirmPayment: () => void;
+  onKitchenProgress: (patch: { progress?: KitchenProgress; label?: string | null }) => void;
+  onMove: (status: Extract<OrderStatus, "accepted" | "preparing" | "on_the_way" | "delivered">) => void;
   onOpen: () => void;
   onOpenWhatsapp: () => void;
   onReportOutOfStock: () => void;
+  onToggleAutomation: (enabled: boolean) => void;
+  onViewPayment: () => void;
   order: OrderSummary;
 }) {
   const canDecide = order.status === "pending_restaurant_confirmation";
   const notificationFailed = order.customerNotificationStatus === "failed";
+  const action = getBoardNextAction(order, locale);
+  const automation = order.conversationAutomation;
+  const canCancel = !closedStatuses.includes(order.status);
+  const isPaymentReview = order.status === "payment_pending_review";
+  const isKitchenOrder = ["accepted", "preparing"].includes(order.status)
+    && (order.paymentMethod === "cash" || Boolean(order.paymentConfirmedAt));
+  const isMoving = action
+    ? actionKey === (action.status === "accepted" ? `accept:${order.id}` : `status:${order.id}:${action.status}`)
+    : false;
 
   return (
     <article
@@ -1062,6 +2156,38 @@ function OperationalOrderCard({
         <p className="mt-1 text-xs font-semibold text-[var(--text-faint)]">
           {locale === "en" ? "Closed" : "Cerrado"}: {formatDateTime(order.updatedAt, locale)}
         </p>
+      ) : null}
+
+      {isPaymentReview ? (
+        <div className="mt-4 grid grid-cols-2 gap-2" onClick={(event) => event.stopPropagation()}>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] border border-[#5f879e]/25 px-3 text-xs font-semibold text-[#46697c]"
+            disabled={actionKey === `proof:view:${order.id}`}
+            onClick={onViewPayment}
+            type="button"
+          >
+            {actionKey === `proof:view:${order.id}` ? <Loader2 className="animate-spin" size={14} /> : <Eye size={14} />}
+            {locale === "en" ? "View proof" : "Ver comprobante"}
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[14px] bg-[#5e895f] px-3 text-xs font-bold text-white disabled:opacity-60"
+            disabled={actionKey === `proof:confirm:${order.id}`}
+            onClick={onConfirmPayment}
+            type="button"
+          >
+            {actionKey === `proof:confirm:${order.id}` ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
+            {locale === "en" ? "Validate payment" : "Validar pago"}
+          </button>
+        </div>
+      ) : null}
+
+      {isKitchenOrder ? (
+        <QueueKitchenProgress
+          busy={actionKey === `kitchen:${order.id}`}
+          locale={locale}
+          onChange={onKitchenProgress}
+          order={order}
+        />
       ) : null}
 
       {canDecide ? (
@@ -1119,7 +2245,18 @@ function OperationalOrderCard({
           </button>
         </div>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-xs font-semibold text-[var(--text-soft)]">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-xs font-semibold text-[var(--text-soft)]" onClick={(event) => event.stopPropagation()}>
+          {action ? (
+            <button
+              className={`inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-[12px] px-3 text-xs font-extrabold text-white transition disabled:opacity-60 ${action.tone}`}
+              disabled={isMoving}
+              onClick={() => onMove(action.status)}
+              type="button"
+            >
+              {isMoving ? <Loader2 className="animate-spin" size={14} /> : <ChevronRight size={14} />}
+              {isMoving ? (locale === "en" ? "Moving..." : "Moviendo...") : action.label}
+            </button>
+          ) : null}
           <button
             className="inline-flex items-center gap-1 rounded-full border border-[rgba(79,122,97,0.16)] px-3 py-1.5 text-[var(--success)] transition hover:bg-[rgba(79,122,97,0.08)] disabled:cursor-not-allowed disabled:border-[rgba(118,93,71,0.12)] disabled:text-[var(--text-faint)] disabled:hover:bg-transparent"
             disabled={!order.whatsappUrl}
@@ -1138,7 +2275,102 @@ function OperationalOrderCard({
           </span>
         </div>
       )}
+
+      {(automation && !automation.terminal) || (canCancel && !canDecide) ? (
+        <div className="mt-3 flex items-center gap-2 border-t border-[rgba(118,93,71,0.1)] pt-3" onClick={(event) => event.stopPropagation()}>
+          {automation && !automation.terminal ? (
+            <AutomationSwitch
+              busy={actionKey === `automation:${automation.conversationId}`}
+              className="!h-10 min-w-0 flex-1 !text-xs"
+              enabled={automation.enabled}
+              locale={locale}
+              onToggle={() => onToggleAutomation(!automation.enabled)}
+            />
+          ) : null}
+          {canCancel && !canDecide ? (
+            <button
+              aria-label={locale === "en" ? "Cancel order" : "Cancelar pedido"}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-[13px] border border-[rgba(180,94,84,0.2)] text-[#914d47] transition hover:bg-[rgba(180,94,84,0.08)]"
+              onClick={onCancel}
+              title={locale === "en" ? "Cancel order" : "Cancelar pedido"}
+              type="button"
+            >
+              <X size={15} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+function QueueKitchenProgress({
+  busy,
+  locale,
+  onChange,
+  order,
+}: {
+  busy: boolean;
+  locale: "en" | "es";
+  onChange: (patch: { progress?: KitchenProgress; label?: string | null }) => void;
+  order: OrderSummary;
+}) {
+  const progress = order.kitchenProgress ?? 0;
+  const [preview, setPreview] = useState<KitchenProgress>(progress);
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(order.kitchenStageLabel ?? "");
+
+  useEffect(() => {
+    setPreview(progress);
+    setLabel(order.kitchenStageLabel ?? "");
+  }, [order.id, order.kitchenStageLabel, progress]);
+
+  const visibleLabel = preview === progress && order.kitchenStageLabel?.trim()
+    ? order.kitchenStageLabel.trim()
+    : getDefaultKitchenStageLabel(preview, locale);
+
+  function commit(next: KitchenProgress) {
+    if (!busy && next !== progress) onChange({ progress: next, label: null });
+  }
+
+  return (
+    <div className="mt-4 rounded-[16px] border border-[rgba(101,86,127,0.14)] bg-[rgba(247,244,252,0.8)] p-3" onClick={(event) => event.stopPropagation()}>
+      <div className="flex items-center gap-3">
+        <input
+          aria-label={locale === "en" ? "Kitchen progress" : "Progreso de cocina"}
+          className="h-2 min-w-0 flex-1 cursor-ew-resize accent-[#806b9d]"
+          disabled={busy}
+          draggable={false}
+          max={100}
+          min={0}
+          onBlur={(event) => commit(Number(event.currentTarget.value) as KitchenProgress)}
+          onChange={(event) => setPreview(Number(event.target.value) as KitchenProgress)}
+          onPointerUp={(event) => commit(Number(event.currentTarget.value) as KitchenProgress)}
+          step={25}
+          type="range"
+          value={preview}
+        />
+        <span className="w-9 text-right text-[11px] font-extrabold text-[#65567f]">{preview}%</span>
+      </div>
+      {editing ? (
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            autoFocus
+            className="min-w-0 flex-1 rounded-lg border border-[rgba(101,86,127,0.18)] bg-white px-2 py-1.5 text-xs text-[var(--text-strong)] outline-none"
+            maxLength={60}
+            onChange={(event) => setLabel(event.target.value)}
+            value={label}
+          />
+          <button className="grid h-7 w-7 place-items-center rounded-lg bg-[#806b9d] text-white" onClick={() => { onChange({ label: label.trim() || null }); setEditing(false); }} type="button"><Check size={12} /></button>
+          <button className="grid h-7 w-7 place-items-center rounded-lg text-[var(--text-faint)]" onClick={() => setEditing(false)} type="button"><X size={12} /></button>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="truncate text-[11px] font-bold text-[#65567f]">{visibleLabel}</span>
+          <button aria-label={locale === "en" ? "Edit kitchen label" : "Editar texto de cocina"} className="grid h-5 w-5 place-items-center rounded text-[rgba(101,86,127,0.52)]" onClick={() => setEditing(true)} type="button"><Pencil size={10} /></button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1178,7 +2410,9 @@ function OrderDetailPanel({
   const canAccept = order.status === "pending_restaurant_confirmation";
   const canReject = order.status === "pending_restaurant_confirmation";
   const canRetry = notificationFailed && (order.status === "accepted" || order.status === "needs_customer_replacement");
-  const canAdvanceConfirmed = ["accepted", "preparing"].includes(order.status);
+  const canAdvanceConfirmed = ["accepted", "preparing"].includes(order.status)
+    && (order.paymentMethod === "cash" || Boolean(order.paymentConfirmedAt))
+    && (order.kitchenProgress ?? 0) === 100;
   const canFinalize = order.status === "on_the_way";
   const canCancel = !closedStatuses.includes(order.status);
   const canConfirmPaymentProof = order.status === "payment_pending_review" && Boolean(order.paymentProof);
@@ -1984,15 +3218,6 @@ function ReplacementScopeTab({
   );
 }
 
-function MetricChip({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="inline-flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-[13px] bg-[var(--surface-base)] px-1.5 py-2 text-[10px] font-semibold text-[var(--text-soft)] sm:flex-row sm:gap-2 sm:rounded-full sm:px-3 sm:text-xs">
-      {label}
-      <span className="rounded-full bg-[rgba(118,93,71,0.14)] px-2 py-0.5 text-[10px] sm:text-xs">{value}</span>
-    </span>
-  );
-}
-
 function OrderBucketSection({
   emptyCopy,
   onSelectOrder,
@@ -2401,7 +3626,7 @@ function getOrderStatusLabel(status: OrderStatus, locale: "en" | "es") {
   return {
     new: locale === "en" ? "New" : "Nuevo",
     pending_restaurant_confirmation: locale === "en" ? "Restaurant pending" : "Pendiente restaurante",
-    needs_customer_replacement: locale === "en" ? "Waiting on customer" : "Esperando cliente",
+    needs_customer_replacement: locale === "en" ? "Rebuilding order" : "Rearmando pedido",
     payment_pending_review: locale === "en" ? "Payment pending" : "Pago pendiente",
     accepted: locale === "en" ? "Accepted" : "Aceptado",
     preparing: locale === "en" ? "Preparing" : "En preparacion",
@@ -2457,6 +3682,18 @@ function getDashboardErrorMessage(error: unknown, fallback: string, locale: "en"
       return locale === "en"
         ? "This tenant does not have the orders module available in the database yet."
         : "El tenant aun no tiene el modulo de ordenes disponible en base de datos.";
+    }
+
+    if (error.backendError === "order_kitchen_not_completed") {
+      return locale === "en"
+        ? "Move the kitchen progress to 100% before marking the order as ready."
+        : "Lleva el progreso de cocina al 100% antes de marcar el pedido como listo.";
+    }
+
+    if (error.backendError === "order_payment_not_confirmed") {
+      return locale === "en"
+        ? "Validate the payment before moving this order to pickup or delivery."
+        : "Valida el pago antes de mover este pedido a recoger o domicilio.";
     }
 
     return error.backendError ? `${fallback} (${error.backendError})` : fallback;

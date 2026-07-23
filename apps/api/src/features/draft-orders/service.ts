@@ -16,6 +16,7 @@ import {
 } from "./repository";
 import { markDraftReadyIfValid, mapDraftOrder, mapLineItem } from "./mappers";
 import { findMatchingDraftOrderItemRows } from "./matching";
+import { consolidateOrderLineItems } from "./consolidation.ts";
 
 export { createEmptyDraftOrder, markDraftReadyIfValid } from "./mappers";
 
@@ -139,6 +140,7 @@ export async function applySemanticDraftOperationPlan(input: {
   nextState: Conversation["state"];
   context?: Conversation["context"];
 }): Promise<DraftOrder> {
+  const canonicalItems = consolidateOrderLineItems(input.items);
   const response = await createSupabaseRestClient(input.env).rpc<{ draftId?: string }>({
     schema: input.schemaName,
     functionName: "apply_semantic_draft_operation_plan",
@@ -149,7 +151,7 @@ export async function applySemanticDraftOperationPlan(input: {
       p_expected_conversation_updated_at: input.conversation.updatedAt,
       p_draft_order_id: input.draftOrderId ?? input.conversation.currentDraftOrderId ?? null,
       p_expected_draft_updated_at: input.expectedDraftUpdatedAt ?? null,
-      p_items: input.items.map((item) => ({
+      p_items: canonicalItems.map((item) => ({
         menuItemId: item.menuItemId ?? null,
         productId: item.productId ?? null,
         comboId: item.comboId ?? null,

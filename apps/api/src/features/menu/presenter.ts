@@ -93,11 +93,41 @@ function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
       const name = item.displayName ?? item.product?.name ?? `Producto ${index}`;
       const price = item.priceOverride ?? item.product?.basePrice ?? 0;
       lines.push(`${index}. ${name} — ${formatCop(price)}`);
+      lines.push(...buildCompositeOptionLines(item));
       index += 1;
     }
   }
 
   return lines.join("\n");
+}
+
+function buildCompositeOptionLines(item: TodayMenuPayload["items"][number]): string[] {
+  const options = item.product?.productType === "composite" ? item.product.options ?? [] : [];
+  const lines: string[] = [];
+
+  for (const option of options) {
+    if (option.type === "text") {
+      lines.push(`   ↳ ${option.name}: indícanos este detalle.`);
+      continue;
+    }
+
+    const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);
+    const maximum = Math.max(minimum, option.maxSelect);
+    const rule = minimum === 0
+      ? `opcional · máx. ${maximum}`
+      : minimum === maximum
+        ? `elige ${minimum} · máx. ${maximum}`
+        : `elige ${minimum}–${maximum} · máx. ${maximum}`;
+    const values = option.values
+      .filter((value) => value.isActive)
+      .slice(0, 10)
+      .map((value) => value.name);
+    const hiddenCount = option.values.filter((value) => value.isActive).length - values.length;
+    const valuesText = [...values, ...(hiddenCount > 0 ? [`y ${hiddenCount} más`] : [])].join(", ");
+    lines.push(`   ↳ ${option.name} (${rule}): ${valuesText || "por definir"}`);
+  }
+
+  return lines;
 }
 
 function formatCop(value: number): string {

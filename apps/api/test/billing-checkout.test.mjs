@@ -30,6 +30,28 @@ test("aplica direccion de delivery al billing normal recordado", () => {
   assert.equal(billing.billingAddress, "Cra 10 # 20-30");
 });
 
+test("no reutiliza coordenadas tecnicas como direccion de facturacion", () => {
+  const billing = applyBillingDefaults(
+    {
+      type: "normal",
+      fullName: "Cliente Demo",
+      billingAddress: "Ubicacion compartida: 6.1452718, -75.6144164",
+    },
+    {
+      id: "draft-pickup",
+      status: "draft",
+      fulfillmentType: "pickup",
+      items: [],
+      subtotal: 0,
+      deliveryFee: 0,
+      discountTotal: 0,
+      total: 0,
+    },
+  );
+
+  assert.equal(billing.billingAddress, undefined);
+});
+
 test("lee pendingBilling para reutilizacion de perfil normal", () => {
   const pending = readPendingBillingContext({
     pendingBilling: {

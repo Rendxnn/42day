@@ -1,4 +1,4 @@
-import type { BillingType, DraftOrder, OrderLineItemOptionsSnapshot, OrderStatus, OutOfStockReplacementOption } from "@42day/types";
+import type { BillingType, DraftOrder, KitchenProgress, OrderLineItemOptionsSnapshot, OrderStatus, OutOfStockReplacementOption } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
 
@@ -46,6 +46,10 @@ export type OrderRow = {
   customer_notification_status?: "pending" | "sent" | "failed" | null;
   customer_notification_error?: string | null;
   payment_confirmed_at?: string | null;
+  kitchen_progress?: KitchenProgress | null;
+  kitchen_stage_label?: string | null;
+  kitchen_progress_updated_at?: string | null;
+  kitchen_progress_updated_by?: string | null;
   created_at: string;
   updated_at: string;
 };

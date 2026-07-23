@@ -66,6 +66,10 @@ export function mapOrder(row: OrderRow): Order {
     customerNotificationStatus: row.customer_notification_status ?? undefined,
     customerNotificationError: row.customer_notification_error ?? undefined,
     paymentConfirmedAt: row.payment_confirmed_at ?? undefined,
+    kitchenProgress: row.kitchen_progress ?? 0,
+    kitchenStageLabel: row.kitchen_stage_label ?? undefined,
+    kitchenProgressUpdatedAt: row.kitchen_progress_updated_at ?? undefined,
+    kitchenProgressUpdatedBy: row.kitchen_progress_updated_by ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

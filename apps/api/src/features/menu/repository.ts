@@ -233,6 +233,7 @@ export async function selectAvailableMenuItems(input: {
       select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,aliases,is_available,sort_order",
       menu_id: `eq.${input.menuId}`,
       is_available: "eq.true",
+      removed_at: "is.null",
       order: "sort_order.asc",
     },
   });

@@ -36,9 +36,11 @@ import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestau
 import { authConfigured, getSession, onAuthStateChange, signIn, signOut, supabase } from "./auth";
 import {
   ArrowDown,
+  BarChart3,
   Bell,
   Check,
   ChefHat,
+  ChevronDown,
   ClipboardList,
   Copy,
   Clock,
@@ -69,6 +71,7 @@ import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
 import { ConfigurationView } from "./features/configuration/ConfigurationView";
+import { AnalyticsSection } from "./features/admin/AnalyticsSection";
 import { httpPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.http";
 import {
   formatDashboardDateTime as formatLocalizedDateTime,
@@ -250,16 +253,25 @@ const foodEmojiRules: Array<{ emoji: string; terms: string[] }> = [
   { emoji: "🥑", terms: ["aguacate"] },
   { emoji: "🫘", terms: ["frijol", "frijoles"] },
 ];
+
+// A deliberately broad food-first palette. Product images are optional in a
+// restaurant catalog, so this gives every business a fast, expressive visual
+// fallback without forcing them to upload photography for every item.
+const foodEmojiPalette = [
+  "🍽️", "🥘", "🍲", "🍛", "🍜", "🍝", "🍣", "🍤", "🍱", "🍚", "🍙", "🍘", "🍥", "🥟", "🥠", "🥡",
+  "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪",
+  "🥞", "🧇", "🥓", "🥚", "🍳", "🧀", "🥯", "🥖", "🥨", "🥐", "🍞", "🫓", "🥪", "🌭", "🍔", "🍟",
+  "🍕", "🌮", "🌯", "🫔", "🥙", "🧆", "🥗", "🥣", "🫕", "🍖", "🍗", "🥩", "🥓", "🍔", "🌭", "🍳",
+  "🐟", "🦐", "🦑", "🦀", "🦞", "🦪", "🐙", "🍋", "🫒", "🥑", "🍅", "🧅", "🧄", "🥔", "🥕", "🌽",
+  "🥦", "🥬", "🥒", "🌶️", "🫑", "🍆", "🥜", "🌰", "🫘", "🫛", "🍄", "🥭", "🍍", "🥥", "🍌", "🍉",
+  "🍇", "🍓", "🫐", "🍒", "🍑", "🍎", "🍏", "🍐", "🍊", "🍈", "🥝", "🍅", "🥜", "🌮", "🥵", "🧂",
+  "🫙", "🥫", "🍯", "🧈", "🥛", "🍼", "☕", "🫖", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂",
+  "🍷", "🥃", "🍸", "🍹", "🧉", "💧", "🥛", "🧊", "🍴", "🥢", "🔪", "🏺", "🛵", "🛍️", "🎉", "✨",
+];
+
 const availableProductEmojis = Array.from(new Set([
   ...foodEmojiRules.map((rule) => rule.emoji),
-  "🍽️",
-  "🥘",
-  "🍛",
-  "🥪",
-  "🥛",
-  "🍊",
-  "🍓",
-  "🍫",
+  ...foodEmojiPalette,
   ...unicodeEmojiData,
 ]));
 
@@ -2736,6 +2748,7 @@ function Catalog({
   const [modalProduct, setModalProduct] = useState<Partial<Product> | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "list">("list");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
   const [isAddingToMenu, setIsAddingToMenu] = useState(false);
   const [categorySavingByProductId, setCategorySavingByProductId] = useState<Record<string, boolean>>({});
   const groupedProducts = useMemo(
@@ -2747,6 +2760,11 @@ function Catalog({
   useEffect(() => {
     setSelectedProductIds((current) => current.filter((productId) => products.some((product) => product.id === productId)));
   }, [products]);
+
+  useEffect(() => {
+    const validGroupIds = new Set(groupedProducts.map((group) => group.id));
+    setExpandedCategoryIds((current) => new Set([...current].filter((categoryId) => validGroupIds.has(categoryId))));
+  }, [groupedProducts]);
 
   const selectedAddableIds = useMemo(
     () => selectedProductIds.filter((productId) => !menuProductIds.has(productId)),
@@ -2792,6 +2810,15 @@ function Catalog({
       }
 
       return Array.from(new Set([...current, ...selectableProductIds]));
+    });
+  }
+
+  function toggleCategoryExpansion(categoryId: string) {
+    setExpandedCategoryIds((current) => {
+      const next = new Set(current);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
     });
   }
 
@@ -2881,15 +2908,26 @@ function Catalog({
           const productIds = group.items.map((product) => product.id);
           const selectableProductIds = productIds.filter((productId) => !menuProductIds.has(productId));
           const allSelected = selectableProductIds.length > 0 && selectableProductIds.every((productId) => selectedProductIds.includes(productId));
+          const expanded = expandedCategoryIds.has(group.id);
 
           return (
             <section className="app-panel rounded-[28px] overflow-hidden" key={group.id}>
-              <div className="flex flex-col gap-3 border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</p>
-                  <h3 className="app-display mt-2 text-[2rem] leading-none text-[var(--text-strong)] sm:text-[2.55rem]">{group.label}</h3>
-                  <p className="mt-2 text-xs font-semibold text-[var(--text-soft)]">{group.items.length} {locale === "en" ? "products" : "productos"}</p>
-                </div>
+              <div className={`flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${expanded ? "border-b border-[rgba(118,93,71,0.12)]" : ""}`}>
+                <button
+                  aria-expanded={expanded}
+                  className="group/category flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
+                  onClick={() => toggleCategoryExpansion(group.id)}
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</span>
+                    <span className="app-display mt-2 block truncate text-[2.3rem] leading-none text-[var(--text-strong)] sm:text-[3rem]">{group.label}</span>
+                    <span className="mt-3 block text-sm font-semibold text-[var(--text-soft)]">{group.items.length} {locale === "en" ? "products" : "productos"}</span>
+                  </span>
+                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] transition group-hover/category:bg-[rgba(223,210,194,0.55)] ${expanded ? "rotate-180 bg-[rgba(223,210,194,0.42)]" : ""}`}>
+                    <ChevronDown size={20} />
+                  </span>
+                </button>
                 <button
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] disabled:opacity-60"
                   onClick={() => toggleCategorySelection(productIds)}
@@ -2900,7 +2938,7 @@ function Catalog({
                 </button>
               </div>
 
-              {viewMode === "cards" ? (
+              {expanded && (viewMode === "cards" ? (
                 <div className="grid gap-4 p-4 md:grid-cols-2 2xl:grid-cols-3">
                   {group.items.map((product) => (
                     <ProductCard
@@ -2934,7 +2972,7 @@ function Catalog({
                     />
                   ))}
                 </div>
-              )}
+              ))}
             </section>
           );
         })}
@@ -3209,8 +3247,8 @@ function EmojiSelect({
   const locale = activeDashboardLocale;
   const suggestedEmoji = inferProductEmoji({ description, name });
   const selectedEmoji = value || suggestedEmoji;
-  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiRules.map((rule) => rule.emoji)])).slice(0, 56);
-  const extendedOptions = Array.from(new Set([...quickOptions, ...availableProductEmojis])).slice(0, 240);
+  const quickOptions = Array.from(new Set([selectedEmoji, suggestedEmoji, ...foodEmojiPalette])).slice(0, 96);
+  const extendedOptions = Array.from(new Set([...quickOptions, ...availableProductEmojis])).slice(0, 720);
 
   return (
     <div className="rounded-[22px] border border-[rgba(118,93,71,0.12)] bg-[var(--surface-base)] p-3">
@@ -3242,9 +3280,9 @@ function EmojiSelect({
       </div>
       <details className="mt-3 rounded-[18px] border border-[rgba(118,93,71,0.1)] bg-[var(--panel-strong)] p-3">
         <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-          {locale === "en" ? "More emojis" : "Mas emojis"}
+          {locale === "en" ? `Expanded collection · ${extendedOptions.length} emojis` : `Coleccion ampliada · ${extendedOptions.length} emojis`}
         </summary>
-        <div className="mt-3 grid max-h-64 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
+        <div className="mt-3 grid max-h-80 grid-cols-8 gap-1.5 overflow-y-auto pr-1 app-scrollbar sm:grid-cols-10 lg:grid-cols-[repeat(14,minmax(0,1fr))]">
           {extendedOptions.map((emoji) => (
             <button
               aria-label={locale === "en" ? `Select emoji ${emoji}` : `Seleccionar emoji ${emoji}`}
@@ -3822,7 +3860,7 @@ type AdminMemberForm = {
   password: string;
 };
 
-type AdminSection = "overview" | "settings" | "users";
+type AdminSection = "overview" | "settings" | "users" | "analytics";
 
 const emptyAdminRestaurantCreateForm: AdminRestaurantCreateForm = {
   name: "",
@@ -4462,6 +4500,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                   <nav className="mt-5 flex flex-wrap gap-2 rounded-[18px] bg-[var(--surface-base)] p-2">
                     {[
                       { id: "overview" as const, label: locale === "en" ? "Overview" : "Resumen", icon: ClipboardList },
+                      { id: "analytics" as const, label: locale === "en" ? "Analytics" : "Analítica", icon: BarChart3 },
                       { id: "settings" as const, label: locale === "en" ? "Settings" : "Ajustes", icon: Power },
                       { id: "users" as const, label: locale === "en" ? "Users" : "Usuarios", icon: Users },
                     ].map((tab) => {
@@ -4534,6 +4573,14 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                       </div>
                     </aside>
                   </div>
+                )}
+
+                {adminSection === "analytics" && (
+                  <AnalyticsSection
+                    locale={locale}
+                    restaurants={restaurants}
+                    selectedRestaurant={selectedRestaurant}
+                  />
                 )}
 
                 {adminSection === "settings" && (

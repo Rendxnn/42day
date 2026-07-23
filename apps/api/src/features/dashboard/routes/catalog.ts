@@ -93,7 +93,7 @@ catalogDashboardRoutes.patch("/:tenantSlug/products/:productId", async (c) => {
 
 catalogDashboardRoutes.delete("/:tenantSlug/products/:productId", async (c) => {
   const tenant = c.get("tenant");
-  await createSupabaseRestClient(c.env).updateReturning<ProductRow>({
+  const [product] = await createSupabaseRestClient(c.env).updateReturning<ProductRow>({
     schema: tenant.schema_name,
     table: "products",
     query: { id: `eq.${c.req.param("productId")}` },
@@ -102,6 +102,10 @@ catalogDashboardRoutes.delete("/:tenantSlug/products/:productId", async (c) => {
       updated_at: new Date().toISOString(),
     },
   });
+
+  if (!product) {
+    return c.json({ error: "product_not_found" }, 404);
+  }
 
   return c.json({ ok: true });
 });

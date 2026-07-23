@@ -18,6 +18,8 @@ export type ProductConfigurationResolution = {
   freeTextNotes: string[];
   rawOptionTexts: OrderLineItemOptionTextInput[];
   missingRequiredOptions: ProductOption[];
+  unconfirmedOptionalOptions: ProductOption[];
+  skippedOptionIds: string[];
   invalidValueTexts: string[];
   ambiguousValueTexts: string[];
   nextOption?: ProductOption;
@@ -36,6 +38,7 @@ export function resolveProductConfiguration(input: {
   freeTextNotes?: string[];
   existingResolvedOptions?: OrderLineItemResolvedOption[];
   forcedOptionId?: string;
+  skippedOptionIds?: string[];
 }): ProductConfigurationResolution {
   const product = input.menuItem.product;
   const productOptions = [...(product?.options ?? [])].sort((left, right) => left.sortOrder - right.sortOrder);
@@ -47,6 +50,7 @@ export function resolveProductConfiguration(input: {
   const ambiguousValueTexts: string[] = [];
   const internalReasons: string[] = [];
   const invalidOptionIds: string[] = [];
+  const skippedOptionIds = new Set((input.skippedOptionIds ?? []).filter(Boolean));
 
   for (const resolved of input.existingResolvedOptions ?? []) {
     if (!resolved.optionId) {
@@ -64,6 +68,8 @@ export function resolveProductConfiguration(input: {
       freeTextNotes,
       rawOptionTexts,
       missingRequiredOptions: [],
+      unconfirmedOptionalOptions: [],
+      skippedOptionIds: [],
       invalidValueTexts,
       ambiguousValueTexts,
       pricing: {
@@ -83,6 +89,8 @@ export function resolveProductConfiguration(input: {
       freeTextNotes,
       rawOptionTexts,
       missingRequiredOptions: [],
+      unconfirmedOptionalOptions: [],
+      skippedOptionIds: [],
       invalidValueTexts,
       ambiguousValueTexts,
       pricing: {
@@ -181,12 +189,23 @@ export function resolveProductConfiguration(input: {
     }
   }
 
+  const unconfirmedOptionalOptions = productOptions.filter((option) => {
+    if (!option.id || minimumRequiredSelections(option) > 0 || skippedOptionIds.has(option.id)) {
+      return false;
+    }
+    return selectedCount(option, resolvedByOptionId.get(option.id)) === 0;
+  });
+
   const optionsPriceDelta = resolvedOptions.reduce((total, option) => total + option.priceDelta, 0);
-  const nextOption = missingRequiredOptions[0] ?? productOptions.find((option) => option.id && invalidOptionIds.includes(option.id));
+  // Correct an invalid group before prompting a later missing one. Otherwise a
+  // customer can be shown "salsas" after selecting too many proteins.
+  const nextOption = productOptions.find((option) => option.id && invalidOptionIds.includes(option.id))
+    ?? missingRequiredOptions[0]
+    ?? unconfirmedOptionalOptions[0];
   const status =
     internalReasons.includes("product_missing")
       ? "invalid"
-      : missingRequiredOptions.length > 0 || invalidValueTexts.length > 0 || ambiguousValueTexts.length > 0
+      : missingRequiredOptions.length > 0 || unconfirmedOptionalOptions.length > 0 || invalidValueTexts.length > 0 || ambiguousValueTexts.length > 0
         ? "needs_clarification"
         : "resolved";
 
@@ -197,6 +216,8 @@ export function resolveProductConfiguration(input: {
     freeTextNotes,
     rawOptionTexts,
     missingRequiredOptions,
+    unconfirmedOptionalOptions,
+    skippedOptionIds: Array.from(skippedOptionIds),
     invalidValueTexts: uniqueStrings(invalidValueTexts),
     ambiguousValueTexts: uniqueStrings(ambiguousValueTexts),
     nextOption,
@@ -263,6 +284,54 @@ export function splitConfigurationAnswerTexts(answerText: string): string[] {
     .split(/\b(?:y|e)\b|,/)
     .map((segment) => segment.trim())
     .filter(Boolean);
+}
+
+/**
+ * Finds named option values in a natural-language message without relying on
+ * the model to return every configuration ID. Numeric answers are intentionally
+ * excluded here because their meaning depends on the option currently shown.
+ */
+export function extractExplicitConfigurationOptionTexts(menuItem: MenuItem, answerText: string): OrderLineItemOptionTextInput[] {
+  const normalizedAnswer = ` ${normalizeText(answerText)} `;
+  if (!normalizedAnswer.trim()) {
+    return [];
+  }
+
+  const matches: OrderLineItemOptionTextInput[] = [];
+  for (const option of menuItem.product?.options ?? []) {
+    if (option.type === "text") {
+      continue;
+    }
+
+    for (const value of option.values.filter((entry) => entry.isActive)) {
+      const hasNamedValue = buildValueCandidateTexts(value).some((candidate) =>
+        candidate.length > 0 && normalizedAnswer.includes(` ${candidate} `),
+      );
+      if (hasNamedValue) {
+        matches.push({ groupText: option.name, valueText: value.name });
+      }
+    }
+  }
+
+  return matches;
+}
+
+/** True only for an explicit opt-out such as "sin salsas". */
+export function isExplicitConfigurationSkip(option: ProductOption, answerText: string): boolean {
+  if (option.type === "text" || minimumRequiredSelections(option) > 0) {
+    return false;
+  }
+
+  const normalizedAnswer = normalizeText(answerText);
+  if (!normalizedAnswer) {
+    return false;
+  }
+
+  return buildOptionCandidateTexts(option).some((candidate) => {
+    if (!candidate) return false;
+    const variants = uniqueStrings([candidate, candidate.endsWith("s") ? candidate.slice(0, -1) : `${candidate}s`]);
+    return variants.some((variant) => new RegExp(`(?:^|\\s)(?:sin|ningun(?:a|as)?|no quiero(?: ninguna)?)\\s+${escapeRegExp(variant)}(?:$|\\s)`).test(normalizedAnswer));
+  });
 }
 
 function buildResult(input: ProductConfigurationResolution): ProductConfigurationResolution {
@@ -498,6 +567,10 @@ function normalizeText(value: string): string {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function uniqueStrings(values: string[]): string[] {

@@ -1,17 +1,27 @@
 import type { CustomerBillingProfile, DraftOrder } from "@42day/types";
+import { toCustomerSafeAddress } from "../../delivery-coverage/customer-safe-address.ts";
 
 export function applyBillingDefaults(
   billing: NonNullable<DraftOrder["billing"]>,
   draft: DraftOrder,
 ): NonNullable<DraftOrder["billing"]> {
-  if (billing.type === "normal" && draft.fulfillmentType === "delivery" && draft.deliveryAddress) {
+  if (billing.type !== "normal") return billing;
+
+  const currentBillingAddress = toCustomerSafeAddress(billing.billingAddress);
+  const deliveryAddress = toCustomerSafeAddress(
+    draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress,
+  );
+  const billingAddress = currentBillingAddress ?? (draft.fulfillmentType === "delivery" ? deliveryAddress : undefined);
+
+  if (billingAddress) {
     return {
       ...billing,
-      billingAddress: billing.billingAddress ?? draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress,
+      billingAddress,
     };
   }
 
-  return billing;
+  const { billingAddress: _unsafeBillingAddress, ...safeBilling } = billing;
+  return safeBilling;
 }
 
 export function readPendingBillingContext(context: Record<string, unknown>): {
@@ -63,7 +73,8 @@ export function renderBillingProfile(profile: CustomerBillingProfile, draft: Dra
 
   return [
     `Nombre completo: ${profile.fullName ?? "-"}`,
-    `Dirección: ${profile.billingAddress ?? draft.deliveryAddress ?? "-"}`,
+    `Dirección: ${toCustomerSafeAddress(profile.billingAddress ?? draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress)
+      ?? (draft.fulfillmentType === "pickup" ? "no requerida para recoger" : "por confirmar")}`,
     "Si necesitas factura electrónica, también puedes pedírmela en este paso.",
   ].join("\n");
 }

@@ -20,8 +20,10 @@ import { buildWelcomeMenuText } from "../menu/service";
 import { loadCurrentMenu } from "./shared/helpers";
 import { logRoutingDiagnostic } from "./shared/tracing";
 import {
+  tryHandlePaymentMethod,
   tryHandleDeliveryAddress,
 } from "./checkout";
+import { tryHandlePendingProductConfiguration } from "./guided/product-configuration";
 import type { RouteInboundMessageInput } from "./shared/types";
 export type { RouteInboundMessageInput } from "./shared/types";
 
@@ -92,6 +94,23 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.conversation.state === "awaiting_transfer_proof") {
     const handledTransferProof = await tryHandleTransferProofBranch(input);
     if (handledTransferProof) {
+      return;
+    }
+  }
+
+  // Payment and pending composite-product answers have an exact local grammar
+  // (for example, "transferencia" or "1 y 2"). Handle them before asking the
+  // semantic model so a valid answer cannot be lost to a low-confidence plan.
+  if (input.conversation.state === "awaiting_payment_method") {
+    const handledPaymentMethod = await tryHandlePaymentMethod(input, signals);
+    if (handledPaymentMethod) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_product_configuration") {
+    const handledConfiguration = await tryHandlePendingProductConfiguration(input, { signals });
+    if (handledConfiguration) {
       return;
     }
   }

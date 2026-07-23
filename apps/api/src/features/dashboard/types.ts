@@ -3,6 +3,7 @@ import type {
   BillingType,
   DraftOrderStatus,
   HumanInterventionStatus,
+  KitchenProgress,
   Menu,
   OrderLineItemOptionsSnapshot,
   OrderStatus,
@@ -199,6 +200,10 @@ export type OrderRow = {
   customer_notification_status?: "pending" | "sent" | "failed" | null;
   customer_notification_error?: string | null;
   payment_confirmed_at?: string | null;
+  kitchen_progress?: KitchenProgress | null;
+  kitchen_stage_label?: string | null;
+  kitchen_progress_updated_at?: string | null;
+  kitchen_progress_updated_by?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -329,6 +334,20 @@ export type AppEventRow = {
   source: string;
   metadata?: Record<string, unknown> | null;
   created_at: string;
+};
+
+export type RestaurantAnalyticsSnapshotRow = {
+  id: string;
+  tenant_id: string;
+  range_start: string;
+  range_end: string;
+  timezone: string;
+  payload: Record<string, unknown>;
+  previous_payload: Record<string, unknown>;
+  calculated_by?: string | null;
+  calculated_at: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type OrderNotificationContext = {

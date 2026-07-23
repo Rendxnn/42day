@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   detectSignals,
@@ -6,6 +7,8 @@ import {
   parseSemanticPaymentMethod,
 } from "../src/modules/message-router/signal-detector.ts";
 import { resolveEntryFlowAction } from "../src/features/chat-routing/entry-flow.ts";
+
+const routerSource = readFileSync(new URL("../src/features/chat-routing/router.ts", import.meta.url), "utf8");
 
 function detect(text, state) {
   return detectSignals({
@@ -22,6 +25,7 @@ function detect(text, state) {
 
 test("solo acepta un pago deterministico exacto en el estado de pago", () => {
   assert.equal(detect("efectivo", "awaiting_payment_method").paymentMethod, "cash");
+  assert.equal(detect("transferencia", "awaiting_payment_method").paymentMethod, "transfer");
   assert.equal(detect("quiero pagar en efectivo y agregar un jugo", "awaiting_payment_method").paymentMethod, null);
   assert.equal(detect("efectivo", "awaiting_more_items").paymentMethod, null);
 });
@@ -55,4 +59,12 @@ test("solo los controles explicitos omiten la interpretacion semantica al inicia
     null,
   );
   assert.equal(resolveEntryFlowAction(detect("dos desayunos naturales", "awaiting_mode_selection")), null);
+});
+
+test("el router aplica pagos y respuestas de configurables antes del fallback semántico", () => {
+  const semanticFallbackIndex = routerSource.indexOf("if (await trySemanticFallback(input))");
+  assert.ok(routerSource.indexOf("tryHandlePaymentMethod(input, signals)") >= 0);
+  assert.ok(routerSource.indexOf("tryHandlePendingProductConfiguration(input, { signals })") >= 0);
+  assert.ok(routerSource.indexOf("tryHandlePaymentMethod(input, signals)") < semanticFallbackIndex);
+  assert.ok(routerSource.indexOf("tryHandlePendingProductConfiguration(input, { signals })") < semanticFallbackIndex);
 });

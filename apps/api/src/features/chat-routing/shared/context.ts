@@ -24,6 +24,7 @@ export type PendingProductConfigurationContext = {
   rawOptionTexts: OrderLineItemOptionTextInput[];
   notes: string[];
   resolvedOptions: OrderLineItemResolvedOption[];
+  skippedOptionIds?: string[];
   pendingOptionId: string;
   pendingOptionName: string;
   pendingOptionType: ProductOption["type"];

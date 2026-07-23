@@ -1,6 +1,7 @@
 import type { NormalizedInboundMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient } from "../../lib/supabase-rest";
+import { WHATSAPP_LOCATION_LABEL } from "../../features/delivery-coverage/customer-safe-address.ts";
 
 export type CustomerAddress = {
   id: string;
@@ -42,7 +43,7 @@ export async function saveCustomerAddressFromWhatsAppLocation(input: {
   const addressText = input.addressText?.trim()
     || input.message.location.address
     || input.message.location.name
-    || `Ubicacion compartida: ${input.message.location.latitude}, ${input.message.location.longitude}`;
+    || WHATSAPP_LOCATION_LABEL;
 
   await unsetDefaultAddresses(client, input.schemaName, input.customerId);
 

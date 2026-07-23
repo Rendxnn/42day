@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import { formatCop } from "./date.ts";
 import { resolveActiveMenuId, resolveMenuIdForMenuItem } from "./catalog.ts";
+import { ORDER_SELECT } from "../routes/orders/contracts.ts";
 
 export function parseOrdersBucket(rawBucket?: string): OrdersBucket {
   if (rawBucket === "pending_confirmation" || rawBucket === "active" || rawBucket === "history" || rawBucket === "all") {
@@ -145,6 +146,11 @@ export function mapOrderSummary(row: OrderRow, customer?: CustomerRow): OrderSum
     customerNotificationStatus: row.customer_notification_status ?? undefined,
     customerNotificationError: row.customer_notification_error ?? undefined,
     paymentConfirmedAt: row.payment_confirmed_at ?? undefined,
+    paymentProofFileId: row.payment_proof_file_id ?? undefined,
+    kitchenProgress: row.kitchen_progress ?? 0,
+    kitchenStageLabel: row.kitchen_stage_label ?? undefined,
+    kitchenProgressUpdatedAt: row.kitchen_progress_updated_at ?? undefined,
+    kitchenProgressUpdatedBy: row.kitchen_progress_updated_by ?? undefined,
     whatsappUrl: customer?.phone ? buildWhatsAppUrl(customer.phone) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -333,8 +339,9 @@ export async function loadOrderNotificationContext(
     schema,
     table: "orders",
     query: {
-      select:
-        "id,draft_order_id,customer_id,location_id,status,fulfillment_type,service_timing,scheduled_for,delivery_address,delivery_address_details,delivery_address_id,customer_address_text,resolved_delivery_address,customer_latitude,customer_longitude,delivery_distance_km,is_inside_delivery_coverage,coverage_validation_method,coverage_confidence,coverage_checked_at,payment_method,payment_proof_file_id,billing_type,billing_profile_id,billing_full_name,billing_address,billing_legal_name,billing_tax_id,billing_email,subtotal,delivery_fee,discount_total,total,restaurant_reviewed_at,restaurant_reviewed_by,restaurant_confirmed_at,restaurant_confirmed_by,restaurant_review_note,restaurant_review_metadata,customer_notified_at,customer_notification_status,customer_notification_error,payment_confirmed_at,created_at,updated_at",
+      // Status transitions use this same row. Reuse the canonical dashboard
+      // projection so a completed kitchen_progress is never read as 0.
+      select: ORDER_SELECT,
       id: `eq.${orderId}`,
       limit: 1,
     },

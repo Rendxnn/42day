@@ -3,7 +3,7 @@ import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import { isMissingTableError } from "../../../shared/errors/supabase";
 import { getAuthorizedTenants, isSystemAdmin, requireAuthUser } from "../auth";
-import type { DashboardContext, DashboardVariables, TenantRow, TenantStatus, TenantUserRow } from "../types";
+import type { DashboardContext, DashboardVariables, RestaurantAnalyticsSnapshotRow, TenantRow, TenantStatus, TenantUserRow } from "../types";
 import {
   buildDefaultRestaurantPassword,
   createOrLinkRestaurantMember,
@@ -88,6 +88,87 @@ adminDashboardRoutes.get("/admin/restaurants", async (c) => {
 
   const restaurants = await listAdminRestaurants(c.env);
   return c.json({ restaurants });
+});
+
+function parseAnalyticsDate(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? undefined : value;
+}
+
+function getAnalyticsRange(input: { startDate?: string; endDate?: string }) {
+  const startDate = parseAnalyticsDate(input.startDate);
+  const endDate = parseAnalyticsDate(input.endDate);
+  if (!startDate || !endDate || startDate > endDate) return undefined;
+
+  const days = Math.floor((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86_400_000) + 1;
+  if (days > 366) return undefined;
+  return { startDate, endDate };
+}
+
+function mapAnalyticsSnapshot(snapshot: RestaurantAnalyticsSnapshotRow) {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenant_id,
+    rangeStart: snapshot.range_start,
+    rangeEnd: snapshot.range_end,
+    timezone: snapshot.timezone,
+    payload: snapshot.payload,
+    previousPayload: snapshot.previous_payload,
+    calculatedAt: snapshot.calculated_at,
+  };
+}
+
+adminDashboardRoutes.get("/admin/analytics", async (c) => {
+  const authUser = await requireSystemAdmin(c);
+  if (authUser instanceof Response) return authUser;
+
+  const range = getAnalyticsRange({
+    startDate: c.req.query("startDate"),
+    endDate: c.req.query("endDate"),
+  });
+  if (!range) return c.json({ error: "invalid_analytics_range" }, 400);
+
+  const snapshots = await createSupabaseRestClient(c.env).select<RestaurantAnalyticsSnapshotRow>({
+    schema: "control",
+    table: "restaurant_analytics_snapshots",
+    query: {
+      select: "id,tenant_id,range_start,range_end,timezone,payload,previous_payload,calculated_at,created_at,updated_at",
+      range_start: `eq.${range.startDate}`,
+      range_end: `eq.${range.endDate}`,
+      order: "calculated_at.desc",
+    },
+  });
+
+  return c.json({
+    range,
+    snapshots: snapshots.map(mapAnalyticsSnapshot),
+  });
+});
+
+adminDashboardRoutes.post("/admin/analytics/restaurants/:tenantId/calculate", async (c) => {
+  const authUser = await requireSystemAdmin(c);
+  if (authUser instanceof Response) return authUser;
+
+  const tenant = await getTenantById(c.env, c.req.param("tenantId"));
+  if (!tenant) return c.json({ error: "restaurant_not_found" }, 404);
+
+  const body = await c.req.json().catch(() => ({})) as { startDate?: string; endDate?: string };
+  const range = getAnalyticsRange(body);
+  if (!range) return c.json({ error: "invalid_analytics_range" }, 400);
+
+  const snapshot = await createSupabaseRestClient(c.env).rpc<RestaurantAnalyticsSnapshotRow>({
+    schema: "control",
+    functionName: "calculate_restaurant_analytics",
+    args: {
+      p_tenant_id: tenant.id,
+      p_range_start: range.startDate,
+      p_range_end: range.endDate,
+      p_calculated_by: authUser.id,
+    },
+  });
+
+  return c.json({ snapshot: mapAnalyticsSnapshot(snapshot) });
 });
 
 adminDashboardRoutes.post("/admin/restaurants", async (c) => {

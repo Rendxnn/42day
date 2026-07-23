@@ -48,6 +48,7 @@ export function registerOrdersMenuTodayRoute(routes: Hono<{
           query: {
             select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
             menu_id: `eq.${menu.id}`,
+            removed_at: "is.null",
             order: "sort_order.asc",
           },
         })
@@ -59,7 +60,9 @@ export function registerOrdersMenuTodayRoute(routes: Hono<{
       tenantSchema: tenant.schema_name,
       location: location ? mapLocation(location) : undefined,
       menu: menu ? mapMenu(menu) : undefined,
-      items: itemRows.map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
+      items: itemRows
+        .filter((item) => !item.product_id || productById.has(item.product_id))
+        .map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
       products: products.map((product) => mapProduct(product, productOptions.get(product.id))),
     };
 

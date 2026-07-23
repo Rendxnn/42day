@@ -13,6 +13,7 @@ import {
   validateDeliveryCoverageFromWhatsappLocation,
 } from "../../delivery-coverage/service";
 import { reverseGeocodeCoordinatesWithGoogleMaps } from "../../delivery-coverage/google-maps";
+import { WHATSAPP_LOCATION_LABEL } from "../../delivery-coverage/customer-safe-address.ts";
 import { segmentDeliveryAddress } from "../../delivery-coverage/address-text";
 import { startBillingStep } from "./billing";
 import { buildAddressValidationRetryPrompt, buildWrittenAddressHelpPrompt } from "./address-prompts";
@@ -217,7 +218,7 @@ export async function tryHandleDeliveryAddress(input: RouteInboundMessageInput, 
 
   let resolvedDeliveryAddress = input.message.location!.address
     ?? input.message.location!.name
-    ?? `Ubicacion compartida: ${input.message.location!.latitude}, ${input.message.location!.longitude}`;
+    ?? WHATSAPP_LOCATION_LABEL;
   try {
     resolvedDeliveryAddress = await reverseGeocodeCoordinatesWithGoogleMaps({
       env: input.env,

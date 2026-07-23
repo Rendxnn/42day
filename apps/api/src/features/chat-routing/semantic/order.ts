@@ -3,7 +3,7 @@ import type { DraftOrder, MenuItem, OrderLineItem, OrderLineItemOptionsSnapshot,
 import { buildClarificationPrompt, buildElectronicBillingPrompt, buildFulfillmentPrompt, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt } from "../../../modules/message-router/response-composer";
 import { loadRecentConversationMessages } from "../../../modules/message-log/message-log";
 import { applySemanticDraftOperationPlan, loadActiveDraftOrder } from "../../draft-orders/service";
-import { buildWelcomeMenuText } from "../../menu/service";
+import { buildWelcomeMenuText, resolveMenuSelectionsFromText } from "../../menu/service";
 import { getDeliveryCoverageSettings, hasValidatedDeliveryCoverage, validateDeliveryCoverageFromWrittenAddress } from "../../delivery-coverage/service";
 import { segmentDeliveryAddress } from "../../delivery-coverage/address-text";
 import { loadCustomerBillingProfiles } from "../../../modules/customer-billing-service/customer-billing-service";
@@ -16,13 +16,15 @@ import { sendAndLogText } from "../outbound/send";
 import { loadCurrentMenu } from "../shared/helpers";
 import { logRoutingDiagnostic, markLlmAttempt, markLlmOutcome } from "../shared/tracing";
 import type { RouteInboundMessageInput } from "../shared/types";
-import { buildOrderLineItemOptionsSnapshot, resolveProductConfiguration, shouldPersistConfigurationSnapshot } from "../../product-configurator/service";
+import { buildOrderLineItemOptionsSnapshot, extractExplicitConfigurationOptionTexts, isExplicitConfigurationSkip, resolveProductConfiguration, shouldPersistConfigurationSnapshot } from "../../product-configurator/service";
 import { persistPendingProductConfiguration, readPendingProductConfiguration } from "../guided/product-configuration";
 import { cancelPendingCustomerReplacementOrder, getPendingCustomerReplacementOrder } from "../../orders/service";
 import { completeConversationAfterOrderCancellation } from "../../conversations/service";
 import { persistHumanInterventionAlert } from "../../../modules/handoff-service/handoff-service";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import { SemanticOperationPlanInferenceError, allowedSemanticOperations, parseSemanticOperationPlan, semanticOperationPlanFailureDiagnostics, type SemanticBillingInput, type SemanticConfigurationSelection, type SemanticOperation, type SemanticOperationPlan } from "./operation-plan";
+import { consolidateOrderLineItems } from "../../draft-orders/consolidation.ts";
+import { hasExplicitFulfillmentEvidence, hasExplicitPaymentEvidence } from "./evidence.ts";
 
 type DraftPatch = {
   fulfillmentType?: DraftOrder["fulfillmentType"];
@@ -117,6 +119,7 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
         : undefined,
     });
     parsed = execution.plan;
+    parsed = reconcileMenuMentionsInPlan(parsed, menu, input.message.text ?? "", allowedSemanticOperations(input.conversation.state));
     providerId = execution.providerId;
     logRoutingDiagnostic(input, "semantic_operation_plan.completed", {
       provider: execution.providerId,
@@ -282,6 +285,60 @@ export async function tryHandleSemanticOrder(input: RouteInboundMessageInput): P
   }
 }
 
+/**
+ * The operation-plan model works with canonical menu IDs. This deterministic
+ * guard complements it when a customer joins independent menu products in one
+ * phrase (for example, "carne a la plancha con jugo de fresa"). It only adds
+ * menu items explicitly found in the message and never alters configurations
+ * that the model attached to the main dish.
+ */
+export function reconcileMenuMentionsInPlan(
+  plan: SemanticOperationPlan,
+  menu: TodayMenuPayload,
+  rawMessage: string,
+  allowedOperations: SemanticOperation["type"][],
+): SemanticOperationPlan {
+  if (!allowedOperations.includes("add_product") || !plan.operations.some((operation) => operation.type === "add_product")) {
+    return plan;
+  }
+
+  const mentions = resolveMenuSelectionsFromText(menu, rawMessage);
+  if (mentions.length === 0) {
+    return plan;
+  }
+
+  const mentionedMenuItemIds = new Set(mentions.map((mention) => mention.item.id));
+  // A clear textual match is stronger evidence than a model-selected ID. This
+  // prevents the model from attaching "1 caldo" to a different, stale or
+  // unavailable menu item when the current menu already has an exact Caldo.
+  // Keep any configuration only when it belongs to the same explicitly named
+  // item, then append the deterministic matches that the model omitted.
+  const validAddedIds = new Set<string>();
+  const operations = plan.operations.filter((operation) => {
+    if (operation.type !== "add_product") return true;
+    if (!operation.menuItemId || !mentionedMenuItemIds.has(operation.menuItemId)) return false;
+    validAddedIds.add(operation.menuItemId);
+    return true;
+  });
+
+  for (const mention of mentions) {
+    if (validAddedIds.has(mention.item.id)) {
+      continue;
+    }
+    operations.push({
+      type: "add_product",
+      menuItemId: mention.item.id,
+      quantity: mention.quantity,
+      confidence: 1,
+    });
+    validAddedIds.add(mention.item.id);
+  }
+
+  return operations.length === plan.operations.length && operations.every((operation, index) => operation === plan.operations[index])
+    ? plan
+    : { ...plan, operations };
+}
+
 async function validateOperationPlan(
   input: RouteInboundMessageInput,
   payload: {
@@ -317,20 +374,21 @@ async function validateOperationPlan(
     }
     if (operation.type === "add_product") {
       const selected = operation.menuItemId ? payload.menu.items.find((item) => item.id === operation.menuItemId) : undefined;
-      if (
-        !selected
-        || !selected.isAvailable
-        || selected.product?.isActive === false
-        || unavailableMenuItemIds.has(selected.id)
-        || (payload.pendingConfiguration && selected.id !== payload.pendingConfiguration.menuItemId)
-      ) {
-        return invalid("semantic_add_product_invalid_menu_item", "Uno de los productos que mencionaste ya no está disponible. ¿Quieres elegir otra opción?");
+      if (!selected) {
+        return invalid("semantic_add_product_unrecognized_menu_item", "No pude identificar con seguridad uno de los productos. ¿Me lo escribes como aparece en el menú?");
+      }
+      if (!selected.isAvailable || selected.product?.isActive === false || unavailableMenuItemIds.has(selected.id)) {
+        return invalid("semantic_add_product_unavailable_menu_item", `${selected.displayName ?? selected.product?.name ?? "Ese producto"} ya no está disponible. ¿Quieres elegir otra opción?`);
+      }
+      if (payload.pendingConfiguration && selected.id !== payload.pendingConfiguration.menuItemId) {
+        return invalid("semantic_add_product_pending_configuration_mismatch", "Primero necesito terminar de configurar el producto que ya elegiste.");
       }
       const pendingSelections = payload.pendingConfiguration ? toSemanticConfigurationSelections(payload.pendingConfiguration.resolvedOptions) : [];
       const resolved = resolveConfiguration(
         selected,
         mergeConfigurationSelections(pendingSelections, operation.configuration),
         operation.notes ?? payload.pendingConfiguration?.notes,
+        input.message.text,
       );
       if (resolved.kind === "needs_configuration") {
         return {
@@ -394,7 +452,7 @@ async function validateOperationPlan(
       const line = index >= 0 ? items[index] : undefined;
       const menuItem = line?.menuItemId ? payload.menu.items.find((item) => item.id === line.menuItemId) : undefined;
       if (!line || !menuItem) return invalid("semantic_draft_line_not_found", "No pude encontrar exactamente ese producto en tu pedido actual.");
-      const resolved = resolveConfiguration(menuItem, operation.configuration, operation.notes ?? line.notes?.split("; "));
+      const resolved = resolveConfiguration(menuItem, operation.configuration, operation.notes ?? line.notes?.split("; "), input.message.text);
       if (resolved.kind !== "resolved") return invalid("semantic_configuration_invalid", "Necesito confirmar una opción del producto antes de cambiar tu pedido.");
       line.options = shouldPersistConfigurationSnapshot({ menuItem, resolution: resolved.resolution }) ? buildOrderLineItemOptionsSnapshot(resolved.resolution) : undefined;
       line.notes = uniqueNotes(operation.notes ?? line.notes?.split("; ")).join("; ") || undefined;
@@ -406,6 +464,9 @@ async function validateOperationPlan(
     }
     if (operation.type === "set_fulfillment") {
       if (!operation.fulfillmentType) return invalid("semantic_fulfillment_invalid", "¿Prefieres domicilio o recoger en el local?");
+      if (!hasExplicitFulfillmentEvidence(input.message.text, operation.fulfillmentType, input.conversation.state)) {
+        return invalid("semantic_fulfillment_without_evidence", "No quiero asumir cómo recibirás el pedido. ¿Prefieres domicilio o recoger en el local?");
+      }
       patch.fulfillmentType = operation.fulfillmentType;
       if (operation.fulfillmentType === "pickup") clearDeliveryPatch(patch);
       hasMutation = true;
@@ -414,6 +475,9 @@ async function validateOperationPlan(
     }
     if (operation.type === "set_payment_method") {
       if (!operation.paymentMethod) return invalid("semantic_payment_invalid", "¿Prefieres pagar en efectivo o por transferencia?");
+      if (!hasExplicitPaymentEvidence(input.message.text, operation.paymentMethod, input.conversation.state)) {
+        return invalid("semantic_payment_without_evidence", "No quiero asumir el medio de pago. ¿Prefieres efectivo o transferencia?");
+      }
       patch.paymentMethod = operation.paymentMethod;
       hasMutation = true;
       advancesCheckout = true;
@@ -454,10 +518,21 @@ async function validateOperationPlan(
   if (input.conversation.state === "awaiting_order_adjustment" && items.length === 0) {
     return invalid("semantic_adjustment_empty_order", "El pedido no puede quedar sin productos. Dime qué productos deseas agregar.");
   }
-  return { kind: "valid", value: { items, patch, billing, hasMutation, hasItemMutation, advancesCheckout, addressResolution } };
+  return {
+    kind: "valid",
+    value: {
+      items: consolidateOrderLineItems(items),
+      patch,
+      billing,
+      hasMutation,
+      hasItemMutation,
+      advancesCheckout,
+      addressResolution,
+    },
+  };
 }
 
-function resolveConfiguration(menuItem: MenuItem, configuration: SemanticConfigurationSelection[] | undefined, notes?: string[]) {
+function resolveConfiguration(menuItem: MenuItem, configuration: SemanticConfigurationSelection[] | undefined, notes?: string[], rawMessage?: string) {
   const rawOptionTexts: Array<{ groupText?: string; valueText: string }> = [];
   for (const selection of configuration ?? []) {
     const option = menuItem.product?.options?.find((candidate) => candidate.id === selection.optionId);
@@ -474,7 +549,18 @@ function resolveConfiguration(menuItem: MenuItem, configuration: SemanticConfigu
       rawOptionTexts.push({ groupText: option.name, valueText: value.name });
     }
   }
-  const resolution = resolveProductConfiguration({ menuItem, source: "semantic", rawOptionTexts, freeTextNotes: uniqueNotes(notes) });
+  const explicitOptionTexts = rawMessage ? extractExplicitConfigurationOptionTexts(menuItem, rawMessage) : [];
+  for (const entry of explicitOptionTexts) {
+    if (!rawOptionTexts.some((current) => current.groupText === entry.groupText && current.valueText === entry.valueText)) {
+      rawOptionTexts.push(entry);
+    }
+  }
+  const skippedOptionIds = rawMessage
+    ? (menuItem.product?.options ?? [])
+        .filter((option) => option.id && isExplicitConfigurationSkip(option, rawMessage))
+        .map((option) => option.id!)
+    : [];
+  const resolution = resolveProductConfiguration({ menuItem, source: "semantic", rawOptionTexts, freeTextNotes: uniqueNotes(notes), skippedOptionIds });
   if (resolution.status === "needs_clarification") return { kind: "needs_configuration" as const, resolution, rawOptionTexts };
   if (resolution.status !== "resolved") return { kind: "invalid" as const };
   return { kind: "resolved" as const, resolution };
@@ -626,6 +712,11 @@ async function sendOrderStepMessage(input: RouteInboundMessageInput, draft: Draf
   if (next.addressCoverageOutcome === "outside_allowed") {
     await sendAndLogText(input, "La dirección está fuera de la cobertura habitual, pero el restaurante permite continuar con el domicilio.");
   }
+  if (next.state === "awaiting_confirmation") {
+    await sendAndLogText(input, buildOrderSummaryText(draft, draft.paymentMethod ?? "cash"));
+    return;
+  }
+
   const snapshot = buildOrderProgressSnapshot(draft);
   let prompt: string;
   switch (next.state) {
@@ -635,7 +726,6 @@ async function sendOrderStepMessage(input: RouteInboundMessageInput, draft: Draf
     case "awaiting_normal_billing_info": prompt = buildNormalBillingPrompt({ fulfillmentType: draft.fulfillmentType, billingAddress: draft.resolvedDeliveryAddress ?? draft.deliveryAddress }); break;
     case "awaiting_electronic_billing_info": prompt = buildElectronicBillingPrompt(); break;
     case "awaiting_payment_method": prompt = buildPaymentPrompt(draft, menu); break;
-    case "awaiting_confirmation": prompt = `${buildOrderSummaryText(draft, draft.paymentMethod ?? "cash")}\n\nResponde “sí” para confirmarlo o dime qué deseas ajustar.`; break;
     case "awaiting_more_items": prompt = "¿Te gustaría agregar algo más o prefieres que sigamos con la entrega?"; break;
     case "awaiting_guided_item_selection": prompt = "Cuéntame qué productos deseas agregar al pedido."; break;
     default: prompt = buildClarificationPrompt(next.state); break;

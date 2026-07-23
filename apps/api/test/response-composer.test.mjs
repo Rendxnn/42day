@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildClarificationPrompt, buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt } from "../src/modules/message-router/response-composer.ts";
+import { buildClarificationPrompt, buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt, buildProductConfigurationPrompt } from "../src/modules/message-router/response-composer.ts";
 import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
@@ -166,4 +166,105 @@ test("explica que el pedido para recoger está listo", () => {
   const message = buildCustomerOrderStatusMessage({ status: "on_the_way", fulfillmentType: "pickup" });
 
   assert.match(message, /listo para que lo recojas/i);
+});
+
+test("el menú inicial muestra los componentes y límites de productos compuestos", () => {
+  const menu = buildMenu();
+  menu.items[0].displayName = "Picada armable";
+  menu.items[0].product.productType = "composite";
+  menu.items[0].product.options = [{
+    id: "proteins",
+    name: "Proteinas",
+    type: "single",
+    isRequired: true,
+    minSelect: 2,
+    maxSelect: 3,
+    sortOrder: 0,
+    values: [
+      { id: "beef", name: "Res", priceDelta: 0, isActive: true, sortOrder: 0 },
+      { id: "pork", name: "Bondiola", priceDelta: 0, isActive: true, sortOrder: 1 },
+    ],
+  }];
+
+  const message = buildWelcomeMenuText(menu, "Restaurante Demo");
+  assert.match(message, /Proteinas.*elige 2–3.*máx\. 3/i);
+  assert.match(message, /Res, Bondiola/);
+});
+
+test("el prompt de facturacion no muestra una pseudo direccion con coordenadas", () => {
+  const message = buildNormalBillingPrompt({
+    fulfillmentType: "delivery",
+    billingAddress: "Ubicacion compartida: 6.1452718, -75.6144164",
+  });
+
+  assert.doesNotMatch(message, /6\.1452718|-75\.6144164|Ubicacion compartida:/i);
+  assert.match(message, /nombre completo/i);
+});
+
+test("la confirmacion nunca expone coordenadas como direccion de facturacion", () => {
+  const message = buildOrderSummaryText(buildDraft({
+    fulfillmentType: "pickup",
+    billing: {
+      type: "normal",
+      fullName: "Cliente Demo",
+      billingAddress: "Ubicacion compartida: 6.1452718, -75.6144164",
+    },
+  }), "transfer");
+
+  assert.doesNotMatch(message, /6\.1452718|-75\.6144164|Ubicacion compartida:/i);
+});
+
+test("explica el avance porcentual real de cocina", () => {
+  const message = buildCustomerOrderStatusMessage({
+    status: "preparing",
+    fulfillmentType: "delivery",
+    kitchenProgress: 50,
+  });
+
+  assert.match(message, /en el horno/i);
+  assert.match(message, /50%/);
+});
+
+test("respeta el nombre personalizado de la etapa de cocina", () => {
+  const message = buildCustomerOrderStatusMessage({
+    status: "preparing",
+    fulfillmentType: "pickup",
+    kitchenProgress: 50,
+    kitchenStageLabel: "en los sartenes",
+  });
+
+  assert.match(message, /en los sartenes/i);
+  assert.doesNotMatch(message, /en el horno/i);
+});
+
+test("explica mínimo y máximo aunque la opción use tipo single", () => {
+  const message = buildProductConfigurationPrompt("Picada armable", {
+    id: "protein",
+    name: "Proteinas",
+    type: "single",
+    isRequired: true,
+    minSelect: 2,
+    maxSelect: 3,
+    sortOrder: 0,
+    values: [],
+  }, { invalidValueTexts: ["Proteinas"] });
+
+  assert.match(message, /máximo 3 opciones/i);
+  assert.match(message, /entre 2 y 3 opciones/i);
+});
+
+test("confirma expresamente cuando una categoría de componentes es opcional", () => {
+  const message = buildProductConfigurationPrompt("Bowl", {
+    id: "sauces",
+    name: "Salsas",
+    type: "single",
+    isRequired: false,
+    minSelect: 0,
+    maxSelect: 2,
+    sortOrder: 0,
+    values: [],
+  });
+
+  assert.match(message, /sin salsas/i);
+  assert.match(message, /hasta 2 opciones/i);
 });

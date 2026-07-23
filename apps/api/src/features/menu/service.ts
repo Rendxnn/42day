@@ -121,7 +121,11 @@ export async function loadTodayPublishedMenu(input: {
           publishedAt: menu.published_at ?? undefined,
         }
       : undefined,
-    items: itemRows.map((item) => mapMenuItemRow(item, item.product_id ? productById.get(item.product_id) : undefined)),
+    // A database trigger keeps this relation clean. This read-side guard also
+    // ensures a stale row can never be exposed while a migration is rolling out.
+    items: itemRows
+      .filter((item) => !item.product_id || productById.has(item.product_id))
+      .map((item) => mapMenuItemRow(item, item.product_id ? productById.get(item.product_id) : undefined)),
     products,
   };
 }

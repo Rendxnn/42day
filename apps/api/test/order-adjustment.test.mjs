@@ -24,6 +24,19 @@ test("semantic adjustment uses exact draft lines and preserves the unavailable q
   assert.match(source, /inferProductQuantity/);
   assert.match(source, /additions\.length === 1 && unavailable\.length === 1/);
   assert.match(source, /state: "awaiting_confirmation"/);
+  assert.match(source, /consolidateOrderLineItems\(items\)/);
+});
+
+test("semantic confirmation sends one final summary instead of snapshot plus summary", async () => {
+  const source = await readFile(semanticOrderPath, "utf8");
+  const confirmationBranch = source.slice(
+    source.indexOf('if (next.state === "awaiting_confirmation")'),
+    source.indexOf('const snapshot = buildOrderProgressSnapshot(draft)', source.indexOf('if (next.state === "awaiting_confirmation")')),
+  );
+
+  assert.match(confirmationBranch, /sendAndLogText\(input, buildOrderSummaryText/);
+  assert.match(confirmationBranch, /return;/);
+  assert.doesNotMatch(source, /case "awaiting_confirmation": prompt =/);
 });
 
 test("restaurant out-of-stock reporting persists all affected lines instead of only the first", async () => {

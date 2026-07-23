@@ -132,6 +132,8 @@ export async function parseFreeFormOrder(input: {
       "Si el usuario menciona el grupo de una opcion, conservalo en groupText.",
       "Cuando una cantidad mayor a 1 del mismo producto comparte las mismas opciones, devuelve un solo item con esa quantity y sus optionTexts; no dupliques el producto ni repartas opciones entre unidades salvo que el usuario describa configuraciones distintas.",
       "Los productos adicionales mencionados aparte (por ejemplo huevos o caldo) deben salir como items independientes si existen en el menu.",
+      "Una frase con 'con' puede contener varios productos del menu. Por ejemplo, si 'carne a la plancha' y 'jugo de fresa' son productos distintos del menu, devuelve dos items, no pongas el jugo como optionText de la carne.",
+      "Solo usa optionTexts para elecciones que pertenecen al producto principal y existen entre sus opciones. Conserva elecciones como 'de res' cuando sean una opcion real del plato, pero nunca inventes que un producto del menu esta agotado o no disponible.",
       "No conviertas una nota libre en valor de catalogo si el usuario no lo dijo claramente.",
     ].join("\n"),
     input: [

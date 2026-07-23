@@ -13,7 +13,7 @@ import {
   buildProductConfigurationPrompt,
 } from "../../../modules/message-router/response-composer";
 import { addMenuItemToDraftOrder, getOrCreateActiveDraftOrder } from "../../draft-orders/service";
-import { resolveProductConfiguration, shouldPersistConfigurationSnapshot, splitConfigurationAnswerTexts, buildOrderLineItemOptionsSnapshot, type ProductConfigurationSource, type ProductConfigurationResolution } from "../../product-configurator/service";
+import { extractExplicitConfigurationOptionTexts, isExplicitConfigurationSkip, resolveProductConfiguration, shouldPersistConfigurationSnapshot, splitConfigurationAnswerTexts, buildOrderLineItemOptionsSnapshot, type ProductConfigurationSource, type ProductConfigurationResolution } from "../../product-configurator/service";
 import type { DetectedSignals } from "../../../modules/message-router/signal-detector";
 import { sendAndLogText } from "../outbound/send";
 import type { ConfigurableItemCandidate, PendingProductConfigurationContext } from "../shared/context";
@@ -65,11 +65,33 @@ export async function tryHandlePendingProductConfiguration(
   }
 
   const answerText = input.message.text?.trim() ?? "";
+  const explicitOptionTexts = extractExplicitConfigurationOptionTexts(selectedItem, answerText);
+  const numericOptionTexts = mapConfigurationAnswerToRawOptionTexts(
+    option,
+    splitConfigurationAnswerTexts(answerText).filter((entry) => /^\d+$/.test(entry)).join(", "),
+  );
   const rawOptionTexts = payload?.semanticAnswer?.optionTexts?.length
     ? payload.semanticAnswer.optionTexts
-    : mapConfigurationAnswerToRawOptionTexts(option, answerText);
-  if (rawOptionTexts.length === 0) {
+    : explicitOptionTexts.length > 0
+      ? uniqueRawOptionTexts([...numericOptionTexts, ...explicitOptionTexts])
+      : mapConfigurationAnswerToRawOptionTexts(option, answerText);
+  const isExplicitSkip = isExplicitConfigurationSkip(option, answerText);
+  if (rawOptionTexts.length === 0 && !isExplicitSkip) {
     return false;
+  }
+
+  // If the previous answer exceeded a maximum, a new answer to that same
+  // group replaces the invalid selection instead of accumulating over it.
+  const retryingInvalidOption = (pending.invalidValueTexts ?? []).some((entry) => normalizeComparableText(entry) === normalizeComparableText(option.name));
+  const existingResolvedOptions = retryingInvalidOption
+    ? pending.resolvedOptions.filter((entry) => entry.optionId !== option.id)
+    : pending.resolvedOptions;
+  const existingRawOptionTexts = retryingInvalidOption
+    ? pending.rawOptionTexts.filter((entry) => normalizeComparableText(entry.groupText ?? "") !== normalizeComparableText(option.name))
+    : pending.rawOptionTexts;
+  const skippedOptionIds = new Set(pending.skippedOptionIds ?? []);
+  if (isExplicitSkip && option.id) {
+    skippedOptionIds.add(option.id);
   }
 
   const resolution = resolveProductConfiguration({
@@ -77,11 +99,13 @@ export async function tryHandlePendingProductConfiguration(
     source: pending.source,
     rawOptionTexts,
     freeTextNotes: pending.notes,
-    existingResolvedOptions: pending.resolvedOptions,
-    forcedOptionId: option.id,
+    existingResolvedOptions,
+    skippedOptionIds: Array.from(skippedOptionIds),
+    // Explicitly named values can span several component groups in one text.
+    forcedOptionId: explicitOptionTexts.length > 0 ? undefined : option.id,
   });
 
-  const mergedRawOptionTexts = [...pending.rawOptionTexts, ...rawOptionTexts];
+  const mergedRawOptionTexts = [...existingRawOptionTexts, ...rawOptionTexts];
 
   if (resolution.status === "resolved") {
     const notes = uniqueNotes([...pending.notes, ...resolution.freeTextNotes, ...(payload?.semanticAnswer?.notes ?? [])]);
@@ -135,10 +159,6 @@ export async function tryHandlePendingProductConfiguration(
   }
 
   if (resolution.status === "needs_clarification" && resolution.nextOption?.id) {
-    if ((resolution.invalidValueTexts?.length ?? 0) > 0 || (resolution.ambiguousValueTexts?.length ?? 0) > 0) {
-      return false;
-    }
-
     await persistPendingProductConfiguration(input, {
       menu,
       selectedItem,
@@ -201,6 +221,7 @@ export async function persistPendingProductConfiguration(input: RouteInboundMess
         pendingOptionType: nextOption.type,
         invalidValueTexts: payload.resolution.invalidValueTexts,
         ambiguousValueTexts: payload.resolution.ambiguousValueTexts,
+        skippedOptionIds: payload.resolution.skippedOptionIds,
         startedAt: new Date().toISOString(),
         queuedItems: payload.queuedItems,
         returnToOrderAdjustment: input.conversation.state === "awaiting_order_adjustment",
@@ -243,6 +264,7 @@ export function readPendingProductConfiguration(conversation: Conversation): Pen
     rawOptionTexts: Array.isArray(pending.rawOptionTexts) ? pending.rawOptionTexts : [],
     notes: Array.isArray(pending.notes) ? pending.notes.filter((entry): entry is string => typeof entry === "string") : [],
     resolvedOptions: Array.isArray(pending.resolvedOptions) ? pending.resolvedOptions : [],
+    skippedOptionIds: Array.isArray(pending.skippedOptionIds) ? pending.skippedOptionIds.filter((entry): entry is string => typeof entry === "string") : undefined,
     pendingOptionId: pending.pendingOptionId,
     pendingOptionName: pending.pendingOptionName ?? "",
     pendingOptionType: pending.pendingOptionType ?? "single",
@@ -344,4 +366,24 @@ async function addSelectedItem(input: RouteInboundMessageInput, payload: {
 
 function uniqueNotes(notes: string[]): string[] {
   return Array.from(new Set(notes.map((entry) => entry.trim()).filter(Boolean)));
+}
+
+function uniqueRawOptionTexts(entries: OrderLineItemOptionTextInput[]): OrderLineItemOptionTextInput[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = `${normalizeComparableText(entry.groupText ?? "")}::${normalizeComparableText(entry.valueText)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

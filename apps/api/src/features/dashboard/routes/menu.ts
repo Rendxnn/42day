@@ -54,6 +54,7 @@ menuDashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
         query: {
           select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
           menu_id: `eq.${menu.id}`,
+          removed_at: "is.null",
           order: "sort_order.asc",
         },
       })
@@ -65,7 +66,9 @@ menuDashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
     tenantSchema: tenant.schema_name,
     location: location ? mapLocation(location) : undefined,
     menu: menu ? mapMenu(menu) : undefined,
-    items: itemRows.map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
+    items: itemRows
+      .filter((item) => !item.product_id || productById.has(item.product_id))
+      .map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
     products: products.map((product) => mapProduct(product, productOptions.get(product.id))),
   };
 
@@ -133,11 +136,19 @@ menuDashboardRoutes.patch("/:tenantSlug/menu/today/items/:itemId", async (c) => 
 
 menuDashboardRoutes.delete("/:tenantSlug/menu/today/items/:itemId", async (c) => {
   const tenant = c.get("tenant");
-  await createSupabaseRestClient(c.env).delete({
+  const [item] = await createSupabaseRestClient(c.env).updateReturning<MenuItemRow>({
     schema: tenant.schema_name,
     table: "menu_items",
     query: { id: `eq.${c.req.param("itemId")}` },
+    patch: {
+      is_available: false,
+      removed_at: new Date().toISOString(),
+    },
   });
+
+  if (!item) {
+    return c.json({ error: "menu_item_not_found" }, 404);
+  }
 
   return c.json({ ok: true });
 });

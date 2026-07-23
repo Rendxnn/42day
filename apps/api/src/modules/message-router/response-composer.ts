@@ -1,4 +1,5 @@
 import type { DraftOrder, OrderLineItem, OrderStatus, PaymentMethod, ProductOption, TodayMenuPayload } from "@42day/types";
+import { toCustomerSafeAddress } from "../../features/delivery-coverage/customer-safe-address.ts";
 
 const DEFAULT_ESTIMATED_MINUTES = 30;
 
@@ -66,8 +67,9 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
 
   if (draft.fulfillmentType === "delivery") {
     lines.push(`Domicilio: ${formatCop(draft.deliveryFee)}`);
-    if (draft.deliveryAddress) {
-      lines.push(`Dirección de entrega: ${draft.deliveryAddress}`);
+    const deliveryAddress = toCustomerSafeAddress(draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress);
+    if (deliveryAddress) {
+      lines.push(`Dirección de entrega: ${deliveryAddress}`);
     }
     if (draft.deliveryAddressDetails) {
       lines.push(`Indicaciones de entrega: ${draft.deliveryAddressDetails}`);
@@ -82,7 +84,8 @@ export function buildOrderSummaryText(draft: DraftOrder, paymentMethod: PaymentM
     if (draft.billing.email) lines.push(`Correo de facturación: ${draft.billing.email}`);
   } else if (draft.billing?.fullName) {
     lines.push(`Factura: normal a nombre de ${draft.billing.fullName}`);
-    if (draft.billing.billingAddress) lines.push(`Dirección de facturación: ${draft.billing.billingAddress}`);
+    const billingAddress = toCustomerSafeAddress(draft.billing.billingAddress);
+    if (billingAddress) lines.push(`Dirección de facturación: ${billingAddress}`);
   }
 
   lines.push(`Pago: ${paymentMethod === "cash" ? "efectivo" : "transferencia"}`);
@@ -109,9 +112,9 @@ export function buildOrderProgressSnapshot(draft: DraftOrder): string {
   lines.push(`Subtotal: ${formatCop(draft.subtotal)}`);
   lines.push(`Entrega: ${draft.fulfillmentType === "delivery" ? "Domicilio" : draft.fulfillmentType === "pickup" ? "Para recoger" : "Pendiente"}`);
 
-  const address = draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress;
-  lines.push(`Dirección: ${address ?? "Pendiente"}`);
-  lines.push(`Indicaciones: ${draft.deliveryAddressDetails ?? "Pendiente"}`);
+  const address = toCustomerSafeAddress(draft.resolvedDeliveryAddress ?? draft.customerAddressText ?? draft.deliveryAddress);
+  lines.push(`Dirección: ${draft.fulfillmentType === "pickup" ? "No requerida para recoger" : address ?? "Pendiente"}`);
+  lines.push(`Indicaciones: ${draft.fulfillmentType === "pickup" ? "No requeridas para recoger" : draft.deliveryAddressDetails ?? "Pendiente"}`);
   lines.push(`Pago: ${draft.paymentMethod === "cash" ? "Efectivo" : draft.paymentMethod === "transfer" ? "Transferencia" : "Pendiente"}`);
 
   if (!draft.fulfillmentType) {
@@ -205,6 +208,8 @@ export function buildRestaurantReviewPendingMessage(): string {
 export function buildCustomerOrderStatusMessage(order: {
   status: OrderStatus;
   fulfillmentType: "delivery" | "pickup";
+  kitchenProgress?: 0 | 25 | 50 | 75 | 100;
+  kitchenStageLabel?: string;
 }): string {
   switch (order.status) {
     case "pending_restaurant_confirmation":
@@ -215,8 +220,20 @@ export function buildCustomerOrderStatusMessage(order: {
     case "payment_pending_review":
       return "Ya recibimos tu comprobante y el restaurante está validando el pago. Te avisaré apenas quede confirmado.";
     case "accepted":
-    case "preparing":
-      return "Tu pedido ya está siendo preparado por nuestro increíble chef. En cuanto esté listo, te avisaré por aquí.";
+    case "preparing": {
+      const progress = order.kitchenProgress ?? 0;
+      const defaultLabels = {
+        0: "en cola de cocina",
+        25: "preparando los ingredientes",
+        50: "en el horno",
+        75: "emplatando",
+        100: "servido",
+      };
+      const stage = order.kitchenStageLabel?.trim() || defaultLabels[progress];
+      return progress === 100
+        ? `Tu pedido ya está ${stage}. El restaurante está por marcarlo como listo para recoger o salir a domicilio.`
+        : `Tu pedido está ${stage} (${progress}%). Nuestro equipo sigue trabajando para tenerlo listo lo antes posible.`;
+    }
     case "on_the_way":
       return order.fulfillmentType === "delivery"
         ? "Tu pedido ya salió en camino a tu domicilio. Dentro de poco podrás disfrutarlo. ¡Gracias por la espera!"
@@ -282,9 +299,10 @@ export function buildNormalBillingPrompt(input: {
     ? ""
     : " Si necesitas factura electrónica, también puedes pedírmela aquí.";
 
-  if (input.fulfillmentType === "delivery" && input.billingAddress) {
+  const billingAddress = toCustomerSafeAddress(input.billingAddress);
+  if (input.fulfillmentType === "delivery" && billingAddress) {
     return [
-      `Perfecto. Para la factura normal tomaré esta dirección: ${input.billingAddress}.`,
+      `Perfecto. Para la factura normal tomaré esta dirección: ${billingAddress}.`,
       `Ahora compárteme tu nombre completo.${electronicBillingHint}`,
     ].join("\n\n");
   }
@@ -325,8 +343,15 @@ export function buildProductConfigurationPrompt(
   },
 ): string {
   const lines: string[] = [];
+  const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);
+  const maximum = Math.max(minimum, option.maxSelect);
+  const hasMaximumError = (payload?.invalidValueTexts ?? []).some((entry) =>
+    normalizePromptText(entry) === normalizePromptText(option.name),
+  );
 
-  if ((payload?.invalidValueTexts?.length ?? 0) > 0) {
+  if (hasMaximumError) {
+    lines.push(`Para ${option.name.toLowerCase()} puedes elegir como máximo ${maximum} ${maximum === 1 ? "opción" : "opciones"}. Elige de nuevo, por favor.`);
+  } else if ((payload?.invalidValueTexts?.length ?? 0) > 0) {
     lines.push(`No pude usar esta opción tal como me la indicaste: ${payload?.invalidValueTexts?.join(", ")}.`);
   } else if ((payload?.ambiguousValueTexts?.length ?? 0) > 0) {
     lines.push(`Necesito confirmar mejor esta parte del producto: ${payload?.ambiguousValueTexts?.join(", ")}.`);
@@ -337,14 +362,15 @@ export function buildProductConfigurationPrompt(
     return lines.join("\n");
   }
 
-  lines.push(`Para continuar con ${itemName}, necesito que me confirmes tu elección de ${option.name}.`);
-
-  if (option.type === "multiple") {
-    const minimum = Math.max(option.isRequired ? 1 : 0, option.minSelect);
-    if (minimum > 1 || option.maxSelect > 1) {
-      lines.push(`Puedes elegir entre ${minimum} y ${option.maxSelect} opciones.`);
+  if (minimum === 0) {
+    lines.push(`Para ${itemName}, ¿quieres elegir alguna opción de ${option.name.toLowerCase()}? Si no deseas ninguna, responde "sin ${option.name.toLowerCase()}".`);
+    lines.push(`Puedes elegir hasta ${maximum} ${maximum === 1 ? "opción" : "opciones"}.`);
+  } else {
+    lines.push(`Para continuar con ${itemName}, necesito que me confirmes tu elección de ${option.name}.`);
+    if (minimum === maximum) {
+      lines.push(`Debes elegir ${minimum} ${minimum === 1 ? "opción" : "opciones"}.`);
     } else {
-      lines.push("Puedes elegir una o varias opciones, separadas por coma.");
+      lines.push(`Debes elegir entre ${minimum} y ${maximum} opciones (máximo ${maximum}).`);
     }
   }
 
@@ -372,6 +398,16 @@ export function formatCop(value: number): string {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function normalizePromptText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 type DraftOrderStateLike =

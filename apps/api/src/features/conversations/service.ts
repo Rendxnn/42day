@@ -141,6 +141,22 @@ export async function completeConversationAfterOrderCancellation(input: {
   schemaName: string;
   conversationId: string;
 }): Promise<Conversation> {
+  return completeConversationAfterTerminalOrder({
+    ...input,
+    reason: "order_cancelled",
+  });
+}
+
+/**
+ * Closes the workflow attached to a terminal order and restores automation.
+ * A later inbound message from the same customer starts a fresh conversation.
+ */
+export async function completeConversationAfterTerminalOrder(input: {
+  env: ApiBindings;
+  schemaName: string;
+  conversationId: string;
+  reason: "order_cancelled" | "order_delivered";
+}): Promise<Conversation> {
   const now = new Date().toISOString();
 
   return mapConversationRow(
@@ -158,7 +174,7 @@ export async function completeConversationAfterOrderCancellation(input: {
         automation_resume_state: null,
         automation_changed_at: now,
         automation_changed_by: null,
-        automation_change_reason: "order_cancelled",
+        automation_change_reason: input.reason,
         updated_at: now,
       },
     }),
