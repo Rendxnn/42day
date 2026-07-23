@@ -52,6 +52,7 @@ type OrdersViewProps = {
   tenantSlug: string;
   menuItems: MenuItem[];
   onRefreshMenu: () => Promise<MenuItem[]>;
+  onFocusOrderHandled: (orderId: string) => void;
   onNotify: (message: string) => void;
   focusOrderId?: string;
 };
@@ -90,7 +91,7 @@ function getFilterTabs(locale: "en" | "es"): OrdersFilterConfig[] {
   ];
 }
 
-export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, onRefreshMenu, tenantSlug }: OrdersViewProps) {
+export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderHandled, onNotify, onRefreshMenu, tenantSlug }: OrdersViewProps) {
   activeOrdersLocale = locale;
   const filterTabs = useMemo(() => getFilterTabs(locale), [locale]);
   const [filter, setFilter] = useState<OrdersFilter>("open");
@@ -284,7 +285,11 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, onR
     }
     setSelectedOrderId(target.id);
     setDetailOpen(true);
-  }, [allOrders, focusOrderId]);
+    // A notification is an intentional, one-time navigation. Clear the
+    // request once it was consumed so polling/realtime updates cannot reopen
+    // this order every time the orders payload changes.
+    onFocusOrderHandled(target.id);
+  }, [allOrders, focusOrderId, onFocusOrderHandled]);
 
   useEffect(() => {
     if (!selectedOrderId) {

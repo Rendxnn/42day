@@ -662,6 +662,10 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     return payload.items;
   }, [tenantSlug]);
 
+  const handleFocusedOrderHandled = useCallback((orderId: string) => {
+    setFocusedOrderId((current) => current === orderId ? "" : current);
+  }, []);
+
   useEffect(() => {
     if (!authConfigured) {
       setAuthLoading(false);
@@ -1157,6 +1161,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                   focusOrderId={focusedOrderId}
                   locale={locale}
                   menuItems={items}
+                  onFocusOrderHandled={handleFocusedOrderHandled}
                   onNotify={notify}
                   onRefreshMenu={refreshTodayMenu}
                   tenantSlug={tenantSlug}
