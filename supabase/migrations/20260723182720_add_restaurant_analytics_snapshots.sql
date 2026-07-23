@@ -1,3 +1,4 @@
+-- Registered after reconciling the pre-existing analytics schema on production.
 create table if not exists control.restaurant_analytics_snapshots (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references control.tenants(id) on delete cascade,
