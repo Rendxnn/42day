@@ -443,6 +443,7 @@ export async function resolveReplacementOptions(input: {
       select: "id,menu_id,product_id,combo_id,display_name,price_override,available_quantity,is_available,sort_order",
       menu_id: `eq.${activeMenuId}`,
       is_available: "eq.true",
+      removed_at: "is.null",
       order: "sort_order.asc",
       limit: 100,
     },

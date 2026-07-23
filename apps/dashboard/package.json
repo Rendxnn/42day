@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"No tests configured yet\""
+    "test": "node --test --experimental-strip-types test/**/*.test.mjs"
   },
   "dependencies": {
     "@42day/types": "workspace:*",

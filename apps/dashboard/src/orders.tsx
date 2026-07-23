@@ -35,6 +35,11 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { BillingSummaryCard } from "./features/orders/BillingSummaryCard";
 import { OrderMetaCard } from "./features/orders/OrderMetaCard";
+import {
+  buildReplacementPools,
+  resolveCategoryFromMenuItem,
+  resolveOrderItemCategory,
+} from "./features/orders/replacement-options";
 import { formatDashboardDateTime, formatDashboardPrice } from "./i18n";
 
 const DeliveryCoverageMap = lazy(async () => {
@@ -46,6 +51,7 @@ type OrdersViewProps = {
   locale: "en" | "es";
   tenantSlug: string;
   menuItems: MenuItem[];
+  onRefreshMenu: () => Promise<MenuItem[]>;
   onNotify: (message: string) => void;
   focusOrderId?: string;
 };
@@ -84,7 +90,7 @@ function getFilterTabs(locale: "en" | "es"): OrdersFilterConfig[] {
   ];
 }
 
-export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, tenantSlug }: OrdersViewProps) {
+export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, onRefreshMenu, tenantSlug }: OrdersViewProps) {
   activeOrdersLocale = locale;
   const filterTabs = useMemo(() => getFilterTabs(locale), [locale]);
   const [filter, setFilter] = useState<OrdersFilter>("open");
@@ -103,6 +109,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
   const [detailError, setDetailError] = useState("");
   const [actionKey, setActionKey] = useState("");
   const [modalOrder, setModalOrder] = useState<OrderDetail | null>(null);
+  const [modalMenuItems, setModalMenuItems] = useState<MenuItem[]>(menuItems);
   const [cancelOrderCandidate, setCancelOrderCandidate] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [openConversationDetail, setOpenConversationDetail] = useState<OpenOrderSummary | null>(null);
@@ -377,8 +384,34 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
       setModalOrder(null);
       onNotify(locale === "en" ? "Customer notified about the out-of-stock item." : "Cliente notificado por agotado.");
       await refreshAfterMutation(orderId);
+      await onRefreshMenu()
+        .then(setModalMenuItems)
+        .catch(() => {
+          onNotify(locale === "en"
+            ? "The customer was notified, but the menu could not be refreshed."
+            : "El cliente fue notificado, pero no se pudo actualizar el menu.");
+        });
     } catch (error) {
       onNotify(getDashboardErrorMessage(error, locale === "en" ? "Could not notify the out-of-stock item." : "No se pudo notificar el agotado.", locale));
+    } finally {
+      setActionKey("");
+    }
+  }
+
+  async function openOutOfStockModal(order: OrderDetail) {
+    setActionKey(`menu:refresh:${order.id}`);
+    try {
+      const currentMenuItems = await onRefreshMenu();
+      setModalMenuItems(currentMenuItems);
+      setModalOrder(order);
+    } catch (error) {
+      onNotify(getDashboardErrorMessage(
+        error,
+        locale === "en"
+          ? "Could not refresh the current menu. Try again before reporting the item."
+          : "No se pudo actualizar el menu vigente. Intenta de nuevo antes de reportar el agotado.",
+        locale,
+      ));
     } finally {
       setActionKey("");
     }
@@ -591,7 +624,16 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
           <button
             className="inline-flex h-11 items-center justify-center gap-2 rounded-[14px] border border-[rgba(255,242,227,0.12)] bg-[var(--surface-dark-button)] px-3 text-xs font-semibold text-[var(--text-on-dark)] transition hover:bg-[rgba(255,248,240,0.12)] disabled:cursor-not-allowed disabled:opacity-60 lg:h-[58px] lg:min-w-[120px] lg:text-sm"
             disabled={ordersRefreshing}
-            onClick={() => void loadOrders("refresh")}
+            onClick={() => void Promise.all([
+              loadOrders("refresh"),
+              onRefreshMenu().then(setModalMenuItems),
+            ]).catch((error) => {
+              onNotify(getDashboardErrorMessage(
+                error,
+                locale === "en" ? "Could not refresh the current menu." : "No se pudo actualizar el menu vigente.",
+                locale,
+              ));
+            })}
             type="button"
           >
             {ordersRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCcw size={16} />}
@@ -892,7 +934,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
               onCancel={() => setCancelOrderCandidate(selectedOrder)}
               onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
               onFinalize={() => void handleFinalizeOrder(selectedOrder)}
-              onOpenRejectModal={() => setModalOrder(selectedOrder)}
+              onOpenRejectModal={() => void openOutOfStockModal(selectedOrder)}
               onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
               onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
               onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
@@ -929,7 +971,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
                 onClose={() => setDetailOpen(false)}
                 onConfirmPaymentProof={() => void handleConfirmPaymentProof(selectedOrder)}
                 onFinalize={() => void handleFinalizeOrder(selectedOrder)}
-                onOpenRejectModal={() => setModalOrder(selectedOrder)}
+                onOpenRejectModal={() => void openOutOfStockModal(selectedOrder)}
                 onRetry={() => void handleRetry(selectedOrder.id, selectedOrder.status)}
                 onViewPaymentProof={() => void handleViewPaymentProof(selectedOrder)}
                 onToggleAutomation={(enabled) => requestConversationAutomation(selectedOrder.conversationAutomation, enabled)}
@@ -970,7 +1012,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onNotify, ten
 
       {modalOrder && (
         <OutOfStockModal
-          menuItems={menuItems}
+          menuItems={modalMenuItems}
           onClose={() => setModalOrder(null)}
           onSubmit={(values) => handleReject(modalOrder.id, values)}
           order={modalOrder}
@@ -2840,31 +2882,10 @@ function OutOfStockModal({
     [order.items, selectedOrderItemId],
   );
 
-  const replacementPools = useMemo(() => {
-    if (!selectedOrderItem) {
-      return { same: [] as MenuItem[], other: [] as MenuItem[] };
-    }
-
-    const category = resolveOrderItemCategory(selectedOrderItem, menuItems);
-    const normalizedCategory = normalizeCategoryKey(category);
-
-    const activeCandidates = menuItems
-      .filter((item) => item.isAvailable)
-      .filter((item) => item.product?.isActive !== false)
-      .filter((item) => item.id !== selectedOrderItem.menuItemId)
-      .filter((item) => item.productId !== selectedOrderItem.productId)
-      .filter((item) => item.product?.id !== selectedOrderItem.productId)
-      .sort((left, right) => left.sortOrder - right.sortOrder);
-
-    return {
-      same: activeCandidates
-        .filter((item) => normalizeCategoryKey(resolveMenuItemCategory(item, menuItems)) === normalizedCategory)
-        .slice(0, 8),
-      other: activeCandidates
-        .filter((item) => normalizeCategoryKey(resolveMenuItemCategory(item, menuItems)) !== normalizedCategory)
-        .slice(0, 16),
-    };
-  }, [menuItems, selectedOrderItem]);
+  const replacementPools = useMemo(
+    () => buildReplacementPools(menuItems, selectedOrderItem),
+    [menuItems, selectedOrderItem],
+  );
 
   const replacementSuggestions = replacementScope === "same" ? replacementPools.same : replacementPools.other;
 
@@ -3754,28 +3775,6 @@ function formatFileSize(value: number) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function resolveCategoryFromMenuItem(menuItems: MenuItem[], menuItemId?: string) {
-  if (!menuItemId) return undefined;
-  return menuItems.find((item) => item.id === menuItemId)?.product?.category;
-}
-
-function resolveCategoryFromProductId(menuItems: MenuItem[], productId?: string) {
-  if (!productId) return undefined;
-  return menuItems.find((item) => item.productId === productId || item.product?.id === productId)?.product?.category;
-}
-
-function resolveMenuItemCategory(item: MenuItem, menuItems: MenuItem[]) {
-  return item.product?.category
-    || resolveCategoryFromProductId(menuItems, item.productId ?? item.product?.id)
-    || resolveCategoryFromMenuItem(menuItems, item.id);
-}
-
-function resolveOrderItemCategory(item: OrderLineItem, menuItems: MenuItem[]) {
-  return item.categorySnapshot
-    || resolveCategoryFromProductId(menuItems, item.productId)
-    || resolveCategoryFromMenuItem(menuItems, item.menuItemId);
-}
-
 function resolveMenuItemPrice(item: MenuItem) {
   return item.priceOverride ?? item.product?.basePrice ?? 0;
 }
@@ -3794,14 +3793,6 @@ function normalizeText(value?: string | null) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-}
-
-function normalizeCategoryKey(value?: string | null) {
-  const normalized = normalizeText(value);
-  if (normalized.length <= 4) return normalized;
-  if (normalized.endsWith("ces")) return `${normalized.slice(0, -3)}z`;
-  if (normalized.endsWith("s")) return normalized.slice(0, -1);
-  return normalized;
 }
 
 function getOrderReceiptCode(orderId: string) {

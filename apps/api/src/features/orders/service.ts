@@ -130,6 +130,11 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
   const client = createSupabaseRestClient(input.env);
   const now = new Date().toISOString();
   const status: OrderStatus = "pending_restaurant_confirmation";
+  const orderItems = await resolveOrderItemCategorySnapshots(
+    client,
+    input.schemaName,
+    input.draft.items,
+  );
 
   const [created] = await client.insertReturning<OrderRow>({
     schema: input.schemaName,
@@ -173,11 +178,11 @@ export async function persistConfirmedOrder(input: PersistConfirmedOrderInput): 
     throw new Error("order.create_failed");
   }
 
-  if (input.draft.items.length > 0) {
+  if (orderItems.length > 0) {
     await client.insert({
       schema: input.schemaName,
       table: "order_items",
-      rows: input.draft.items.map((item) => mapLineItemToOrderItem(created.id, item)),
+      rows: orderItems.map((item) => mapLineItemToOrderItem(created.id, item)),
     });
   }
 
@@ -241,6 +246,47 @@ export async function getPendingCustomerReplacementOrder(input: {
     unavailableItemName: context.unavailableOrderItem.name_snapshot,
     replacementOptions: context.replacementOptions,
   };
+}
+
+async function resolveOrderItemCategorySnapshots(
+  client: ReturnType<typeof createSupabaseRestClient>,
+  schemaName: string,
+  items: OrderLineItem[],
+): Promise<OrderLineItem[]> {
+  const unresolvedProductIds = Array.from(new Set(
+    items
+      .filter((item) => !item.categorySnapshot)
+      .map((item) => item.productId)
+      .filter((productId): productId is string => Boolean(productId)),
+  ));
+
+  if (unresolvedProductIds.length === 0) {
+    return items;
+  }
+
+  const products = await client.select<{ id: string; category?: string | null }>({
+    schema: schemaName,
+    table: "products",
+    query: {
+      select: "id,category",
+      id: `in.(${unresolvedProductIds.join(",")})`,
+      limit: unresolvedProductIds.length,
+    },
+  });
+  const categoryByProductId = new Map(
+    products
+      .filter((product): product is { id: string; category: string } => Boolean(product.category))
+      .map((product) => [product.id, product.category]),
+  );
+
+  return items.map((item) => {
+    if (item.categorySnapshot || !item.productId) {
+      return item;
+    }
+
+    const categorySnapshot = categoryByProductId.get(item.productId);
+    return categorySnapshot ? { ...item, categorySnapshot } : item;
+  });
 }
 
 export async function confirmOrderAdjustment(input: {

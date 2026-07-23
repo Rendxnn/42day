@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DashboardNotificationRecord, MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload } from "@42day/types";
 import type { Session } from "@supabase/supabase-js";
@@ -652,6 +652,16 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
   const seenSupportAlertIdsRef = useRef<Set<string>>(new Set());
   const notificationsBootstrappedRef = useRef(false);
 
+  const refreshTodayMenu = useCallback(async () => {
+    if (!tenantSlug) return [] as MenuItem[];
+    const payload = await getTodayMenu(tenantSlug);
+    setProducts(payload.products);
+    setItems(payload.items);
+    setSaveStatus("saved");
+    setLastUpdated(payload.menu?.publishedAt ? "" : "sin menu publicado");
+    return payload.items;
+  }, [tenantSlug]);
+
   useEffect(() => {
     if (!authConfigured) {
       setAuthLoading(false);
@@ -741,13 +751,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
   useEffect(() => {
     if (!tenantSlug) return;
     setSaveStatus("loading");
-    getTodayMenu(tenantSlug)
-      .then((payload) => {
-        setProducts(payload.products);
-        setItems(payload.items);
-        setSaveStatus("saved");
-        setLastUpdated(payload.menu?.publishedAt ? "" : "sin menu publicado");
-      })
+    refreshTodayMenu()
       .catch(() => {
         setProducts([]);
         setItems([]);
@@ -759,7 +763,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     getDiagnostics(tenantSlug)
       .then((diagnostics) => setImageColumnReady(diagnostics.productImageColumn && diagnostics.productImagesBucket))
       .catch(() => setImageColumnReady(false));
-  }, [tenantSlug]);
+  }, [refreshTodayMenu, tenantSlug]);
 
   useEffect(() => {
     if (!tenantSlug || isSystemAdmin) {
@@ -1154,6 +1158,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
                   locale={locale}
                   menuItems={items}
                   onNotify={notify}
+                  onRefreshMenu={refreshTodayMenu}
                   tenantSlug={tenantSlug}
                 />
               )}
