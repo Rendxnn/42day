@@ -15,7 +15,10 @@ import type {
   OrderSummary,
   Product,
   PublicCartaPayload,
+  PublicCartaConciergeReply,
   RejectOutOfStockOrderRequest,
+  RestaurantKnowledgeDocument,
+  RestaurantKnowledgeSnapshot,
   RetryOrderCustomerNotificationRequest,
   TodayMenuPayload,
   UpdateDeliveryCoverageSettingsRequest,
@@ -491,6 +494,33 @@ export function sendLunchReminders(tenantSlug: string) {
 
 export function getPublicCarta(tenantSlug: string) {
   return publicRequest<PublicCartaPayload>(`/public/${tenantSlug}/carta`);
+}
+
+export function askPublicCartaConcierge(
+  tenantSlug: string,
+  input: {
+    question: string;
+    history: Array<{ role: "visitor" | "assistant"; text: string }>;
+  },
+) {
+  return publicRequest<PublicCartaConciergeReply>(`/public/${tenantSlug}/carta/concierge`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getRestaurantKnowledge(tenantSlug: string) {
+  return request<RestaurantKnowledgeSnapshot>(`/${tenantSlug}/settings/carta-concierge`);
+}
+
+export function updateRestaurantKnowledge(
+  tenantSlug: string,
+  input: { document: RestaurantKnowledgeDocument; sourceFileName?: string },
+) {
+  return request<RestaurantKnowledgeSnapshot>(`/${tenantSlug}/settings/carta-concierge`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {

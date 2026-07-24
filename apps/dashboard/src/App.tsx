@@ -71,6 +71,7 @@ import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
 import { ConfigurationView } from "./features/configuration/ConfigurationView";
+import { PublicCartaConcierge } from "./features/public-carta/PublicCartaConcierge";
 import { AnalyticsSection } from "./features/admin/AnalyticsSection";
 import { httpPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.http";
 import {
@@ -1414,6 +1415,7 @@ function PublicCartaPage() {
           </div>
         )}
       </main>
+      <PublicCartaConcierge restaurantName={payload?.tenant.name} tenantSlug={tenantSlug} />
     </div>
   );
 }

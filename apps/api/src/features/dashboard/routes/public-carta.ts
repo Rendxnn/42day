@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { PublicCartaPayload } from "@42day/types";
+import type { MenuItem, PublicCartaConciergeReply, PublicCartaPayload } from "@42day/types";
 import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient } from "../../../lib/supabase-rest";
 import type {
@@ -15,6 +15,8 @@ import {
 } from "../support/catalog";
 import { resolveBusinessDate } from "../support/date";
 import { mapLocation, mapMenu, mapMenuItem, mapProduct } from "../support/mappers";
+import { loadRestaurantKnowledgeSnapshot } from "../../carta-concierge/repository";
+import { answerCartaConciergeQuestion, parseCartaConciergeHistory, parseCartaConciergeQuestion } from "../../carta-concierge/service";
 
 export const publicCartaRoutes = new Hono<{
   Bindings: ApiBindings;
@@ -22,23 +24,89 @@ export const publicCartaRoutes = new Hono<{
 }>();
 
 publicCartaRoutes.get("/public/:tenantSlug/carta", async (c) => {
-  const supabase = createSupabaseRestClient(c.env);
+  const context = await loadPublicCartaContext(c.env, c.req.param("tenantSlug"), c.req.query("date"));
+
+  if (!context) {
+    return c.json({ error: "tenant_not_found" }, 404);
+  }
+
+  const payload: PublicCartaPayload = {
+    tenant: {
+      name: context.tenant.name ?? context.tenant.slug,
+      slug: context.tenant.slug,
+    },
+    requestedDate: context.date,
+    generatedAt: new Date().toISOString(),
+    location: context.location ? mapLocation(context.location) : undefined,
+    menu: context.menu ? mapMenu(context.menu) : undefined,
+    items: context.items,
+  };
+
+  return c.json(payload);
+});
+
+publicCartaRoutes.post("/public/:tenantSlug/carta/concierge", async (c) => {
+  const body = await c.req.json().catch(() => undefined) as { question?: unknown; history?: unknown } | undefined;
+  const question = parseCartaConciergeQuestion(body?.question);
+  if (!question) {
+    return c.json({ error: "invalid_carta_concierge_question" }, 400);
+  }
+
+  const context = await loadPublicCartaContext(c.env, c.req.param("tenantSlug"));
+  if (!context) {
+    return c.json({ error: "tenant_not_found" }, 404);
+  }
+
+  const knowledge = await loadRestaurantKnowledgeSnapshot({
+    env: c.env,
+    schemaName: context.tenant.schema_name,
+  });
+  const reply = await answerCartaConciergeQuestion({
+    env: c.env,
+    tenantId: context.tenant.id,
+    restaurantName: context.tenant.name ?? context.tenant.slug,
+    question,
+    history: parseCartaConciergeHistory(body?.history),
+    menuItems: context.items.map((item) => ({
+      id: item.productId,
+      name: item.displayName ?? item.product?.name ?? "Producto",
+      description: item.product?.description,
+      price: item.priceOverride ?? item.product?.basePrice,
+      category: item.product?.category,
+    })),
+    knowledge: knowledge.document,
+  });
+
+  c.header("Cache-Control", "no-store");
+  return c.json({ answer: reply.answer } satisfies PublicCartaConciergeReply);
+});
+
+async function loadPublicCartaContext(
+  env: ApiBindings,
+  tenantSlug: string,
+  requestedDate?: string,
+): Promise<{
+  tenant: TenantRow;
+  date: string;
+  location?: LocationRow;
+  menu?: MenuRow;
+  items: MenuItem[];
+} | null> {
+  const supabase = createSupabaseRestClient(env);
   const [tenant] = await supabase.select<TenantRow>({
     schema: "control",
     table: "tenants",
     query: {
       select: "id,name,slug,schema_name,timezone",
-      slug: `eq.${c.req.param("tenantSlug")}`,
+      slug: `eq.${tenantSlug}`,
       status: "eq.active",
       limit: 1,
     },
   });
 
-  if (!tenant) {
-    return c.json({ error: "tenant_not_found" }, 404);
-  }
+  if (!tenant) return null;
 
-  const date = resolveBusinessDate(c.req.query("date"), tenant.timezone);
+  const date = resolveBusinessDate(requestedDate, tenant.timezone);
   const [location] = await supabase.select<LocationRow>({
     schema: tenant.schema_name,
     table: "locations",
@@ -89,20 +157,14 @@ publicCartaRoutes.get("/public/:tenantSlug/carta", async (c) => {
   const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
   const productById = new Map(products.map((product) => [product.id, mapProduct(product, productOptions.get(product.id))]));
 
-  const payload: PublicCartaPayload = {
-    tenant: {
-      name: tenant.name ?? tenant.slug,
-      slug: tenant.slug,
-    },
-    requestedDate: date,
-    generatedAt: new Date().toISOString(),
-    location: location ? mapLocation(location) : undefined,
-    menu: menu ? mapMenu(menu) : undefined,
+  return {
+    tenant,
+    date,
+    location,
+    menu,
     items: itemRows
       .filter((item) => !item.product_id || productById.has(item.product_id))
       .map((item) => mapMenuItem(item, productById.get(item.product_id ?? "")))
       .filter((item) => item.product?.isActive !== false),
   };
-
-  return c.json(payload);
-});
+}

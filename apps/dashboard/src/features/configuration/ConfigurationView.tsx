@@ -5,6 +5,7 @@ import type { PaymentConfigurationAdapter } from "./paymentConfiguration.adapter
 import { DeliveryCoverageSection } from "./DeliveryCoverageSection";
 import { MenuUploadSection } from "./MenuUploadSection";
 import { PaymentSettingsSection } from "./PaymentSettingsSection";
+import { RestaurantKnowledgeSection } from "./RestaurantKnowledgeSection";
 import type { ConfigurationAccess, PaymentConfigurationSnapshot } from "./paymentConfiguration.types";
 
 export function ConfigurationView({
@@ -140,6 +141,10 @@ export function ConfigurationView({
           onNotify={onNotify}
           tenantSlug={tenantSlug}
         />
+      </div>
+
+      <div className="border-t border-[rgba(255,242,227,0.12)] pt-8">
+        <RestaurantKnowledgeSection tenantSlug={tenantSlug} />
       </div>
     </section>
   );

@@ -32,7 +32,7 @@ app.use(
       if (!origin) return "";
       return resolveDashboardOrigins(c.env).has(origin) ? origin : "";
     },
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Authorization", "Content-Type"],
     maxAge: 86400,
   }),

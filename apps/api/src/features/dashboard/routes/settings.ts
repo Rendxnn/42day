@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AutomationSettings } from "@42day/types";
+import type { AutomationSettings, RestaurantKnowledgeDocument } from "@42day/types";
 import type { ApiBindings } from "../../../lib/bindings";
 import { SupabaseRestError, createSupabaseRestClient } from "../../../lib/supabase-rest";
 import type { DashboardVariables, LocationRow, TenantRow } from "../types";
@@ -23,6 +23,9 @@ import {
   getDeliveryCoverageSettings,
   parseDeliveryCoverageSettingsUpdate,
 } from "../../delivery-coverage/service";
+import { linkKnowledgeToCatalog, parseRestaurantKnowledgeDocument, RestaurantKnowledgeValidationError } from "../../carta-concierge/knowledge";
+import { loadRestaurantKnowledgeSnapshot, saveRestaurantKnowledgeSnapshot } from "../../carta-concierge/repository";
+import { selectProducts } from "../support/catalog";
 
 export const settingsDashboardRoutes = new Hono<{
   Bindings: ApiBindings;
@@ -122,6 +125,54 @@ settingsDashboardRoutes.patch("/:tenantSlug/settings/automation", async (c) => {
     tenantAutomationEnabled: body.enabled,
     locationAutomationEnabled: location ? body.enabled : undefined,
   } satisfies AutomationSettings);
+});
+
+settingsDashboardRoutes.get("/:tenantSlug/settings/carta-concierge", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  return c.json(await loadRestaurantKnowledgeSnapshot({
+    env: c.env,
+    schemaName: tenant.schema_name,
+  }));
+});
+
+settingsDashboardRoutes.put("/:tenantSlug/settings/carta-concierge", async (c) => {
+  const tenant = c.get("tenant");
+  if (!(await requireManagerRole(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const contentLength = Number(c.req.header("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > 300_000) {
+    return c.json({ error: "carta_concierge_document_too_large" }, 413);
+  }
+
+  const body = await c.req.json().catch(() => undefined) as {
+    document?: unknown;
+    sourceFileName?: unknown;
+  } | undefined;
+  const sourceFileName = typeof body?.sourceFileName === "string" ? body.sourceFileName.trim().slice(0, 180) : undefined;
+
+  try {
+    const document = parseRestaurantKnowledgeDocument(body?.document) as RestaurantKnowledgeDocument;
+    const products = await selectProducts(createSupabaseRestClient(c.env), tenant.schema_name);
+    const linkedDocument = linkKnowledgeToCatalog(document, products.map((product) => ({ id: product.id, name: product.name })));
+    const snapshot = await saveRestaurantKnowledgeSnapshot({
+      env: c.env,
+      schemaName: tenant.schema_name,
+      document: linkedDocument,
+      sourceFileName,
+    });
+    return c.json(snapshot);
+  } catch (error) {
+    if (error instanceof RestaurantKnowledgeValidationError) {
+      return c.json({ error: "invalid_restaurant_knowledge_document", issues: error.issues.slice(0, 12) }, 400);
+    }
+    throw error;
+  }
 });
 
 settingsDashboardRoutes.get("/:tenantSlug/settings/delivery-coverage", async (c) => {
