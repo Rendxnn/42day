@@ -75,7 +75,7 @@ test("every open handoff alert is eligible for a once-per-alert notification", a
 
 test("orderless, draft-linked, and order-linked open cards share the accessible automation control", async () => {
   const orders = await readFile(ordersPath, "utf8");
-  assert.match(orders, /onOpenDetail=\{\(\) => setOpenConversationDetail\(order\)\}/);
+  assert.match(orders, /onOpenDetail=\{\(\) => openConversation\(order\)\}/);
   assert.match(orders, /function OpenConversationDetailPanel/);
   assert.match(orders, /role="switch"/);
   assert.match(orders, /aria-checked=\{enabled\}/);

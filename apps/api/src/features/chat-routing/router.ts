@@ -16,8 +16,8 @@ import { handleClarification } from "./manual/handoff";
 import { moveToManual } from "./manual/handoff";
 import { resolveEntryFlowAction } from "./entry-flow";
 import { handleCustomerOrderStatus } from "./order-status";
-import { buildWelcomeMenuText } from "../menu/service";
-import { loadCurrentMenu } from "./shared/helpers";
+import { buildMenuText, buildWelcomeMenuText } from "../menu/service";
+import { isActiveOrderState, loadCurrentMenu } from "./shared/helpers";
 import { logRoutingDiagnostic } from "./shared/tracing";
 import {
   tryHandleBillingReuseConfirmation,
@@ -89,6 +89,27 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   }
 
   if (entryAction === "show_menu") {
+    // "Hola" or "menú" must never pretend that a new order started while a
+    // checkout is still waiting for a required answer. The old behavior showed
+    // the welcome menu but retained the billing/payment state, so the next
+    // product message was incorrectly routed back to the previous checkout.
+    if (isActiveOrderState(input.conversation.state)) {
+      const resumePrompt = [
+        "Tienes un pedido en curso.",
+        buildClarificationPrompt(input.conversation.state),
+        'Si prefieres empezar de nuevo, escribe "cancelar".',
+      ].join(" ");
+
+      if (signals.isGreeting && !signals.wantsMenu) {
+        await sendAndLogText(input, resumePrompt);
+        return;
+      }
+
+      const menu = await loadCurrentMenu(input);
+      await sendAndLogText(input, [buildMenuText(menu), resumePrompt].join("\n\n"));
+      return;
+    }
+
     const menu = await loadCurrentMenu(input);
     await sendAndLogText(input, buildWelcomeMenuText(menu, input.tenant.name));
     return;

@@ -1,11 +1,68 @@
 import { Hono } from "hono";
+import type { ConversationTranscript } from "@42day/types";
 import { changeConversationAutomation } from "../../conversations/service";
 import type { ApiBindings } from "../../../lib/bindings";
-import { SupabaseRestError } from "../../../lib/supabase-rest";
+import { createSupabaseRestClient, SupabaseRestError } from "../../../lib/supabase-rest";
 import type { DashboardVariables } from "../types";
 import { mapConversationAutomation } from "../support/orders";
+import {
+  mapConversationTranscriptMessage,
+  parseTranscriptLimit,
+  type ConversationMessageRow,
+} from "../support/conversation-transcript";
 
 export const conversationsDashboardRoutes = new Hono<{ Bindings: ApiBindings; Variables: DashboardVariables }>();
+
+type ConversationIdentityRow = {
+  id: string;
+};
+
+conversationsDashboardRoutes.get("/:tenantSlug/conversations/:conversationId/messages", async (c) => {
+  const tenant = c.get("tenant");
+  const conversationId = c.req.param("conversationId");
+  const limit = parseTranscriptLimit(c.req.query("limit"));
+  const supabase = createSupabaseRestClient(c.env);
+
+  const conversations = await supabase.select<ConversationIdentityRow>({
+    schema: tenant.schema_name,
+    table: "conversations",
+    query: {
+      select: "id",
+      id: `eq.${conversationId}`,
+      limit: 1,
+    },
+  });
+
+  if (!conversations[0]) {
+    return c.json({ error: "conversation_not_found" }, 404);
+  }
+
+  // Fetch newest first so the cap always keeps the most relevant part of a
+  // long conversation, then reverse it for a natural chronological transcript.
+  // Provider payloads are intentionally excluded from the dashboard contract.
+  const rows = await supabase.select<ConversationMessageRow>({
+    schema: tenant.schema_name,
+    table: "messages",
+    query: {
+      select: "id,direction,message_type,text,status,created_at",
+      conversation_id: `eq.${conversationId}`,
+      order: "created_at.desc,id.desc",
+      limit: limit + 1,
+    },
+  });
+  const hasMore = rows.length > limit;
+  const messages = rows
+    .slice(0, limit)
+    .reverse()
+    .map(mapConversationTranscriptMessage);
+  const response: ConversationTranscript = {
+    conversationId,
+    messages,
+    hasMore,
+  };
+
+  return c.json(response);
+});
 
 conversationsDashboardRoutes.patch("/:tenantSlug/conversations/:conversationId/automation", async (c) => {
   const body = await c.req.json<{ enabled?: boolean; expectedUpdatedAt?: string }>().catch(() => undefined);

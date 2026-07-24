@@ -163,11 +163,50 @@ export function parseConfirmation(text: string, state: Conversation["state"]): "
     return "change";
   }
 
-  if (["si", "sii", "sip", "confirmo", "confirmado", "correcto", "dale", "listo", "ok", "okay"].includes(text)) {
+  if ([
+    "si",
+    "sii",
+    "sip",
+    "confirmo",
+    "confirmado",
+    "correcto",
+    "dale",
+    "listo",
+    "ok",
+    "okay",
+  ].includes(text)) {
+    return "yes";
+  }
+
+  // These expressions are meaningful only when the restaurant is asking
+  // whether it may reuse a saved billing profile. Treating "igual" as a
+  // generic confirmation would allow it to confirm an entire order by
+  // accident in the final checkout step.
+  if (state === "awaiting_billing_reuse_confirmation" && isBillingReuseConfirmation(text)) {
     return "yes";
   }
 
   return null;
+}
+
+function isBillingReuseConfirmation(text: string): boolean {
+  const withoutCourtesy = text
+    .replace(/^(?:si|sii|sip|dale|ok|okay)\s+/, "")
+    .replace(/\s+(?:por favor|porfa|gracias)$/, "")
+    .trim();
+
+  return [
+    "igual",
+    "sigue igual",
+    "esta igual",
+    "asi esta bien",
+    "esta bien asi",
+    "dejalo igual",
+    "dejala igual",
+    "dejalos igual",
+    "dejemoslo igual",
+    "dejemoslos igual",
+  ].includes(withoutCourtesy);
 }
 
 function wantsHuman(text: string): boolean {

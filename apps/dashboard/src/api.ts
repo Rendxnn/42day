@@ -2,6 +2,7 @@ import type {
   AcceptOrderRequest,
   AutomationSettings,
   ConversationAutomation,
+  ConversationTranscript,
   DeliveryCoverageSettings,
   HumanInterventionAlert,
   KitchenProgress,
@@ -534,6 +535,12 @@ export function listNotifications(tenantSlug: string) {
 
 export function getOrder(tenantSlug: string, orderId: string) {
   return request<OrderDetail>(`/${tenantSlug}/orders/${orderId}`);
+}
+
+export function getConversationTranscript(tenantSlug: string, conversationId: string) {
+  return request<ConversationTranscript>(
+    `/${tenantSlug}/conversations/${encodeURIComponent(conversationId)}/messages`,
+  );
 }
 
 export function updateConversationAutomation(tenantSlug: string, conversationId: string, enabled: boolean, expectedUpdatedAt: string) {

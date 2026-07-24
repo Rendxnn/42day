@@ -1,9 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ConversationAutomation, KitchenProgress, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ConversationAutomation, ConversationTranscript, ConversationTranscriptMessage, KitchenProgress, MenuItem, OpenOrderSummary, OrderDetail, OrderLineItem, OrdersDashboardPayload, OrderStatus, OrderSummary } from "@42day/types";
 import {
   acceptOrder,
   confirmOrderPaymentProof,
   DashboardApiError,
+  getConversationTranscript,
   getOrder,
   getOrderPaymentProof,
   listOrders,
@@ -15,21 +16,29 @@ import {
 } from "./api";
 import {
   AlertCircle,
+  Bot,
   Check,
+  CheckCheck,
   Clock,
   ChevronRight,
   ClipboardList,
   ExternalLink,
   Eye,
+  FileText,
+  ImageIcon,
   LayoutGrid,
   List,
   Lock,
   Loader2,
+  MapPin,
   MessageSquareWarning,
+  Mic,
   Pencil,
   RefreshCcw,
   Store,
   Truck,
+  UserRound,
+  Video,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -114,7 +123,11 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
   const [cancelOrderCandidate, setCancelOrderCandidate] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [openConversationDetail, setOpenConversationDetail] = useState<OpenOrderSummary | null>(null);
+  const [conversationTranscript, setConversationTranscript] = useState<ConversationTranscript | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState("");
   const [automationConfirmation, setAutomationConfirmation] = useState<ConversationAutomation | null>(null);
+  const openConversationId = openConversationDetail?.conversationId;
 
   const loadOrders = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
@@ -197,6 +210,60 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
       window.clearInterval(intervalId);
     };
   }, [loadOrders, tenantSlug]);
+
+  useEffect(() => {
+    let active = true;
+    const conversationId = openConversationId;
+    const activeTenantSlug = tenantSlug;
+
+    if (!conversationId || !activeTenantSlug) {
+      setConversationTranscript(null);
+      setTranscriptLoading(false);
+      setTranscriptError("");
+      return () => {
+        active = false;
+      };
+    }
+
+    async function loadTranscript(
+      targetTenantSlug: string,
+      targetConversationId: string,
+      initial: boolean,
+    ) {
+      if (initial) {
+        setConversationTranscript(null);
+        setTranscriptLoading(true);
+      }
+
+      try {
+        const transcript = await getConversationTranscript(targetTenantSlug, targetConversationId);
+        if (!active) return;
+        setConversationTranscript(transcript);
+        setTranscriptError("");
+      } catch (error) {
+        if (!active) return;
+        setTranscriptError(getDashboardErrorMessage(
+          error,
+          locale === "en" ? "Could not load this conversation." : "No se pudo cargar esta conversacion.",
+          locale,
+        ));
+      } finally {
+        if (active && initial) {
+          setTranscriptLoading(false);
+        }
+      }
+    }
+
+    void loadTranscript(activeTenantSlug, conversationId, true);
+    const intervalId = window.setInterval(() => {
+      void loadTranscript(activeTenantSlug, conversationId, false);
+    }, 8000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [locale, openConversationId, tenantSlug]);
 
   const allOrders = payload?.orders ?? [];
   const openOrders = payload?.openOrders ?? [];
@@ -538,6 +605,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
   function openOrderFromBoard(order: OrderSummary) {
     // Keep the operational context visible: board cards open their detail in
     // the bottom sheet instead of redirecting the restaurant to the queue.
+    setOpenConversationDetail(null);
     setDetailError("");
     setSelectedOrderId(order.id);
     setDetailOpen(true);
@@ -557,8 +625,18 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
   }
 
   function openOrderDetail(orderId: string) {
+    setOpenConversationDetail(null);
     setSelectedOrderId(orderId);
     setDetailOpen(true);
+  }
+
+  function openConversation(order: OpenOrderSummary) {
+    setOpenConversationDetail(order);
+    if (layout === "queue") {
+      setSelectedOrderId("");
+      setSelectedOrder(null);
+      setDetailOpen(false);
+    }
   }
 
   function openLinkedOrderFromOpenStage(openOrder: OpenOrderSummary) {
@@ -571,6 +649,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
       setQueueStage(getOperationalStageId(linked));
       setFilter(resolveFilterForOrderStatus(linked.status));
     }
+    setOpenConversationDetail(null);
     setSelectedOrderId(openOrder.linkedOrderId);
     setDetailOpen(true);
   }
@@ -610,6 +689,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
                   setSelectedOrderId("");
                   setSelectedOrder(null);
                   setDetailOpen(false);
+                  setOpenConversationDetail(null);
                 }}
                 type="button"
               >
@@ -672,7 +752,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
           onDropOrder={handleStageDrop}
           onKitchenProgress={(order, patch) => void handleKitchenProgress(order, patch)}
           onMove={(order, status) => void handleBoardStatusMove(order, status)}
-          onOpenChat={setOpenConversationDetail}
+          onOpenChat={openConversation}
           onOpenOrder={openOrderFromBoard}
           onToggleAutomation={(automation, enabled) => requestConversationAutomation(automation, enabled)}
           onViewPayment={(order) => void handleViewPaymentProof(order)}
@@ -695,7 +775,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
           onConfirmPayment={(order) => void handleConfirmPaymentProof(order)}
           onKitchenProgress={(order, patch) => void handleKitchenProgress(order, patch)}
           onMove={(order, status) => void handleBoardStatusMove(order, status)}
-          onOpenChat={setOpenConversationDetail}
+          onOpenChat={openConversation}
           onOpenOrder={(order) => openOrderDetail(order.id)}
           onOpenWhatsapp={(order) => openWhatsAppConversation(order.whatsappUrl)}
           onReportOutOfStock={(order) => void openOutOfStock(order.id)}
@@ -741,7 +821,7 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
                   actionKey={actionKey}
                   key={order.id}
                   locale={locale}
-                  onOpenDetail={() => setOpenConversationDetail(order)}
+                  onOpenDetail={() => openConversation(order)}
                   onOpenLinkedOrder={order.linkedOrderId ? () => openLinkedOrderFromOpenStage(order) : undefined}
                   onToggleAutomation={(enabled) => requestConversationAutomation(order.conversationAutomation, enabled)}
                   order={order}
@@ -912,7 +992,18 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
         )}
 
         <div className="app-panel hidden min-w-0 overflow-hidden rounded-[26px] xl:block">
-          {!selectedOrderId ? (
+          {openConversationDetail ? (
+            <OpenConversationDetailPanel
+              actionKey={actionKey}
+              locale={locale}
+              onClose={() => setOpenConversationDetail(null)}
+              onToggleAutomation={(enabled) => requestConversationAutomation(openConversationDetail.conversationAutomation, enabled)}
+              order={openConversationDetail}
+              transcript={conversationTranscript}
+              transcriptError={transcriptError}
+              transcriptLoading={transcriptLoading}
+            />
+          ) : !selectedOrderId ? (
             <div className="grid min-h-[380px] place-items-center px-4 py-10 text-center sm:min-h-[520px] sm:px-5">
               <div>
                 <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[rgba(118,93,71,0.08)] text-[var(--text-faint)]">
@@ -989,14 +1080,17 @@ export function OrdersView({ focusOrderId = "", locale, menuItems, onFocusOrderH
       ) : null}
 
       {openConversationDetail ? (
-        <div className="fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.58)] p-3 backdrop-blur-sm sm:place-items-center" onClick={() => setOpenConversationDetail(null)}>
-          <div className="app-panel w-full max-w-xl rounded-[28px] p-5" onClick={(event) => event.stopPropagation()}>
+        <div className={`fixed inset-0 z-40 grid place-items-end bg-[rgba(14,11,9,0.58)] p-3 backdrop-blur-sm sm:place-items-center ${layout === "queue" ? "xl:hidden" : ""}`} onClick={() => setOpenConversationDetail(null)}>
+          <div className="app-panel max-h-[94dvh] w-full max-w-3xl overflow-hidden rounded-[28px]" onClick={(event) => event.stopPropagation()}>
             <OpenConversationDetailPanel
               actionKey={actionKey}
               locale={locale}
               onClose={() => setOpenConversationDetail(null)}
               onToggleAutomation={(enabled) => requestConversationAutomation(openConversationDetail.conversationAutomation, enabled)}
               order={openConversationDetail}
+              transcript={conversationTranscript}
+              transcriptError={transcriptError}
+              transcriptLoading={transcriptLoading}
             />
           </div>
         </div>
@@ -2763,31 +2857,194 @@ function OpenConversationDetailPanel({
   onClose,
   onToggleAutomation,
   order,
+  transcript,
+  transcriptError,
+  transcriptLoading,
 }: {
   actionKey: string;
   locale: "en" | "es";
   onClose: () => void;
   onToggleAutomation: (enabled: boolean) => void;
   order: OpenOrderSummary;
+  transcript: ConversationTranscript | null;
+  transcriptError: string;
+  transcriptLoading: boolean;
 }) {
   const automation = order.conversationAutomation;
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ block: "end" });
+  }, [order.conversationId, transcript?.messages.length]);
+
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <div>
+    <div className="flex max-h-[94dvh] flex-col">
+      <div className="flex items-start justify-between gap-3 border-b border-[rgba(118,93,71,0.12)] px-5 py-4 sm:px-6">
+        <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">{locale === "en" ? "Open conversation" : "Conversacion abierta"}</p>
-          <h3 className="app-display mt-2 text-3xl text-[var(--text-strong)]">{order.customerName || order.customerPhone || (locale === "en" ? "Customer" : "Cliente")}</h3>
+          <h3 className="app-display mt-1 truncate text-3xl text-[var(--text-strong)]">{order.customerName || order.customerPhone || (locale === "en" ? "Customer" : "Cliente")}</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold text-[var(--text-soft)]">
+            <span className="rounded-full bg-[rgba(79,122,97,0.1)] px-2.5 py-1 text-[var(--success)]">
+              {order.conversationState ? getConversationStateLabel(order.conversationState, locale) : (locale === "en" ? "In progress" : "En curso")}
+            </span>
+            {order.draftOrderId ? (
+              <span className="rounded-full bg-[rgba(118,93,71,0.08)] px-2.5 py-1">
+                {locale === "en" ? "Draft" : "Borrador"} #{getOrderReceiptCode(order.draftOrderId)}
+              </span>
+            ) : null}
+          </div>
         </div>
         <button aria-label={locale === "en" ? "Close conversation details" : "Cerrar detalle de conversacion"} className="grid h-10 w-10 place-items-center rounded-full border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)]" onClick={onClose} type="button"><X size={18} /></button>
       </div>
-      <div className="mt-5 grid gap-3 rounded-[20px] bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-soft)]">
-        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "State:" : "Estado:"}</strong> {order.conversationState ? getConversationStateLabel(order.conversationState, locale) : "-"}</p>
-        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Draft:" : "Borrador:"}</strong> {order.draftOrderId ? `#${getOrderReceiptCode(order.draftOrderId)}` : (locale === "en" ? "Not started" : "Aun no iniciado")}</p>
-        <p><strong className="text-[var(--text-strong)]">{locale === "en" ? "Items:" : "Items:"}</strong> {getOrderItemsSummary(order.items ?? [], locale)}</p>
+
+      <div className="conversation-transcript app-scrollbar min-h-[320px] flex-1 overflow-y-auto px-3 py-4 sm:min-h-[430px] sm:px-5">
+        {transcriptLoading ? (
+          <div className="grid min-h-[300px] place-items-center text-center">
+            <div>
+              <Loader2 className="mx-auto animate-spin text-[var(--success)]" size={24} />
+              <p className="mt-3 text-xs font-semibold text-[var(--text-soft)]">
+                {locale === "en" ? "Loading conversation..." : "Cargando conversacion..."}
+              </p>
+            </div>
+          </div>
+        ) : transcript?.messages.length ? (
+          <div className="space-y-2.5">
+            {transcript.hasMore ? (
+              <div className="mx-auto w-fit rounded-full bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-[var(--text-soft)] shadow-sm">
+                {locale === "en" ? "Showing the most recent messages" : "Mostrando los mensajes mas recientes"}
+              </div>
+            ) : null}
+            {transcript.messages.map((message, index) => {
+              const previous = transcript.messages[index - 1];
+              const showDate = !previous || getTranscriptDateKey(previous.createdAt) !== getTranscriptDateKey(message.createdAt);
+              return (
+                <div key={message.id}>
+                  {showDate ? (
+                    <div className="mx-auto mb-3 mt-2 w-fit rounded-full bg-[rgba(255,255,255,0.82)] px-3 py-1 text-[10px] font-bold text-[var(--text-soft)] shadow-sm">
+                      {formatTranscriptDate(message.createdAt, locale)}
+                    </div>
+                  ) : null}
+                  <ConversationMessageBubble locale={locale} message={message} />
+                </div>
+              );
+            })}
+            <div ref={transcriptEndRef} />
+          </div>
+        ) : transcriptError ? (
+          <div className="grid min-h-[300px] place-items-center px-4 text-center">
+            <div>
+              <AlertCircle className="mx-auto text-[#914d47]" size={26} />
+              <p className="mt-3 max-w-sm text-sm font-semibold text-[var(--text-strong)]">{transcriptError}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid min-h-[300px] place-items-center px-4 text-center">
+            <div>
+              <MessageSquareWarning className="mx-auto text-[var(--text-faint)]" size={28} />
+              <p className="mt-3 text-sm font-semibold text-[var(--text-strong)]">
+                {locale === "en" ? "No messages have been recorded yet." : "Todavia no hay mensajes registrados."}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
-      {automation ? <div className="mt-4 flex justify-end"><AutomationSwitch busy={actionKey === `automation:${automation.conversationId}`} disabled={automation.terminal} enabled={automation.enabled} locale={locale} onToggle={() => onToggleAutomation(!automation.enabled)} /></div> : null}
+
+      <div className="flex flex-col gap-3 border-t border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <p className="min-w-0 truncate text-xs text-[var(--text-soft)]">
+          <strong className="text-[var(--text-strong)]">{locale === "en" ? "Current order:" : "Pedido actual:"}</strong>{" "}
+          {getOrderItemsSummary(order.items ?? [], locale)}
+        </p>
+        {automation ? <AutomationSwitch busy={actionKey === `automation:${automation.conversationId}`} className="shrink-0" disabled={automation.terminal} enabled={automation.enabled} locale={locale} onToggle={() => onToggleAutomation(!automation.enabled)} /> : null}
+      </div>
     </div>
   );
+}
+
+function ConversationMessageBubble({
+  locale,
+  message,
+}: {
+  locale: "en" | "es";
+  message: ConversationTranscriptMessage;
+}) {
+  const inbound = message.direction === "inbound";
+  const attachment = getTranscriptAttachment(message.messageType, locale);
+
+  return (
+    <div className={`flex ${inbound ? "justify-end" : "justify-start"}`}>
+      <div className={`max-w-[88%] rounded-[18px] px-3.5 py-2.5 shadow-[0_2px_8px_rgba(49,41,35,0.08)] sm:max-w-[78%] ${
+        inbound
+          ? "rounded-br-[5px] bg-[#d9fdd3] text-[#17251d]"
+          : "rounded-bl-[5px] bg-white text-[var(--text-strong)]"
+      }`}>
+        <div className={`mb-1 flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-[0.12em] ${
+          inbound ? "justify-end text-[#47785a]" : "text-[var(--warning)]"
+        }`}>
+          {inbound ? <UserRound size={11} /> : <Bot size={11} />}
+          {inbound ? (locale === "en" ? "Customer" : "Cliente") : "ParaHoy"}
+        </div>
+        {attachment ? (
+          <div className="mb-1.5 flex items-center gap-2 rounded-xl bg-black/[0.045] px-2.5 py-2 text-xs font-semibold">
+            <attachment.Icon size={15} />
+            <span>{attachment.label}</span>
+          </div>
+        ) : null}
+        {message.text?.trim() ? (
+          <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.55]">{message.text}</p>
+        ) : attachment ? null : (
+          <p className="text-[13px] italic text-[var(--text-soft)]">
+            {locale === "en" ? "Message without visible text" : "Mensaje sin texto visible"}
+          </p>
+        )}
+        <div className={`mt-1.5 flex items-center justify-end gap-1 text-[9px] font-medium ${
+          inbound ? "text-[#62806b]" : "text-[var(--text-faint)]"
+        }`}>
+          <span>{formatTranscriptTime(message.createdAt, locale)}</span>
+          {!inbound ? <CheckCheck className={message.status === "sent" ? "text-[#4f86a6]" : ""} size={13} /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getTranscriptAttachment(messageType: string, locale: "en" | "es"): { Icon: LucideIcon; label: string } | null {
+  const normalized = messageType.toLowerCase();
+  if (normalized === "text") return null;
+  if (normalized === "image" || normalized === "sticker") {
+    return { Icon: ImageIcon, label: normalized === "sticker" ? "Sticker" : (locale === "en" ? "Image" : "Imagen") };
+  }
+  if (normalized === "audio" || normalized === "voice") {
+    return { Icon: Mic, label: locale === "en" ? "Voice message" : "Mensaje de voz" };
+  }
+  if (normalized === "location") {
+    return { Icon: MapPin, label: locale === "en" ? "Shared location" : "Ubicacion compartida" };
+  }
+  if (normalized === "video") {
+    return { Icon: Video, label: "Video" };
+  }
+
+  return { Icon: FileText, label: locale === "en" ? "Attachment" : "Archivo adjunto" };
+}
+
+function getTranscriptDateKey(value: string): string {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatTranscriptDate(value: string, locale: "en" | "es"): string {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "es-CO", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatTranscriptTime(value: string, locale: "en" | "es"): string {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "es-CO", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function CancelOrderModal({

@@ -56,3 +56,18 @@ export type ConversationAutomation = {
   updatedAt: string;
   terminal: boolean;
 };
+
+export type ConversationTranscriptMessage = {
+  id: string;
+  direction: "inbound" | "outbound";
+  messageType: string;
+  text?: string;
+  status: string;
+  createdAt: string;
+};
+
+export type ConversationTranscript = {
+  conversationId: string;
+  messages: ConversationTranscriptMessage[];
+  hasMore: boolean;
+};
