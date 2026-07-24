@@ -149,6 +149,7 @@ export function parseConfirmation(text: string, state: Conversation["state"]): "
   if (![
     "awaiting_confirmation",
     "awaiting_order_adjustment",
+    "awaiting_billing_reuse_confirmation",
     "awaiting_transfer_fallback_payment_method",
   ].includes(state)) {
     return null;

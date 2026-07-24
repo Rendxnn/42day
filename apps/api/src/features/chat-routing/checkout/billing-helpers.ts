@@ -24,6 +24,20 @@ export function applyBillingDefaults(
   return safeBilling;
 }
 
+export function isValidNormalBillingFullName(value: string): boolean {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  return words.length >= 2
+    && words.length <= 5
+    && words.every((word) => /^[\p{Letter}]{2,}$/u.test(word))
+    && !words.some((word) => ["quiero", "cambiar", "pedido", "agregar", "domicilio", "efectivo", "transferencia"].includes(word));
+}
+
 export function readPendingBillingContext(context: Record<string, unknown>): {
   type: "normal" | "electronic";
   shouldReuseDeliveryAddress?: boolean;

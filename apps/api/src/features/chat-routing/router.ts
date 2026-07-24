@@ -20,6 +20,9 @@ import { buildWelcomeMenuText } from "../menu/service";
 import { loadCurrentMenu } from "./shared/helpers";
 import { logRoutingDiagnostic } from "./shared/tracing";
 import {
+  tryHandleBillingReuseConfirmation,
+  tryHandleElectronicBillingInfo,
+  tryHandleNormalBillingInfo,
   tryHandlePaymentMethod,
   tryHandleDeliveryAddress,
 } from "./checkout";
@@ -104,6 +107,36 @@ export async function routeInboundMessage(input: RouteInboundMessageInput): Prom
   if (input.conversation.state === "awaiting_payment_method") {
     const handledPaymentMethod = await tryHandlePaymentMethod(input, signals);
     if (handledPaymentMethod) {
+      return;
+    }
+  }
+
+  // Billing answers are structured checkout data, not an order-planning task.
+  // Resolve them before the semantic fallback so a valid full name never gets
+  // discarded because an LLM plan was low confidence or unavailable.
+  if (input.conversation.state === "awaiting_billing_reuse_confirmation") {
+    const handledBillingReuse = await tryHandleBillingReuseConfirmation(input, {
+      confirmation: signals.confirmation,
+      wantsElectronicBilling: signals.wantsElectronicBilling,
+      billingDataChanged: signals.billingDataChanged,
+    });
+    if (handledBillingReuse) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_normal_billing_info") {
+    const handledNormalBilling = await tryHandleNormalBillingInfo(input, {
+      wantsElectronicBilling: signals.wantsElectronicBilling,
+    });
+    if (handledNormalBilling) {
+      return;
+    }
+  }
+
+  if (input.conversation.state === "awaiting_electronic_billing_info") {
+    const handledElectronicBilling = await tryHandleElectronicBillingInfo(input);
+    if (handledElectronicBilling) {
       return;
     }
   }
