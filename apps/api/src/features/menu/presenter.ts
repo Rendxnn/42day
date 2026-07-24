@@ -15,7 +15,9 @@ export function buildMenuText(payload: TodayMenuPayload): string {
   return [
     heading,
     "",
-    buildGroupedMenuLines(payload.items),
+    "Para que todo sea claro, escribe la cantidad y el nombre completo de cada plato que deseas.",
+    "",
+    buildGroupedMenuLines(payload.items, payload.categories),
     ""
   ].join("\n");
 }
@@ -57,7 +59,10 @@ export function resolveBusinessDate(requestedDate?: string, timezone = "America/
   return `${year}-${month}-${day}`;
 }
 
-function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
+function buildGroupedMenuLines(
+  items: TodayMenuPayload["items"],
+  categories: TodayMenuPayload["categories"],
+): string {
   const groups = new Map<string, {
     label: string;
     items: Array<TodayMenuPayload["items"][number]>;
@@ -75,7 +80,6 @@ function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
     .sort((left, right) => categoryPriority(left) - categoryPriority(right) || left.localeCompare(right, "es"));
 
   const lines: string[] = [];
-  let index = 1;
 
   for (const category of orderedCategories) {
     const group = groups.get(category);
@@ -87,14 +91,14 @@ function buildGroupedMenuLines(items: TodayMenuPayload["items"]): string {
       lines.push("");
     }
 
-    lines.push(formatCategoryHeading(group.label));
+    lines.push(formatCategoryHeading(group.label, categories));
 
     for (const item of group.items) {
-      const name = item.displayName ?? item.product?.name ?? `Producto ${index}`;
+      const name = item.displayName ?? item.product?.name ?? "Producto";
+      const emoji = item.product?.emoji?.trim() || resolveCategoryEmoji(group.label, categories);
       const price = item.priceOverride ?? item.product?.basePrice ?? 0;
-      lines.push(`${index}. ${name} — ${formatCop(price)}`);
+      lines.push(`• ${name}${emoji ? ` ${emoji}` : ""} — ${formatCop(price)}`);
       lines.push(...buildCompositeOptionLines(item));
-      index += 1;
     }
   }
 
@@ -168,17 +172,33 @@ function categoryPriority(category: string): number {
   }
 }
 
-function formatCategoryHeading(categoryLabel: string): string {
-  switch (normalizeCategoryKey(categoryLabel)) {
-    case "desayunos":
-      return "🍳 Desayunos";
-    case "almuerzos":
-      return "🍽️ Almuerzos";
-    case "bebidas":
-      return "🥤 Bebidas";
-    case "adiciones":
-      return "➕ Adiciones";
-    default:
-      return `🍴 ${categoryLabel}`;
-  }
+function formatCategoryHeading(
+  categoryLabel: string,
+  categories: TodayMenuPayload["categories"],
+): string {
+  const emoji = resolveCategoryEmoji(categoryLabel, categories);
+  return `${emoji} ${categoryLabel}`;
+}
+
+function resolveCategoryEmoji(categoryLabel: string, categories: TodayMenuPayload["categories"]): string {
+  const categoryKey = normalizeCategoryKey(categoryLabel);
+  return categories.find((category) => normalizeCategoryKey(category.name) === categoryKey)?.emoji?.trim()
+    || getDefaultCategoryEmoji(categoryKey);
+}
+
+function getDefaultCategoryEmoji(categoryKey: string): string {
+  if (categoryKey.includes("hamburg")) return "🍔";
+  if (categoryKey.includes("picad")) return "🥩";
+  if (categoryKey.includes("entrada") || categoryKey.includes("aperitivo")) return "🥟";
+  if (categoryKey.includes("desayun")) return "🍳";
+  if (categoryKey.includes("almuerz")) return "🍲";
+  if (categoryKey.includes("plato fuerte") || categoryKey.includes("principal")) return "🍛";
+  if (categoryKey.includes("pizza")) return "🍕";
+  if (categoryKey.includes("sandwich") || categoryKey.includes("sanduche")) return "🥪";
+  if (categoryKey.includes("bebida") || categoryKey.includes("jugo") || categoryKey.includes("limonada") || categoryKey.includes("soda")) return "🥤";
+  if (categoryKey.includes("cerveza") || categoryKey.includes("licor") || categoryKey.includes("coctel")) return "🍺";
+  if (categoryKey.includes("postre") || categoryKey.includes("dulce")) return "🍰";
+  if (categoryKey.includes("adicion") || categoryKey.includes("acompan") || categoryKey.includes("papas")) return "🍟";
+  if (categoryKey.includes("ensalada")) return "🥗";
+  return "🍽️";
 }

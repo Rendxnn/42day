@@ -106,6 +106,12 @@ export type ProductRow = {
   is_active: boolean;
 };
 
+export type ProductCategoryRow = {
+  id: string;
+  name: string;
+  emoji: string;
+};
+
 export type ProductOptionRow = {
   id: string;
   product_id: string;

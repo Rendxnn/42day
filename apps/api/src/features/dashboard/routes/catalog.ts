@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Product } from "@42day/types";
 import type { ApiBindings } from "../../../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../../../lib/supabase-rest";
-import type { DashboardVariables, ProductRow } from "../types";
+import type { DashboardVariables, ProductCategoryRow, ProductRow } from "../types";
 import { replaceProductOptions, selectProductOptions } from "../support/catalog";
 import { mapProduct } from "../support/mappers";
 
@@ -10,6 +10,32 @@ export const catalogDashboardRoutes = new Hono<{
   Bindings: ApiBindings;
   Variables: DashboardVariables;
 }>();
+
+catalogDashboardRoutes.patch("/:tenantSlug/product-categories/:categoryId", async (c) => {
+  const tenant = c.get("tenant");
+  const body = await c.req.json<{ emoji?: unknown }>();
+  const emoji = typeof body.emoji === "string" ? body.emoji.trim().slice(0, 16) : "";
+
+  if (!emoji) {
+    return c.json({ error: "category_emoji_required" }, 400);
+  }
+
+  const [category] = await createSupabaseRestClient(c.env).updateReturning<ProductCategoryRow>({
+    schema: tenant.schema_name,
+    table: "product_categories",
+    query: { id: `eq.${c.req.param("categoryId")}` },
+    patch: {
+      emoji,
+      updated_at: new Date().toISOString(),
+    },
+  });
+
+  if (!category) {
+    return c.json({ error: "product_category_not_found" }, 404);
+  }
+
+  return c.json({ id: category.id, name: category.name, emoji: category.emoji });
+});
 
 catalogDashboardRoutes.post("/:tenantSlug/products", async (c) => {
   const tenant = c.get("tenant");

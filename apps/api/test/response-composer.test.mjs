@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildClarificationPrompt, buildCustomerOrderStatusMessage, buildNormalBillingPrompt, buildOrderProgressSnapshot, buildOrderSummaryText, buildPaymentPrompt, buildProductConfigurationPrompt } from "../src/modules/message-router/response-composer.ts";
-import { buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
+import { buildMenuText, buildWelcomeMenuText } from "../src/features/menu/presenter.ts";
 
 function buildMenu() {
   return {
@@ -41,6 +41,7 @@ function buildMenu() {
       },
     ],
     products: [],
+    categories: [],
   };
 }
 
@@ -70,6 +71,53 @@ test("el modo inicial no vuelve a pedir que escriba menu", () => {
 
   assert.doesNotMatch(prompt, /si quieres ver el men[uú]/i);
   assert.match(prompt, /qué deseas pedir/i);
+});
+
+test("el menú de WhatsApp usa emojis propios y no enumera los productos", () => {
+  const menu = buildMenu();
+  menu.items = [
+    {
+      id: "entry-1",
+      menuId: "menu-1",
+      displayName: "Ceviche de chicharrón",
+      priceOverride: 35000,
+      isAvailable: true,
+      sortOrder: 1,
+      product: { id: "product-entry", name: "Ceviche de chicharrón", basePrice: 35000, category: "Entradas", emoji: "🦐", isActive: true },
+    },
+    {
+      id: "burger-1",
+      menuId: "menu-1",
+      displayName: "Hamburguesa argentina",
+      priceOverride: 37000,
+      isAvailable: true,
+      sortOrder: 2,
+      product: { id: "product-burger", name: "Hamburguesa argentina", basePrice: 37000, category: "Hamburguesas", emoji: "🍔", isActive: true },
+    },
+    {
+      id: "picada-1",
+      menuId: "menu-1",
+      displayName: "Picada para compartir",
+      priceOverride: 45000,
+      isAvailable: true,
+      sortOrder: 3,
+      product: { id: "product-picada", name: "Picada para compartir", basePrice: 45000, category: "Picadas", emoji: "🥩", isActive: true },
+    },
+  ];
+  menu.categories = [
+    { id: "cat-entries", name: "Entradas", emoji: "🥟" },
+    { id: "cat-burgers", name: "Hamburguesas", emoji: "🍔" },
+    { id: "cat-picadas", name: "Picadas", emoji: "🥩" },
+  ];
+
+  const message = buildMenuText(menu);
+
+  assert.match(message, /cantidad y el nombre completo/i);
+  assert.match(message, /🥟 Entradas/);
+  assert.match(message, /🍔 Hamburguesas/);
+  assert.match(message, /🥩 Picadas/);
+  assert.match(message, /• Hamburguesa argentina 🍔/);
+  assert.doesNotMatch(message, /\n1\. |\n2\. |\n3\. /);
 });
 
 test("no menciona domicilio cuando el pedido es para recoger", () => {

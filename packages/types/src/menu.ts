@@ -42,6 +42,12 @@ export type Product = {
   isActive: boolean;
 };
 
+export type ProductCategory = {
+  id: string;
+  name: string;
+  emoji: string;
+};
+
 export type Location = {
   id: string;
   name: string;
@@ -94,6 +100,7 @@ export type TodayMenuPayload = {
   menu?: Menu;
   items: MenuItem[];
   products: Product[];
+  categories: ProductCategory[];
 };
 
 export type PublicCartaPayload = {

@@ -14,6 +14,7 @@ import type {
   OrderStatus,
   OrderSummary,
   Product,
+  ProductCategory,
   PublicCartaPayload,
   PublicCartaConciergeReply,
   RejectOutOfStockOrderRequest,
@@ -813,6 +814,13 @@ export function updateProduct(tenantSlug: string, productId: string, patch: Part
   return request<Product>(`/${tenantSlug}/products/${productId}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export function updateProductCategoryEmoji(tenantSlug: string, categoryId: string, emoji: string) {
+  return request<ProductCategory>(`/${tenantSlug}/product-categories/${categoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ emoji }),
   });
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { DashboardNotificationRecord, MenuItem, OrderSummary, Product, ProductOption, PublicCartaPayload } from "@42day/types";
+import type { DashboardNotificationRecord, MenuItem, OrderSummary, Product, ProductCategory, ProductOption, PublicCartaPayload } from "@42day/types";
 import type { Session } from "@supabase/supabase-js";
 import {
   addMenuItem,
@@ -30,6 +30,7 @@ import {
   updateAdminRestaurant,
   updateAdminRestaurantMember,
   updateProduct,
+  updateProductCategoryEmoji,
   uploadProductImage,
 } from "./api";
 import type { AdminOverview, AdminRestaurant, AdminRestaurantMember, AdminRestaurantStatus, DashboardTenant, LunchReminderPreview, LunchReminderSendResult, PaymentConfigurationHealth, TenantRole } from "./api";
@@ -344,6 +345,7 @@ type CategorySection<T> = {
 };
 
 const defaultCategoryOptions = ["General", "Entradas", "Platos principales", "Adiciones", "Bebidas", "Postres"];
+const categoryEmojiQuickOptions = ["🍽️", "🥟", "🍔", "🥩", "🍳", "🍲", "🍛", "🍕", "🥪", "🍟", "🥗", "🥤", "🍺", "🍰", "☕", "🌮", "🐟", "🍗", "🍝", "🍱"];
 
 function normalizeCategoryLabel(category?: string, fallback = "General") {
   const trimmed = (category ?? "").trim();
@@ -356,7 +358,7 @@ function normalizeCategoryKey(category?: string) {
     .replace(/^-+|-+$/g, "") || "general";
 }
 
-function collectCategoryOptions(products: Array<Pick<Product, "category">>) {
+function collectCategoryOptions(products: Array<Pick<Product, "category">>, categories: ProductCategory[] = []) {
   const byKey = new Map<string, string>();
   for (const category of defaultCategoryOptions) {
     byKey.set(normalizeCategoryKey(category), category);
@@ -365,7 +367,34 @@ function collectCategoryOptions(products: Array<Pick<Product, "category">>) {
     const label = normalizeCategoryLabel(product.category, "");
     if (label) byKey.set(normalizeCategoryKey(label), label);
   }
+  for (const category of categories) {
+    const label = normalizeCategoryLabel(category.name, "");
+    if (label) byKey.set(normalizeCategoryKey(label), label);
+  }
   return Array.from(byKey.values());
+}
+
+function getDefaultCategoryEmoji(category?: string) {
+  const categoryKey = normalizeCategoryKey(category);
+  if (categoryKey.includes("hamburg")) return "🍔";
+  if (categoryKey.includes("picad")) return "🥩";
+  if (categoryKey.includes("entrada") || categoryKey.includes("aperitivo")) return "🥟";
+  if (categoryKey.includes("desayun")) return "🍳";
+  if (categoryKey.includes("almuerz")) return "🍲";
+  if (categoryKey.includes("plato-principal") || categoryKey.includes("platos-principales") || categoryKey.includes("plato-fuerte")) return "🍛";
+  if (categoryKey.includes("pizza")) return "🍕";
+  if (categoryKey.includes("sandwich") || categoryKey.includes("sanduche")) return "🥪";
+  if (categoryKey.includes("bebida") || categoryKey.includes("jugo") || categoryKey.includes("limonada") || categoryKey.includes("soda")) return "🥤";
+  if (categoryKey.includes("cerveza") || categoryKey.includes("licor") || categoryKey.includes("coctel")) return "🍺";
+  if (categoryKey.includes("postre") || categoryKey.includes("dulce")) return "🍰";
+  if (categoryKey.includes("adicion") || categoryKey.includes("acompan") || categoryKey.includes("papas")) return "🍟";
+  if (categoryKey.includes("ensalada")) return "🥗";
+  return "🍽️";
+}
+
+function getCategoryEmoji(category: string | undefined, categories: ProductCategory[]) {
+  const categoryKey = normalizeCategoryKey(category);
+  return categories.find((entry) => normalizeCategoryKey(entry.name) === categoryKey)?.emoji || getDefaultCategoryEmoji(category);
 }
 
 function normalizeSearchText(value?: string) {
@@ -639,6 +668,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
+  const [productCategories, setProductCategories] = useState<ProductCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
   const [imageColumnReady, setImageColumnReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
@@ -657,6 +687,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     if (!tenantSlug) return [] as MenuItem[];
     const payload = await getTodayMenu(tenantSlug);
     setProducts(payload.products);
+    setProductCategories(payload.categories);
     setItems(payload.items);
     setSaveStatus("saved");
     setLastUpdated(payload.menu?.publishedAt ? "" : "sin menu publicado");
@@ -950,6 +981,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     setIsSystemAdmin(false);
     setAdminOverview(null);
     setProducts(fallbackProducts);
+    setProductCategories([]);
     setItems(fallbackItems);
     setNotifications([]);
     setUnreadNotificationCount(0);
@@ -1054,6 +1086,7 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
       const persisted = product.id ? await updateProduct(tenantSlug, product.id, payload) : await createProduct(tenantSlug, payload);
 
       setProducts((current) => (product.id ? current.map((item) => (item.id === product.id ? persisted : item)) : [persisted, ...current]));
+      void refreshTodayMenu().catch(() => undefined);
       setSaveStatus("saved");
       notify(
         product.imageFile && !imageColumnReady
@@ -1074,6 +1107,16 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
     setProducts((current) => current.filter((product) => product.id !== productId));
     setItems((current) => current.filter((item) => item.productId !== productId));
     notify(locale === "en" ? "Product disabled" : "Producto desactivado");
+  }
+
+  async function updateCategoryEmoji(categoryId: string, emoji: string) {
+    try {
+      const updated = await updateProductCategoryEmoji(tenantSlug, categoryId, emoji);
+      setProductCategories((current) => current.map((category) => (category.id === categoryId ? updated : category)));
+      notify(locale === "en" ? "Category emoji updated" : "Emoji de categoría actualizado");
+    } catch {
+      notify(locale === "en" ? "Could not update the category emoji" : "No se pudo actualizar el emoji de la categoría");
+    }
   }
 
   if (!authConfigured) {
@@ -1170,10 +1213,12 @@ function DashboardApp({ locale }: { locale: "en" | "es" }) {
               )}
               {activeView === "catalog" && (
                 <Catalog
+                  categories={productCategories}
                   imageColumnReady={imageColumnReady}
                   menuProductIds={new Set(items.map((item) => item.productId).filter((productId): productId is string => Boolean(productId)))}
                   onAddToMenu={addFromCatalog}
                   onDelete={removeProduct}
+                  onUpdateCategoryEmoji={updateCategoryEmoji}
                   onSave={saveProduct}
                   products={products}
                 />
@@ -2742,19 +2787,23 @@ function formatCompactPrice(value: number | undefined) {
 }
 
 function Catalog({
+  categories,
   imageColumnReady,
   menuProductIds,
   onAddToMenu,
   products,
   onDelete,
   onSave,
+  onUpdateCategoryEmoji,
 }: {
+  categories: ProductCategory[];
   imageColumnReady: boolean;
   menuProductIds: Set<string>;
   onAddToMenu: (productId: string) => Promise<void>;
   products: Product[];
   onDelete: (productId: string) => Promise<void>;
   onSave: (product: ProductFormValue) => Promise<void>;
+  onUpdateCategoryEmoji: (categoryId: string, emoji: string) => Promise<void>;
 }) {
   const locale = activeDashboardLocale;
   const [modalProduct, setModalProduct] = useState<Partial<Product> | null>(null);
@@ -2767,7 +2816,7 @@ function Catalog({
     () => groupByCategorySection(products, (product) => product.category),
     [products],
   );
-  const categoryOptions = useMemo(() => collectCategoryOptions(products), [products]);
+  const categoryOptions = useMemo(() => collectCategoryOptions(products, categories), [categories, products]);
 
   useEffect(() => {
     setSelectedProductIds((current) => current.filter((productId) => products.some((product) => product.id === productId)));
@@ -2917,6 +2966,8 @@ function Catalog({
 
       <div className="space-y-5">
         {groupedProducts.map((group) => {
+          const category = categories.find((entry) => normalizeCategoryKey(entry.name) === group.id);
+          const categoryEmoji = category?.emoji || getDefaultCategoryEmoji(group.label);
           const productIds = group.items.map((product) => product.id);
           const selectableProductIds = productIds.filter((productId) => !menuProductIds.has(productId));
           const allSelected = selectableProductIds.length > 0 && selectableProductIds.every((productId) => selectedProductIds.includes(productId));
@@ -2933,13 +2984,23 @@ function Catalog({
                 >
                   <span className="min-w-0">
                     <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">{locale === "en" ? "Category" : "Categoria"}</span>
-                    <span className="app-display mt-2 block truncate text-[2.3rem] leading-none text-[var(--text-strong)] sm:text-[3rem]">{group.label}</span>
+                    <span className="app-display mt-2 flex min-w-0 items-center gap-3 truncate text-[2.3rem] leading-none text-[var(--text-strong)] sm:text-[3rem]">
+                      <span aria-hidden="true" className="text-[1.8rem] sm:text-[2.25rem]">{categoryEmoji}</span>
+                      <span className="truncate">{group.label}</span>
+                    </span>
                     <span className="mt-3 block text-sm font-semibold text-[var(--text-soft)]">{group.items.length} {locale === "en" ? "products" : "productos"}</span>
                   </span>
                   <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[rgba(118,93,71,0.12)] text-[var(--text-soft)] transition group-hover/category:bg-[rgba(223,210,194,0.55)] ${expanded ? "rotate-180 bg-[rgba(223,210,194,0.42)]" : ""}`}>
                     <ChevronDown size={20} />
                   </span>
                 </button>
+                <CategoryEmojiPicker
+                  category={category}
+                  fallbackEmoji={categoryEmoji}
+                  onChange={(emoji) => {
+                    if (category) void onUpdateCategoryEmoji(category.id, emoji);
+                  }}
+                />
                 <button
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.55)] disabled:opacity-60"
                   onClick={() => toggleCategorySelection(productIds)}
@@ -3242,6 +3303,82 @@ function CategorySelect({
       ))}
     </datalist>
     </>
+  );
+}
+
+function CategoryEmojiPicker({
+  category,
+  fallbackEmoji,
+  onChange,
+}: {
+  category?: ProductCategory;
+  fallbackEmoji: string;
+  onChange: (emoji: string) => void;
+}) {
+  const locale = activeDashboardLocale;
+  const selectedEmoji = category?.emoji || fallbackEmoji;
+  const [customEmoji, setCustomEmoji] = useState(selectedEmoji);
+
+  useEffect(() => {
+    setCustomEmoji(selectedEmoji);
+  }, [selectedEmoji]);
+
+  function commitCustomEmoji(value = customEmoji) {
+    const emoji = value.trim().slice(0, 16);
+    if (emoji) onChange(emoji);
+  }
+
+  return (
+    <details className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+      <summary
+        aria-label={locale === "en" ? "Edit category emoji" : "Editar emoji de categoría"}
+        className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] bg-[rgba(223,210,194,0.35)] px-3 text-sm font-semibold text-[var(--text-soft)] transition hover:bg-[rgba(223,210,194,0.6)]"
+      >
+        <span aria-hidden="true" className="text-lg">{selectedEmoji}</span>
+        <span className="hidden sm:inline">{locale === "en" ? "Emoji" : "Emoji"}</span>
+      </summary>
+      <div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-[min(22rem,calc(100vw-3rem))] rounded-[22px] border border-[rgba(118,93,71,0.14)] bg-[var(--surface-base)] p-3 shadow-[0_18px_42px_rgba(20,14,10,0.2)]">
+        <p className="text-xs leading-5 text-[var(--text-soft)]">
+          {category
+            ? (locale === "en" ? "Choose an icon for this category." : "Elige el icono de esta categoría.")
+            : (locale === "en" ? "Save a product in this category first." : "Primero guarda un producto de esta categoría.")}
+        </p>
+        <div className="mt-3 grid grid-cols-7 gap-1.5">
+          {categoryEmojiQuickOptions.map((emoji) => (
+            <button
+              aria-label={locale === "en" ? `Use ${emoji}` : `Usar ${emoji}`}
+              className={`grid h-9 place-items-center rounded-xl text-xl transition ${selectedEmoji === emoji ? "bg-[var(--text-strong)]" : "bg-[var(--panel-strong)] hover:bg-white"}`}
+              disabled={!category}
+              key={emoji}
+              onClick={() => {
+                setCustomEmoji(emoji);
+                onChange(emoji);
+              }}
+              type="button"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <label className="mt-3 block">
+          <span className="sr-only">{locale === "en" ? "Custom emoji" : "Emoji personalizado"}</span>
+          <input
+            className="h-10 w-full rounded-xl border border-[rgba(118,93,71,0.12)] bg-[var(--panel-strong)] px-3 text-center text-lg outline-none focus:border-[rgba(197,123,87,0.4)]"
+            disabled={!category}
+            maxLength={16}
+            onBlur={(event) => commitCustomEmoji(event.target.value)}
+            onChange={(event) => setCustomEmoji(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitCustomEmoji();
+              }
+            }}
+            value={customEmoji}
+          />
+        </label>
+      </div>
+    </details>
   );
 }
 

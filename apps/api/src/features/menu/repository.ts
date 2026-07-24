@@ -1,4 +1,4 @@
-import type { MenuItem, Product, ProductOption, ProductOptionValue } from "@42day/types";
+import type { MenuItem, Product, ProductCategory, ProductOption, ProductOptionValue } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings";
 import { createSupabaseRestClient, SupabaseRestError } from "../../lib/supabase-rest.ts";
 
@@ -40,6 +40,12 @@ export type ProductRow = {
   image_url?: string | null;
   aliases?: unknown;
   is_active: boolean;
+};
+
+export type ProductCategoryRow = {
+  id: string;
+  name: string;
+  emoji: string;
 };
 
 export type ProductOptionRow = {
@@ -179,6 +185,32 @@ export async function selectActiveProducts(input: {
       order: "name.asc",
     },
   });
+}
+
+export async function selectProductCategories(input: {
+  env: ApiBindings;
+  schemaName: string;
+}): Promise<ProductCategory[]> {
+  try {
+    const rows = await createSupabaseRestClient(input.env).select<ProductCategoryRow>({
+      schema: input.schemaName,
+      table: "product_categories",
+      query: {
+        select: "id,name,emoji",
+        order: "name.asc",
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      emoji: row.emoji,
+    }));
+  } catch (error) {
+    // A rolling deploy may briefly serve a worker before the database migration.
+    if (error instanceof SupabaseRestError && error.status === 404) return [];
+    throw error;
+  }
 }
 
 export async function selectProductOptionsByProductIds(input: {

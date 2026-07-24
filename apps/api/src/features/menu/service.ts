@@ -12,6 +12,7 @@ import {
   selectActiveProducts,
   selectAvailableMenuItems,
   selectLatestPublishedMenu,
+  selectProductCategories,
   selectProductOptionsByProductIds,
   selectProductOptionValuesByOptionIds,
   selectPublishedMenuForDate,
@@ -48,6 +49,10 @@ export async function loadTodayPublishedMenu(input: {
   const menu = menuForDate ?? fallbackMenu;
 
   const productRows = await selectActiveProducts({
+    env: input.env,
+    schemaName: input.schemaName,
+  });
+  const categories = await selectProductCategories({
     env: input.env,
     schemaName: input.schemaName,
   });
@@ -127,5 +132,6 @@ export async function loadTodayPublishedMenu(input: {
       .filter((item) => !item.product_id || productById.has(item.product_id))
       .map((item) => mapMenuItemRow(item, item.product_id ? productById.get(item.product_id) : undefined)),
     products,
+    categories,
   };
 }

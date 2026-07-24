@@ -1,6 +1,6 @@
-import type { Product } from "@42day/types";
+import type { Product, ProductCategory } from "@42day/types";
 import { createSupabaseRestClient, SupabaseRestError } from "../../../lib/supabase-rest.ts";
-import type { LocationRow, MenuItemRow, MenuRow, ProductOptionRow, ProductOptionValueRow, ProductRow } from "../types";
+import type { LocationRow, MenuItemRow, MenuRow, ProductCategoryRow, ProductOptionRow, ProductOptionValueRow, ProductRow } from "../types";
 import { resolveBusinessDate } from "./date.ts";
 
 export async function findOrCreateTodayMenu(
@@ -88,6 +88,26 @@ export async function selectProducts(
       });
     }
 
+    throw error;
+  }
+}
+
+export async function selectProductCategories(
+  supabase: ReturnType<typeof createSupabaseRestClient>,
+  schema: string,
+): Promise<ProductCategory[]> {
+  try {
+    const rows = await supabase.select<ProductCategoryRow>({
+      schema,
+      table: "product_categories",
+      query: {
+        select: "id,name,emoji",
+        order: "name.asc",
+      },
+    });
+    return rows.map((row) => ({ id: row.id, name: row.name, emoji: row.emoji }));
+  } catch (error) {
+    if (error instanceof SupabaseRestError && error.status === 404) return [];
     throw error;
   }
 }

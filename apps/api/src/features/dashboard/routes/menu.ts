@@ -6,6 +6,7 @@ import type { DashboardVariables, LocationRow, MenuItemRow, MenuRow, ProductRow 
 import {
   findOrCreateTodayMenu,
   getNextMenuSortOrder,
+  selectProductCategories,
   selectProductOptions,
   selectProducts,
 } from "../support/catalog";
@@ -45,6 +46,7 @@ menuDashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
     : [];
 
   const products = await selectProducts(supabase, tenant.schema_name);
+  const categories = await selectProductCategories(supabase, tenant.schema_name);
   const productOptions = await selectProductOptions(supabase, tenant.schema_name, products.map((product) => product.id));
 
   const itemRows = menu
@@ -70,6 +72,7 @@ menuDashboardRoutes.get("/:tenantSlug/menu/today", async (c) => {
       .filter((item) => !item.product_id || productById.has(item.product_id))
       .map((item) => mapMenuItem(item, productById.get(item.product_id ?? ""))),
     products: products.map((product) => mapProduct(product, productOptions.get(product.id))),
+    categories,
   };
 
   return c.json(payload);
