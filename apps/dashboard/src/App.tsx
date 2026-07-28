@@ -71,6 +71,8 @@ import { OrdersView } from "./features/orders/OrdersView";
 import unicodeEmojiData from "emojibase-data/meta/unicode.json";
 import QRCode from "qrcode";
 import { LandingPage } from "./LandingPage";
+import { PublicInformationPage } from "./marketing/PublicInformationPage";
+import { resolvePublicMarketingPage } from "./marketing/marketingRoutes";
 import { ConfigurationView } from "./features/configuration/ConfigurationView";
 import { PublicCartaConcierge } from "./features/public-carta/PublicCartaConcierge";
 import { AnalyticsSection } from "./features/admin/AnalyticsSection";
@@ -625,10 +627,6 @@ function isPublicCartaRoute() {
   return window.location.pathname === "/carta" || window.location.pathname.startsWith("/carta/");
 }
 
-function isMarketingRoute() {
-  return window.location.pathname === "/" || window.location.pathname === "";
-}
-
 function getPublicCartaTenantSlug() {
   const params = new URLSearchParams(window.location.search);
   const queryTenant = params.get("tenant") || params.get("restaurante");
@@ -648,9 +646,11 @@ function getPublicCartaUrl(tenantSlug: string) {
 
 export function App() {
   const { locale } = useDashboardLocale();
+  const marketingPage = resolvePublicMarketingPage(window.location.pathname);
 
   if (isPublicCartaRoute()) return <PublicCartaPage />;
-  if (isMarketingRoute()) return <LandingPage />;
+  if (marketingPage === "landing") return <LandingPage />;
+  if (marketingPage) return <PublicInformationPage page={marketingPage} />;
   return <DashboardApp locale={locale} />;
 }
 

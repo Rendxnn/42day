@@ -24,6 +24,8 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { MarketingFooter } from "./marketing/MarketingFooter";
+import { useMarketingMetadata } from "./marketing/MarketingMetadata";
 
 type LandingLocale = "en" | "es";
 
@@ -184,13 +186,6 @@ function getLandingCopy(locale: LandingLocale) {
           visual: "ops",
         },
       ] as FlowStep[],
-      footer: {
-        accessTitle: "Access",
-        byThaledon: "By Thaledon",
-        copy: "Automate WhatsApp orders and keep menu, payments, and kitchen work in one operating flow.",
-        exploreTitle: "Explore",
-        poweredBy: "Powered by Thaledon",
-      },
       hero: {
         badge: "WhatsApp, AI, and operations connected",
         body: "The AI handles it, organizes the orders, and your kitchen prepares.",
@@ -400,13 +395,6 @@ function getLandingCopy(locale: LandingLocale) {
         visual: "ops",
       },
     ] as FlowStep[],
-    footer: {
-      accessTitle: "Acceso",
-      byThaledon: "By Thaledon",
-      copy: "Automatiza pedidos por WhatsApp y organiza menu, pagos y cocina desde un solo flujo.",
-      exploreTitle: "Explora",
-      poweredBy: "Powered by Thaledon",
-    },
     hero: {
       badge: "WhatsApp, IA y operacion conectados",
       body: "La IA lo atiende, ordena los pedidos y tu cocina prepara.",
@@ -602,6 +590,17 @@ export function LandingPage() {
   const copy = getLandingCopy(locale);
   const salesWhatsappUrl = getSalesWhatsappUrl(locale);
 
+  useMarketingMetadata({
+    description: locale === "en"
+      ? "ParaHoy helps restaurants turn WhatsApp conversations into clear, reviewable orders for payments, kitchen, and delivery."
+      : "ParaHoy ayuda a restaurantes a convertir conversaciones de WhatsApp en pedidos claros para pagos, cocina y entrega.",
+    locale,
+    pathname: "/",
+    title: locale === "en"
+      ? "ParaHoy | WhatsApp ordering for restaurants"
+      : "ParaHoy | Pedidos por WhatsApp para restaurantes",
+  });
+
   useEffect(() => {
     const onScroll = () => {
       setHeaderSolid(window.scrollY > 18);
@@ -645,7 +644,7 @@ export function LandingPage() {
         <FAQAccordion copy={copy} />
         <FinalCTA copy={copy} salesWhatsappUrl={salesWhatsappUrl} />
       </main>
-      <LandingFooter copy={copy} />
+      <MarketingFooter locale={locale} />
     </div>
   );
 }
@@ -1411,60 +1410,6 @@ function FinalCTA({ copy, salesWhatsappUrl }: { copy: LandingCopy; salesWhatsapp
         </div>
       </div>
     </section>
-  );
-}
-
-function LandingFooter({ copy }: { copy: LandingCopy }) {
-  return (
-    <footer className="px-4 py-10 sm:px-6">
-      <div className="mx-auto grid max-w-7xl gap-8 rounded-[30px] border border-[var(--marketing-border)] bg-white px-6 py-8 shadow-[0_20px_60px_rgba(18,24,20,0.05)] md:grid-cols-[1.3fr_0.7fr_0.7fr] md:px-8">
-        <div>
-          <div className="space-y-4">
-            <img alt="ParaHoy" className="h-14 w-auto object-contain" src="/parahoy-logo.png" />
-            <p className="max-w-md text-sm leading-7 text-[var(--marketing-muted)]">
-              {copy.footer.copy}
-            </p>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--marketing-muted)]">
-              {copy.footer.poweredBy}
-            </p>
-          </div>
-        </div>
-        <FooterColumn items={copy.navItems.map((item) => item.label)} title={copy.footer.exploreTitle} />
-        <div>
-          <p className="text-sm font-extrabold tracking-[-0.02em] text-[var(--marketing-text)]">{copy.footer.accessTitle}</p>
-          <div className="mt-4 flex flex-col gap-3">
-            <a
-              className="inline-flex h-11 items-center justify-center rounded-full border border-[var(--marketing-border)] px-5 text-sm font-semibold text-[var(--marketing-text)] transition hover:border-[var(--wa-green-dark)] hover:text-[var(--wa-green-dark)]"
-              href="/login"
-            >
-              {copy.access}
-            </a>
-            <a
-              className="inline-flex h-11 items-center justify-center rounded-full bg-[var(--wa-green)] px-5 text-sm font-semibold text-[#032a1a] transition hover:bg-[var(--wa-green-dark)] hover:text-white"
-              href={getSalesWhatsappUrl(copy.access === "Log in" ? "en" : "es")}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {copy.actionScheduleDemo}
-            </a>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--marketing-muted)]">{copy.footer.byThaledon}</p>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-function FooterColumn({ items, title }: { items: string[]; title: string }) {
-  return (
-    <div>
-      <p className="text-sm font-extrabold tracking-[-0.02em] text-[var(--marketing-text)]">{title}</p>
-      <div className="mt-4 space-y-3 text-sm text-[var(--marketing-muted)]">
-        {items.map((item) => (
-          <p key={item}>{item}</p>
-        ))}
-      </div>
-    </div>
   );
 }
 
