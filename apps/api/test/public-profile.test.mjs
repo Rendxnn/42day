@@ -64,10 +64,11 @@ test("builds a safe public link page with directions and optional survey", () =>
 });
 
 test("public profile route stays public and settings remain manager-only", async () => {
-  const [router, settings, migration, admin] = await Promise.all([
+  const [router, settings, migration, refreshMigration, admin] = await Promise.all([
     readFile(new URL("../src/features/dashboard/router.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/dashboard/routes/settings.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../supabase/migrations/20260729184447_add_restaurant_public_profiles.sql", import.meta.url), "utf8"),
+    readFile(new URL("../../../supabase/migrations/20260729190244_refresh_postgrest_tenant_schemas_for_public_profiles.sql", import.meta.url), "utf8"),
     readFile(new URL("../src/features/dashboard/routes/admin.ts", import.meta.url), "utf8"),
   ]);
 
@@ -75,5 +76,6 @@ test("public profile route stays public and settings remain manager-only", async
   assert.match(settings, /settings\/public-profile[\s\S]*requireManagerRole/);
   assert.match(migration, /select 'tenant_template'[\s\S]*select schema_name\s+from control\.tenants/);
   assert.match(migration, /public_profile_enabled[\s\S]*survey_url/);
+  assert.match(refreshMigration, /control\.refresh_postgrest_tenant_schemas\(\)/);
   assert.match(admin, /automationEnabled: body\.locationAutomationEnabled \?\? body\.automationEnabled/);
 });
