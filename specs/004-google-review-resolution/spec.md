@@ -58,6 +58,7 @@ Los enlaces directos de reseña pueden verificarse sin conversión, los destinos
 2. **Given** un destino no Google válido, **When** se guarda desde configuración rápida, **Then** no aparece el subflujo de preparación de reseña.
 3. **Given** una unidad con un destino Google antiguo, **When** solo se cambia un campo distinto del destino, **Then** el valor antiguo permanece válido.
 4. **Given** un cliente administrativo antiguo que intenta guardar un nuevo enlace compartido como reseña, **When** envía la mutación, **Then** el backend rechaza la escritura e indica que primero debe prepararse.
+5. **Given** un enlace corto que Google redirige a `maps.google.com/?q=...&ftid=...`, **When** se prepara, **Then** el host y el identificador se validan antes de construir el candidato sin solicitar otra página.
 
 ### Edge Cases
 
@@ -70,6 +71,8 @@ Los enlaces directos de reseña pueden verificarse sin conversión, los destinos
 - El administrador cambia de pestaña y regresa: la aplicación no confirma el negocio automáticamente.
 - La unidad cambia concurrentemente antes de guardar; se mantiene el manejo de revisión obsoleta existente.
 - El formato externo de Google cambia y deja de exponer un identificador utilizable; se ofrece el enlace directo como fallback.
+- Google devuelve una ficha mediante la ruta raíz de `maps.google.com` con un `ftid` válido en query,
+  en lugar de utilizar `/maps`; este formato observado se admite sin ampliar otros hosts ni rutas raíz.
 
 ## Requirements
 
@@ -99,6 +102,7 @@ Los enlaces directos de reseña pueden verificarse sin conversión, los destinos
 - **FR-022**: La implementación MUST permitir sustituir el mecanismo de resolución externo sin cambiar la interacción ni el contrato consumido por el dashboard.
 - **FR-023**: La implementación MUST reutilizar el destino actual de la unidad y no cambiar su URL permanente de QR/NFC.
 - **FR-024**: El sistema MUST ofrecer abrir y copiar manualmente el destino preparado cuando el navegador bloquee la pestaña de prueba.
+- **FR-025**: El sistema MUST admitir la ruta raíz de `maps.google.com` únicamente cuando contiene un `ftid` válido e inequívoco; otras rutas raíz o identificadores malformados MUST permanecer rechazados.
 
 ### Key Entities
 

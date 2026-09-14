@@ -151,6 +151,8 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
   el dashboard exige abrir y confirmar visualmente la ficha antes de guardar. Los endpoints de edición
   rechazan nuevos destinos Google incompletos, mientras conservan destinos legacy sin cambios. La
   conversión depende del formato observado `0x…:0x…` y `!12e1`, no de una API pública garantizada;
+  también admite el redirect observado `maps.google.com/?q=...&ftid=...`, pero mantiene bloqueada la
+  ruta raíz cuando no contiene un identificador válido;
   cuando no pueda resolverse, el fallback operativo es pegar un enlace directo de reseña. No se añadió
   migración, credencial de Google, dependencia ni despliegue. Falta validación real autorizada en
   staging con fichas de Android/iPhone antes de promover el cambio.

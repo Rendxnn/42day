@@ -269,6 +269,31 @@ test("Google review resolver follows relative redirects and cancels bodies witho
   assert.equal(cancelled, 2);
 });
 
+test("Google review resolver accepts the observed maps.google.com root query redirect", async () => {
+  const requested = [];
+  const result = await resolveGoogleReviewDestination(
+    "https://maps.app.goo.gl/5XSASCKPDCxK4Fnu5?g_st=ic",
+    {
+      fetcher: async (url) => {
+        requested.push(String(url));
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: "https://maps.google.com/?q=ShopTime&ftid=0x8e4683f4aac3fa5b:0xb4bb717c74160cea&entry=gps&g_st=ic",
+          },
+        });
+      },
+    },
+  );
+
+  assert.deepEqual(requested, ["https://maps.app.goo.gl/5XSASCKPDCxK4Fnu5?g_st=ic"]);
+  assert.equal(result.redirectCount, 1);
+  assert.equal(
+    result.resolution.reviewUrl,
+    "https://www.google.com/maps/place//data=!4m3!3m2!1s0x8e4683f4aac3fa5b:0xb4bb717c74160cea!12e1",
+  );
+});
+
 test("Google review resolver blocks external redirects, loops and excessive redirect chains", async () => {
   let calls = 0;
   await assert.rejects(

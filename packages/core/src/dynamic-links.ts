@@ -147,6 +147,14 @@ export function classifyGoogleReviewUrl(value: string): GoogleReviewUrlClassific
     return { kind: "unsupported" };
   }
 
+  if (
+    hostname === "maps.google.com"
+    && url.pathname === "/"
+    && url.searchParams.getAll("ftid").some((value) => GOOGLE_MAPS_FEATURE_ID_PATTERN.test(value.trim()))
+  ) {
+    return { kind: "maps_business_url", normalizedUrl: url.toString() };
+  }
+
   if (!GOOGLE_MAPS_HOSTS.has(hostname) || !(url.pathname === "/maps" || url.pathname.startsWith("/maps/"))) {
     return { kind: "unsupported" };
   }

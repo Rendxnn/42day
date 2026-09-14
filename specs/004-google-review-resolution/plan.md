@@ -94,6 +94,11 @@ docs/current-status.md
 
 `classifyGoogleReviewUrl(value)` devuelve una unión discriminada: `maps_short_link`, `maps_business_url`, `direct_review_url` o `unsupported`. Una URL Google genérica no se convierte en sitio web dentro de este subflujo.
 
+La ruta raíz de `maps.google.com` permanece cerrada por defecto. Se clasifica como
+`maps_business_url` solo cuando la query contiene al menos un feature ID válido extraíble desde
+`ftid`; esto cubre el redirect real observado de `maps.app.goo.gl` sin permitir páginas Google raíz
+arbitrarias. La ambigüedad sigue resolviéndose después como error controlado.
+
 ### Feature ID extraction
 
 Se recolectan candidatos desde `ftid` y tokens `!1s`. Cada candidato debe cumplir `0x[0-9a-f]{1,32}:0x[0-9a-f]{1,32}` sin distinguir mayúsculas. Cero candidatos produce `identifier_missing`; más de un valor único produce `identifier_ambiguous`. Un único valor se normaliza a minúsculas y genera `https://www.google.com/maps/place//data=!4m3!3m2!1s<ID>!12e1`.
@@ -143,7 +148,7 @@ Rollback no requiere datos: se retira la interacción/endpoint, se mantiene pega
 
 | Requisitos | Evidencia automatizada | Evidencia manual |
 | --- | --- | --- |
-| FR-001, FR-002, FR-008-FR-010 | core classification/extraction/building | URLs reales de negocio y dirección |
+| FR-001, FR-002, FR-008-FR-010, FR-025 | core classification/extraction/building | URLs reales de negocio y dirección |
 | FR-003-FR-007, FR-019, FR-020, FR-022 | API resolver tests con fetch falso | logs de staging sanitizados |
 | FR-014-FR-017, FR-021, FR-023 | API mutation regression tests | redirección QR/NFC existente |
 | FR-011-FR-013, FR-018, FR-024 | dashboard behavior tests | Safari/Chrome móvil a 320 px |

@@ -15,6 +15,10 @@ test("classifies Google Maps share, business and direct review URLs", () => {
     "maps_business_url",
   );
   assert.equal(
+    classifyGoogleReviewUrl("https://maps.google.com/?q=Example&ftid=0x123:0xabc&entry=gps").kind,
+    "maps_business_url",
+  );
+  assert.equal(
     classifyGoogleReviewUrl("https://www.google.com/maps/place//data=!4m3!3m2!1s0x123:0xabc!12e1").kind,
     "direct_review_url",
   );
@@ -31,8 +35,11 @@ test("rejects unsafe and unsupported Google-like inputs", () => {
     "https://user:pass@maps.app.goo.gl/abc",
     "https://maps.app.goo.gl:444/abc",
     "https://maps.app.goo.gl.evil.example/abc",
+    "https://maps.google.com.evil.example/?ftid=0x123:0xabc",
     "https://127.0.0.1/maps",
     "https://www.google.com/search?q=cafe",
+    "https://maps.google.com/?q=Example",
+    "https://maps.google.com/?q=Example&ftid=not-a-feature-id",
     "x".repeat(2_049),
   ]) {
     assert.equal(classifyGoogleReviewUrl(value).kind, "unsupported", value);

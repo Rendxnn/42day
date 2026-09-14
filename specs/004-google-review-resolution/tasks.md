@@ -102,6 +102,14 @@ forma explícita.
 - [ ] T031 Con autorización explícita de staging, ejecutar la matriz real de Android/iPhone, URL del usuario, tres fichas adicionales, dirección y enlace manipulado; registrar SC-001 y SC-006 en `quickstart.md`
 - [ ] T032 Tras aprobar T031 y recibir autorización explícita separada para producción, desplegar Worker y dashboard en ese orden, ejecutar canario y observar logs sanitizados
 
+## Phase 8: Observed Google Root-query Redirect
+
+- [x] T033 Documentar el redirect real `maps.google.com/?q=...&ftid=...` y su frontera cerrada en SPEC y plan antes de modificar código
+- [x] T034 Añadir regresiones que reproduzcan el `Location` real, acepten un `ftid` válido y rechacen ruta raíz sin ID, ID malformado o host parecido
+- [x] T035 Ajustar la clasificación pura sin ampliar la allowlist de hosts ni efectuar un segundo fetch
+- [x] T036 Ejecutar pruebas focalizadas con fake determinista y una comprobación local opt-in contra el enlace real; registrar evidencia sin URL completa ni feature ID en logs
+- [x] T037 Ejecutar test, typecheck y build completos, actualizar estado/quickstart y crear commit local; no desplegar
+
 ## Dependencies and Execution Order
 
 - Phase 1 precede contratos y baseline.
