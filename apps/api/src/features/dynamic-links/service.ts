@@ -4,6 +4,7 @@ import {
   generateDynamicLinkCode,
   inferDynamicLinkDestinationType,
   isDynamicLinkCode,
+  isDirectGoogleReviewUrl,
   normalizeDynamicLinkCode,
   validateDynamicLinkDestination,
 } from "@42day/core";
@@ -38,6 +39,24 @@ export function isDestinationType(value: unknown): value is DynamicLinkDestinati
 
 export function validateDestination(type: DynamicLinkDestinationType, url: string, env: ApiBindings) {
   return validateDynamicLinkDestination({ type, url, redirectHost: new URL(dynamicLinkBaseUrl(env)).hostname });
+}
+
+export function validateAdminDestination(
+  type: DynamicLinkDestinationType,
+  url: string,
+  env: ApiBindings,
+  current?: { destinationType?: string | null; destinationUrl?: string | null },
+) {
+  const validated = validateDestination(type, url, env);
+  if (type !== "google_review" || isDirectGoogleReviewUrl(validated)) return validated;
+  if (
+    current?.destinationType === "google_review"
+    && current.destinationUrl
+    && urlsMatch(validated, current.destinationUrl)
+  ) {
+    return validated;
+  }
+  throw new DynamicLinkValidationError("dynamic_link_google_review_resolution_required");
 }
 
 export function inferDestinationType(url: string, env: ApiBindings) {
@@ -95,4 +114,12 @@ export function toDynamicLinkUnit(unit: DynamicLinkUnitRow, env: ApiBindings) {
     createdAt: unit.created_at,
     updatedAt: unit.updated_at,
   };
+}
+
+function urlsMatch(left: string, right: string) {
+  try {
+    return new URL(left).toString() === new URL(right).toString();
+  } catch {
+    return left.trim() === right.trim();
+  }
 }

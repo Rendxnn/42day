@@ -1,6 +1,7 @@
 import { DynamicLinkValidationError } from "@42day/core";
 import { Hono, type Context } from "hono";
 import type { ApiBindings } from "../../lib/bindings.ts";
+import { logEvent } from "../../lib/observability/logger.ts";
 import { SupabaseRestError } from "../../lib/supabase-rest.ts";
 import { requireSystemAdmin } from "../dashboard/auth.ts";
 import { listAdminRestaurants } from "../dashboard/support/admin.ts";
@@ -15,7 +16,8 @@ import {
   listDynamicLinkUnits,
   updateDynamicLinkUnit,
 } from "./repository.ts";
-import { createDynamicLinkCode, inferDestinationType, isDestinationType, normalizePublicCode, toDynamicLinkUnit, validateDestination } from "./service.ts";
+import { createDynamicLinkCode, inferDestinationType, isDestinationType, normalizePublicCode, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
+import { GoogleReviewResolutionError, resolveGoogleReviewDestination } from "./google-review-resolver.ts";
 
 type UpdateBody = {
   revision?: number;
@@ -108,6 +110,40 @@ dynamicLinkAdminRoutes.get("/admin/dynamic-links/by-code/:code", async (c) => {
   return c.json({ unit: toDynamicLinkUnit(unit, c.env) });
 });
 
+dynamicLinkAdminRoutes.post("/admin/dynamic-links/google-review/resolve", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+
+  const body: unknown = await c.req.json().catch(() => undefined);
+  if (!isRecord(body) || typeof body.destinationUrl !== "string") {
+    return c.json({ error: "google_review_url_invalid" }, 400);
+  }
+
+  const startedAt = Date.now();
+  try {
+    const result = await resolveGoogleReviewDestination(body.destinationUrl);
+    logEvent("info", "dynamic_link.google_review_resolution_succeeded", "Se preparó un candidato de reseña de Google.", {
+      actorUserId: authUser.id,
+      inputHost: safeHostname(body.destinationUrl),
+      sourceKind: result.resolution.sourceKind,
+      redirectCount: result.redirectCount,
+      durationMs: Date.now() - startedAt,
+    });
+    return c.json({ resolution: result.resolution });
+  } catch (error) {
+    if (error instanceof GoogleReviewResolutionError) {
+      logEvent("warn", "dynamic_link.google_review_resolution_failed", "No fue posible preparar el candidato de reseña de Google.", {
+        actorUserId: authUser.id,
+        inputHost: safeHostname(body.destinationUrl),
+        outcome: error.code,
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json({ error: error.code }, error.status);
+    }
+    throw error;
+  }
+});
+
 dynamicLinkAdminRoutes.patch("/admin/dynamic-links/:id/quick-configuration", async (c) => {
   const authUser = await requireSystemAdmin(c as DashboardContext);
   if (authUser instanceof Response) return authUser;
@@ -130,7 +166,10 @@ dynamicLinkAdminRoutes.patch("/admin/dynamic-links/:id/quick-configuration", asy
   let destinationUrl: string;
   try {
     destinationType = inferDestinationType(body.destinationUrl, c.env);
-    destinationUrl = validateDestination(destinationType, body.destinationUrl, c.env);
+    destinationUrl = validateAdminDestination(destinationType, body.destinationUrl, c.env, {
+      destinationType: current.destination_type,
+      destinationUrl: current.destination_url,
+    });
   } catch (error) {
     if (error instanceof DynamicLinkValidationError) return c.json({ error: error.code }, 400);
     throw error;
@@ -283,7 +322,10 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
     } else {
       try {
         patch.destination_type = destinationType;
-        patch.destination_url = validateDestination(destinationType, destinationUrl, env);
+        patch.destination_url = validateAdminDestination(destinationType, destinationUrl, env, {
+          destinationType: current.destination_type,
+          destinationUrl: current.destination_url,
+        });
       } catch (error) {
         if (error instanceof DynamicLinkValidationError) return new Response(JSON.stringify({ error: error.code }), { status: 400, headers: { "Content-Type": "application/json" } });
         throw error;
@@ -313,6 +355,18 @@ function clampInteger(value: unknown, min: number, max: number, fallback: number
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function safeHostname(value: string) {
+  try {
+    return new URL(value.trim()).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
 }
 
 function csvCell(value: string) {
