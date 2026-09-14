@@ -28,4 +28,12 @@ test("quick setup keeps camera input safe and provides manual, atomic configurat
   assert.match(quickSetup, /association === "preserve"/);
   assert.match(quickSetup, /tenantId: association === "clear" \? null : association/);
   assert.match(quickSetup, /phase === "confirm"/);
+  assert.match(quickSetup, /resolveGoogleReviewDestination/);
+  assert.match(quickSetup, /destinationForQuickSetupSave/);
+  assert.match(quickSetup, /Preparar enlace de reseña/);
+  assert.match(quickSetup, /Probar enlace de reseña/);
+  assert.match(quickSetup, /Sí, confirmar/);
+  assert.match(quickSetup, /target="_blank"/);
+  assert.match(quickSetup, /rel="noopener noreferrer"/);
+  assert.match(quickSetup, /googlePreparationAttempt\.current !== attempt/);
 });

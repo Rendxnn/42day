@@ -28,6 +28,8 @@ import type {
   UpdateDeliveryCoverageSettingsRequest,
   UpdateRestaurantPublicProfileSettingsRequest,
   QuickDynamicLinkConfigurationRequest,
+  ResolveGoogleReviewDestinationRequest,
+  ResolveGoogleReviewDestinationResponse,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
 
@@ -457,6 +459,13 @@ export function getDynamicLinkByCode(code: string) {
 export function quickConfigureDynamicLink(unitId: string, payload: QuickDynamicLinkConfigurationRequest) {
   return request<{ unit: DynamicLinkUnit }>(`/admin/dynamic-links/${unitId}/quick-configuration`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resolveGoogleReviewDestination(payload: ResolveGoogleReviewDestinationRequest) {
+  return request<ResolveGoogleReviewDestinationResponse>("/admin/dynamic-links/google-review/resolve", {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
