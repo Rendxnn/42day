@@ -1,6 +1,6 @@
 # Estado actual de ParaHoy
 
-> Corte documental: 2026-08-13. Esta es la única fuente para capacidades implementadas, parciales,
+> Corte documental: 2026-09-14. Esta es la única fuente para capacidades implementadas, parciales,
 > experimentales, deseadas y deuda de ingeniería pendiente. El estado de servicios externos debe
 > verificarse y fecharse antes de afirmarlo.
 
@@ -144,6 +144,16 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
 7. No hay automatización CI versionada en `.github/workflows`.
 
 ## Cambios recientes
+
+- **2026-09-14:** la Configuración rápida puede preparar enlaces directos de reseña a partir de enlaces
+  compartidos o fichas completas de Google Maps. El Worker resuelve manualmente hasta cinco
+  redirecciones HTTPS permitidas, no lee HTML y nunca consulta hosts externos a la lista de Google;
+  el dashboard exige abrir y confirmar visualmente la ficha antes de guardar. Los endpoints de edición
+  rechazan nuevos destinos Google incompletos, mientras conservan destinos legacy sin cambios. La
+  conversión depende del formato observado `0x…:0x…` y `!12e1`, no de una API pública garantizada;
+  cuando no pueda resolverse, el fallback operativo es pegar un enlace directo de reseña. No se añadió
+  migración, credencial de Google, dependencia ni despliegue. Falta validación real autorizada en
+  staging con fichas de Android/iPhone antes de promover el cambio.
 
 - **2026-09-07:** se implementó el MVP interno de enlaces físicos QR/NFC: inventario global en `control`, códigos permanentes de 12 caracteres, auditoría append-only, creación idempotente de lotes, estados terminales, validación segura de destinos y suspensión automática al inactivar un negocio. El Worker sirve `GET|HEAD /r/:code` para `go.thaledon.com` con `302` no cacheable y páginas de respaldo; el dashboard de administrador incluye creación, edición, activación, exportación CSV/SVG/PNG e hitos NFC. Falta el paso externo de migrar la zona DNS a Cloudflare, asociar el Custom Domain del Worker y completar el canario/lectura física antes de imprimir en producción.
 

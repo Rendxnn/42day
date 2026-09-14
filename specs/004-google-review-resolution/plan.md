@@ -78,9 +78,11 @@ apps/api/src/features/dynamic-links/service.ts
 apps/api/test/dynamic-links.test.mjs
 apps/dashboard/src/api.ts
 apps/dashboard/src/features/admin/QuickDynamicLinkSetup.tsx
+apps/dashboard/src/features/admin/googleReviewPreparation.ts
 apps/dashboard/src/features/admin/googleReviewResolutionErrors.ts
 apps/dashboard/test/dynamic-link-quick-setup.test.mjs
 apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs
+apps/dashboard/test/dynamic-link-quick-setup-errors.test.mjs
 docs/current-status.md
 ```
 
@@ -107,7 +109,12 @@ Se recolectan candidatos desde `ftid` y tokens `!1s`. Cada candidato debe cumpli
 
 ### Write invariant and legacy compatibility
 
-`validateDestination` recibirá el destino actual opcional. Cuando el nuevo tipo sea `google_review`, solo acepta una URL clasificada como directa. La misma URL legacy existente se permite para actualizaciones ajenas al destino; un valor nuevo short/business se rechaza con `dynamic_link_google_review_resolution_required`. La regla se aplica a quick configuration y al editor general.
+`validateAdminDestination` envuelve la validación pública existente y recibe el destino actual opcional.
+Cuando el nuevo tipo sea `google_review`, solo acepta una URL clasificada como directa. La misma URL
+legacy existente se permite para actualizaciones ajenas al destino; un valor nuevo short/business se
+rechaza con `dynamic_link_google_review_resolution_required`. La regla se aplica a quick
+configuration y al editor general, mientras `validateDestination` permanece compatible con las
+redirecciones públicas legacy.
 
 ### UI state
 

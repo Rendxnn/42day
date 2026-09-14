@@ -36,13 +36,13 @@
 
 **Independent Test**: Short/business/direct → resolver → abrir → confirmar → guardar; `publicUrl` no cambia.
 
-- [ ] T007 [P] [US1] Escribir pruebas API fallidas del contrato y resolución exitosa en `apps/api/test/dynamic-links.test.mjs` para FR-001-FR-003, FR-006-FR-010 y FR-022
-- [ ] T008 [US1] Implementar el adaptador reemplazable en `apps/api/src/features/dynamic-links/google-review-resolver.ts` para FR-001, FR-006-FR-010 y FR-022
-- [ ] T009 [US1] Añadir la ruta protegida antes de rutas genéricas en `apps/api/src/features/dynamic-links/admin-routes.ts` para FR-001-FR-003
-- [ ] T010 [P] [US1] Añadir cliente HTTP de resolución en `apps/dashboard/src/api.ts` para FR-001 y FR-022
-- [ ] T011 [P] [US1] Escribir pruebas UI fallidas del estado preparación/preview/confirmación en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-011-FR-014 y FR-021
-- [ ] T012 [US1] Implementar el subflujo Google en `apps/dashboard/src/features/admin/QuickDynamicLinkSetup.tsx` para FR-011-FR-014, FR-021 y FR-023-FR-024
-- [ ] T013 [US1] Ejecutar pruebas focalizadas de API/dashboard, typecheck y builds afectados
+- [x] T007 [P] [US1] Escribir pruebas API fallidas del contrato y resolución exitosa en `apps/api/test/dynamic-links.test.mjs` para FR-001-FR-003, FR-006-FR-010 y FR-022
+- [x] T008 [US1] Implementar el adaptador reemplazable en `apps/api/src/features/dynamic-links/google-review-resolver.ts` para FR-001, FR-006-FR-010 y FR-022
+- [x] T009 [US1] Añadir la ruta protegida antes de rutas genéricas en `apps/api/src/features/dynamic-links/admin-routes.ts` para FR-001-FR-003
+- [x] T010 [P] [US1] Añadir cliente HTTP de resolución en `apps/dashboard/src/api.ts` para FR-001 y FR-022
+- [x] T011 [P] [US1] Escribir pruebas UI fallidas del estado preparación/preview/confirmación en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-011-FR-014 y FR-021
+- [x] T012 [US1] Implementar el subflujo Google en `apps/dashboard/src/features/admin/QuickDynamicLinkSetup.tsx` para FR-011-FR-014, FR-021 y FR-023-FR-024
+- [x] T013 [US1] Ejecutar pruebas focalizadas de API/dashboard, typecheck y builds afectados
 
 **Checkpoint**: P1 funcional y comprobable con red falsa determinista.
 
@@ -54,12 +54,12 @@
 
 **Independent Test**: Cada error definido devuelve código/copy propio y no provoca escritura.
 
-- [ ] T014 [P] [US2] Ampliar pruebas API con host externo, HTTP, credenciales, puerto, `Location` relativo, loop, saltos, timeout y upstream en `apps/api/test/dynamic-links.test.mjs` para FR-004-FR-007, FR-010, FR-018-FR-020
-- [ ] T015 [US2] Completar controles SSRF, presupuesto de red, cancelación de body y logs sanitizados en `apps/api/src/features/dynamic-links/google-review-resolver.ts` y `admin-routes.ts` para FR-004-FR-007 y FR-019-FR-020
-- [ ] T016 [P] [US2] Crear mapeo de errores en `apps/dashboard/src/features/admin/googleReviewResolutionErrors.ts` para FR-018-FR-019
-- [ ] T017 [P] [US2] Añadir pruebas UI de error, reintento, rechazo, popup bloqueado e invalidación en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-013, FR-018-FR-019 y FR-024
-- [ ] T018 [US2] Integrar recuperación sin pérdida de formulario en `apps/dashboard/src/features/admin/QuickDynamicLinkSetup.tsx` para FR-013, FR-018-FR-019 y FR-024
-- [ ] T019 [US2] Ejecutar pruebas focalizadas, typecheck y builds afectados
+- [x] T014 [P] [US2] Ampliar pruebas API con host externo, HTTP, credenciales, puerto, `Location` relativo, loop, saltos, timeout y upstream en `apps/api/test/dynamic-links.test.mjs` para FR-004-FR-007, FR-010, FR-018-FR-020
+- [x] T015 [US2] Completar controles SSRF, presupuesto de red, cancelación de body y logs sanitizados en `apps/api/src/features/dynamic-links/google-review-resolver.ts` y `admin-routes.ts` para FR-004-FR-007 y FR-019-FR-020
+- [x] T016 [P] [US2] Crear mapeo de errores en `apps/dashboard/src/features/admin/googleReviewResolutionErrors.ts` para FR-018-FR-019
+- [x] T017 [P] [US2] Añadir pruebas UI de error, reintento, rechazo, popup bloqueado e invalidación en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-013, FR-018-FR-019 y FR-024
+- [x] T018 [US2] Integrar recuperación sin pérdida de formulario en `apps/dashboard/src/features/admin/QuickDynamicLinkSetup.tsx` para FR-013, FR-018-FR-019 y FR-024
+- [x] T019 [US2] Ejecutar pruebas focalizadas, typecheck y builds afectados
 
 **Checkpoint**: Fallos de red/seguridad quedan cerrados, observables y recuperables.
 
@@ -71,11 +71,11 @@
 
 **Independent Test**: Ambos PATCH rechazan nuevos short/business; conservar legacy y otros destinos sigue funcionando.
 
-- [ ] T020 [P] [US3] Escribir pruebas API fallidas del invariante, legacy sin cambios y regresiones no Google en `apps/api/test/dynamic-links.test.mjs` para FR-014-FR-017 y FR-021
-- [ ] T021 [US3] Centralizar validación Google directa y compatibilidad legacy en `apps/api/src/features/dynamic-links/service.ts` para FR-014-FR-017
-- [ ] T022 [US3] Aplicar el invariante a quick configuration y editor general en `apps/api/src/features/dynamic-links/admin-routes.ts` para FR-014-FR-017
-- [ ] T023 [P] [US3] Añadir regresiones UI para enlace directo y destinos no Google en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-002, FR-016-FR-017
-- [ ] T024 [US3] Ejecutar suites completas de dynamic links, typecheck y builds afectados
+- [x] T020 [P] [US3] Escribir pruebas API fallidas del invariante, legacy sin cambios y regresiones no Google en `apps/api/test/dynamic-links.test.mjs` para FR-014-FR-017 y FR-021
+- [x] T021 [US3] Centralizar validación Google directa y compatibilidad legacy en `apps/api/src/features/dynamic-links/service.ts` para FR-014-FR-017
+- [x] T022 [US3] Aplicar el invariante a quick configuration y editor general en `apps/api/src/features/dynamic-links/admin-routes.ts` para FR-014-FR-017
+- [x] T023 [P] [US3] Añadir regresiones UI para enlace directo y destinos no Google en `apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs` para FR-002, FR-016-FR-017
+- [x] T024 [US3] Ejecutar suites completas de dynamic links, typecheck y builds afectados
 
 **Checkpoint**: Compatibilidad e invariante verificados sin migración.
 
@@ -83,14 +83,24 @@
 
 ## Phase 6: Documentation and Cross-Cutting Verification
 
-- [ ] T025 Actualizar `docs/current-status.md` con comportamiento implementado, riesgo de formato y fallback para FR-022
-- [ ] T026 Validar trazabilidad FR/SC contra tests y registrar evidencia en `specs/004-google-review-resolution/quickstart.md`
-- [ ] T027 Ejecutar `pnpm test` y registrar cualquier bloqueo real sin sustituirlo por fakes
-- [ ] T028 Ejecutar `pnpm typecheck` y `pnpm build`
-- [ ] T029 Revisar diff contra `CODESTYLE.md`, secretos, aislamiento, compatibilidad y trabajo no relacionado
-- [ ] T030 Verificar que no se creó migración, binding, dependencia o acción de producción fuera del alcance
+- [x] T025 Actualizar `docs/current-status.md` con comportamiento implementado, riesgo de formato y fallback para FR-022
+- [x] T026 Validar trazabilidad FR/SC contra tests y registrar evidencia en `specs/004-google-review-resolution/quickstart.md`
+- [x] T027 Ejecutar `pnpm test` y registrar cualquier bloqueo real sin sustituirlo por fakes
+- [x] T028 Ejecutar `pnpm typecheck` y `pnpm build`
+- [x] T029 Revisar diff contra `CODESTYLE.md`, secretos, aislamiento, compatibilidad y trabajo no relacionado
+- [x] T030 Verificar que no se creó migración, binding, dependencia o acción de producción fuera del alcance
 
 **Checkpoint**: Artefactos, código y evidencia listos para convergencia y commit final.
+
+---
+
+## Phase 7: External Release Gates
+
+Estas tareas no están autorizadas por una solicitud de implementación local y permanecen abiertas de
+forma explícita.
+
+- [ ] T031 Con autorización explícita de staging, ejecutar la matriz real de Android/iPhone, URL del usuario, tres fichas adicionales, dirección y enlace manipulado; registrar SC-001 y SC-006 en `quickstart.md`
+- [ ] T032 Tras aprobar T031 y recibir autorización explícita separada para producción, desplegar Worker y dashboard en ese orden, ejecutar canario y observar logs sanitizados
 
 ## Dependencies and Execution Order
 

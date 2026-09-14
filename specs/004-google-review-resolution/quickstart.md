@@ -11,12 +11,54 @@
 ```bash
 node --experimental-loader ./apps/api/headless/resolve-loader.mjs --test --experimental-strip-types packages/core/test/dynamic-links.test.mjs
 node --experimental-loader ./apps/api/headless/resolve-loader.mjs --test --experimental-strip-types apps/api/test/dynamic-links.test.mjs
-node --test apps/dashboard/test/dynamic-link-quick-setup.test.mjs
-node --test apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs
+node --experimental-loader ./apps/api/headless/resolve-loader.mjs --test --experimental-strip-types apps/dashboard/test/dynamic-link-quick-setup.test.mjs apps/dashboard/test/dynamic-link-quick-setup-errors.test.mjs apps/dashboard/test/dynamic-link-quick-setup-behavior.test.mjs
 pnpm typecheck
+pnpm lint
 pnpm test
 pnpm build
 ```
+
+### Evidencia local — 2026-09-14
+
+- 33/33 pruebas focalizadas de core, API y configuración rápida pasaron.
+- `pnpm test`: 7/7 workspaces completaron correctamente; API ejecutó 264 pruebas, con 247 exitosas y
+  17 opt-in omitidas según su configuración existente.
+- `pnpm typecheck`: 7/7 workspaces completaron correctamente.
+- `pnpm lint`: 7/7 workspaces completaron correctamente; los scripts existentes ejecutan
+  `tsc --noEmit`, conforme a la deuda `ENG-001` ya documentada.
+- `pnpm build`: 7/7 workspaces completaron correctamente. Vite conserva la advertencia preexistente
+  por chunks mayores de 500 kB y Turbo las advertencias de outputs para paquetes cuyo build es
+  únicamente `tsc --noEmit`.
+- No se usó red real de Google, Supabase, staging ni producción: los redirects se verificaron con un
+  fetch inyectado y determinista.
+
+## Códigos de error y recuperación
+
+| Código | Acción operativa |
+| --- | --- |
+| `google_review_url_invalid` | Pegar una URL HTTPS sin credenciales ni puerto personalizado. |
+| `google_review_url_unsupported` | Abrir la ficha del negocio en Maps y volver a usar Compartir. |
+| `google_review_identifier_missing` | Pegar un enlace directo de reseña; no se elige una ficha por aproximación. |
+| `google_review_identifier_ambiguous` | Descartar el candidato y compartir nuevamente la ficha correcta. |
+| `google_review_redirect_invalid` | No continuar: la cadena salió de los hosts admitidos, formó un bucle o excedió cinco saltos. |
+| `google_review_upstream_failed` | Reintentar; si persiste, usar un enlace directo de reseña. |
+| `google_review_resolution_timeout` | Reintentar; el límite es 3 segundos por petición y 8 segundos totales. |
+| `rate_limited` | Esperar unos segundos antes de reintentar; queda reservado para protección global futura. |
+| `dynamic_link_google_review_resolution_required` | Preparar, abrir y confirmar el enlace antes de guardar. |
+
+Los logs permitidos incluyen host inicial, clase de entrada, saltos, duración y código de resultado.
+Nunca deben incluir URL completa, `Location`, feature ID, body, cookies ni tokens.
+
+## Trazabilidad implementada
+
+| Requisitos / criterios | Evidencia |
+| --- | --- |
+| FR-001–FR-010, FR-022; SC-001–SC-002 | `packages/core/test/dynamic-links.test.mjs` y resolver inyectable en `apps/api/test/dynamic-links.test.mjs`. |
+| FR-011–FR-014, FR-021, FR-023–FR-024; SC-004 | Estados puros y caracterización de interacción en `apps/dashboard/test/dynamic-link-quick-setup-*.test.mjs`. |
+| FR-015–FR-017; SC-003, SC-005 | Pruebas de ambos PATCH, compatibilidad legacy y regresión no Google en las suites de dynamic links. |
+| FR-018–FR-020; SC-007 | Casos de timeout, upstream, SSRF, loop, ambigüedad, copies controlados y logs sanitizados. |
+| SC-008 | Diff sin migraciones, bindings, dependencias o cambios a la URL permanente. |
+| SC-006 | Pendiente de evidencia manual en staging autorizado con Safari y Chrome móvil a 320 px. |
 
 ## Smoke local
 
