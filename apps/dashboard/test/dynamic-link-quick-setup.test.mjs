@@ -36,4 +36,6 @@ test("quick setup keeps camera input safe and provides manual, atomic configurat
   assert.match(quickSetup, /target="_blank"/);
   assert.match(quickSetup, /rel="noopener noreferrer"/);
   assert.match(quickSetup, /googlePreparationAttempt\.current !== attempt/);
+  assert.match(quickSetup, /Copiar enlace de prueba/);
+  assert.match(quickSetup, /reviewCopyFailed/);
 });

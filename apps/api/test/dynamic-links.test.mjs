@@ -218,6 +218,28 @@ test("Google review resolver returns a typed unsupported error", async () => {
   );
 });
 
+test("Google review resolver rejects unsafe inputs before any network request", async () => {
+  let calls = 0;
+  for (const input of [
+    "http://maps.app.goo.gl/example",
+    "https://user:password@maps.app.goo.gl/example",
+    "https://maps.app.goo.gl:444/example",
+  ]) {
+    await assert.rejects(
+      resolveGoogleReviewDestination(input, {
+        fetcher: async () => {
+          calls += 1;
+          throw new Error("unexpected");
+        },
+      }),
+      (error) => error instanceof GoogleReviewResolutionError
+        && error.code === "google_review_url_invalid"
+        && error.status === 400,
+    );
+  }
+  assert.equal(calls, 0);
+});
+
 test("Google review resolver follows relative redirects and cancels bodies without reading them", async () => {
   const requested = [];
   let cancelled = 0;
@@ -278,6 +300,24 @@ test("Google review resolver blocks external redirects, loops and excessive redi
     (error) => error instanceof GoogleReviewResolutionError && error.code === "google_review_redirect_invalid",
   );
   assert.equal(hop, 5);
+});
+
+test("Google review resolver rejects redirects without Location or toward HTTP", async () => {
+  await assert.rejects(
+    resolveGoogleReviewDestination("https://maps.app.goo.gl/missing-location", {
+      fetcher: async () => new Response(null, { status: 302 }),
+    }),
+    (error) => error instanceof GoogleReviewResolutionError && error.code === "google_review_redirect_invalid",
+  );
+  await assert.rejects(
+    resolveGoogleReviewDestination("https://maps.app.goo.gl/http", {
+      fetcher: async () => new Response(null, {
+        status: 302,
+        headers: { Location: "http://www.google.com/maps/place/Cafe" },
+      }),
+    }),
+    (error) => error instanceof GoogleReviewResolutionError && error.code === "google_review_redirect_invalid",
+  );
 });
 
 test("Google review resolver maps missing identifiers, upstream failures and aborts", async () => {

@@ -6,6 +6,7 @@ const messages: Record<string, string> = {
   google_review_redirect_invalid: "El enlace intentó salir del recorrido permitido de Google o devolvió una redirección inválida.",
   google_review_upstream_failed: "Google no pudo preparar el enlace en este momento. Inténtalo nuevamente o pega el enlace directo de reseña.",
   google_review_resolution_timeout: "Google tardó demasiado en responder. Inténtalo nuevamente o pega el enlace directo de reseña.",
+  rate_limited: "Hay demasiadas solicitudes en este momento. Espera unos segundos e inténtalo nuevamente.",
 };
 
 type GoogleReviewResolutionFailure = {

@@ -24,6 +24,7 @@ test("quick setup presents controlled Google review resolution messages", () => 
   assert.match(formatGoogleReviewResolutionFailure(apiError(502, "google_review_redirect_invalid")), /recorrido permitido/);
   assert.match(formatGoogleReviewResolutionFailure(apiError(502, "google_review_upstream_failed")), /Google no pudo/);
   assert.match(formatGoogleReviewResolutionFailure(apiError(504, "google_review_resolution_timeout")), /tardó demasiado/);
+  assert.match(formatGoogleReviewResolutionFailure(apiError(429, "rate_limited")), /demasiadas solicitudes/);
   assert.match(formatGoogleReviewResolutionFailure(apiError(401, "unauthorized")), /sesión venció/);
   assert.match(formatGoogleReviewResolutionFailure(apiError(403, "admin_forbidden")), /permiso de administrador/);
   assert.match(formatGoogleReviewResolutionFailure(new TypeError("network")), /formulario se conservó/);
