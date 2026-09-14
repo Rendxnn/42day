@@ -2,6 +2,19 @@ import type { DynamicLinkDestinationType, DynamicLinkStatus } from "@42day/types
 
 export const DYNAMIC_LINK_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const DYNAMIC_LINK_CODE_LENGTH = 12;
+export const GOOGLE_REVIEW_URL_MAX_LENGTH = 2_048;
+
+const GOOGLE_MAPS_FEATURE_ID_PATTERN = /^0x[0-9a-f]{1,32}:0x[0-9a-f]{1,32}$/i;
+const GOOGLE_MAPS_HOSTS = new Set(["google.com", "www.google.com", "maps.google.com"]);
+const GOOGLE_SEARCH_HOST = "search.google.com";
+
+export type GoogleReviewUrlClassification =
+  | { kind: "maps_short_link" | "maps_business_url" | "direct_review_url"; normalizedUrl: string }
+  | { kind: "unsupported" };
+
+export type GoogleMapsFeatureIdExtraction =
+  | { kind: "found"; featureId: string }
+  | { kind: "missing" | "ambiguous" };
 
 const PUBLIC_DESTINATION_TYPES = new Set<DynamicLinkDestinationType>([
   "google_review",
@@ -89,6 +102,97 @@ export function parseDynamicLinkReference(value: string, baseUrl: string) {
   return code;
 }
 
+export function classifyGoogleReviewUrl(value: string): GoogleReviewUrlClassification {
+  const sanitizedValue = sanitizeCopiedUrl(value);
+  if (!sanitizedValue || sanitizedValue.length > GOOGLE_REVIEW_URL_MAX_LENGTH) return { kind: "unsupported" };
+
+  let url: URL;
+  try {
+    url = new URL(sanitizedValue);
+  } catch {
+    return { kind: "unsupported" };
+  }
+
+  const hostname = normalizeHostname(url.hostname);
+  if (
+    url.protocol !== "https:"
+    || url.username
+    || url.password
+    || url.port
+    || !hostname
+    || isLocalOrIpHost(hostname)
+  ) {
+    return { kind: "unsupported" };
+  }
+
+  if (hostname === "maps.app.goo.gl" && hasNonRootPath(url)) {
+    return { kind: "maps_short_link", normalizedUrl: url.toString() };
+  }
+  if (hostname === "goo.gl" && /^\/maps(?:\/|$)/i.test(url.pathname)) {
+    return { kind: "maps_short_link", normalizedUrl: url.toString() };
+  }
+  if (hostname === "g.page" && hasNonRootPath(url)) {
+    const path = url.pathname.replace(/\/+$/, "");
+    return {
+      kind: path.toLowerCase().endsWith("/review") ? "direct_review_url" : "maps_short_link",
+      normalizedUrl: url.toString(),
+    };
+  }
+
+  if (hostname === GOOGLE_SEARCH_HOST) {
+    const placeId = url.searchParams.get("placeid") ?? "";
+    if (url.pathname === "/local/writereview" && /^[A-Za-z0-9_-]{5,256}$/.test(placeId)) {
+      return { kind: "direct_review_url", normalizedUrl: url.toString() };
+    }
+    return { kind: "unsupported" };
+  }
+
+  if (!GOOGLE_MAPS_HOSTS.has(hostname) || !(url.pathname === "/maps" || url.pathname.startsWith("/maps/"))) {
+    return { kind: "unsupported" };
+  }
+
+  return {
+    kind: containsGoogleReviewAction(url) ? "direct_review_url" : "maps_business_url",
+    normalizedUrl: url.toString(),
+  };
+}
+
+export function extractGoogleMapsFeatureId(value: string): GoogleMapsFeatureIdExtraction {
+  let url: URL;
+  try {
+    url = new URL(sanitizeCopiedUrl(value));
+  } catch {
+    return { kind: "missing" };
+  }
+
+  const candidates = new Set<string>();
+  for (const ftid of url.searchParams.getAll("ftid")) {
+    addFeatureIdCandidate(candidates, ftid);
+  }
+
+  const decodedUrl = safeDecodeURIComponent(url.toString());
+  const tokenPattern = /!1s(0x[0-9a-f]{1,32}:0x[0-9a-f]{1,32})(?=!|$|[/?#&])/gi;
+  for (const match of decodedUrl.matchAll(tokenPattern)) {
+    addFeatureIdCandidate(candidates, match[1] ?? "");
+  }
+
+  if (candidates.size === 0) return { kind: "missing" };
+  if (candidates.size > 1) return { kind: "ambiguous" };
+  return { kind: "found", featureId: [...candidates][0]! };
+}
+
+export function buildGoogleReviewUrl(featureId: string) {
+  const normalizedFeatureId = featureId.trim().toLowerCase();
+  if (!GOOGLE_MAPS_FEATURE_ID_PATTERN.test(normalizedFeatureId)) {
+    throw new DynamicLinkValidationError("google_review_identifier_invalid");
+  }
+  return `https://www.google.com/maps/place//data=!4m3!3m2!1s${normalizedFeatureId}!12e1`;
+}
+
+export function isDirectGoogleReviewUrl(value: string) {
+  return classifyGoogleReviewUrl(value).kind === "direct_review_url";
+}
+
 export function inferDynamicLinkDestinationType(input: {
   url: string;
   publicMenuHost: string;
@@ -162,6 +266,35 @@ function hostAllowedForDestinationType(type: DynamicLinkDestinationType, hostnam
 
 function isOfficialHost(hostname: string, roots: string[]) {
   return roots.some((root) => hostname === root || hostname.endsWith(`.${root}`));
+}
+
+function sanitizeCopiedUrl(value: string) {
+  return value.trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
+}
+
+function normalizeHostname(hostname: string) {
+  return hostname.toLowerCase().replace(/\.$/, "");
+}
+
+function hasNonRootPath(url: URL) {
+  return url.pathname.split("/").some(Boolean);
+}
+
+function containsGoogleReviewAction(url: URL) {
+  return /(?:^|!)12e1(?:!|$|[/?#&])/.test(safeDecodeURIComponent(`${url.pathname}${url.search}${url.hash}`));
+}
+
+function addFeatureIdCandidate(candidates: Set<string>, value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (GOOGLE_MAPS_FEATURE_ID_PATTERN.test(normalized)) candidates.add(normalized);
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function isLocalOrIpHost(hostname: string) {

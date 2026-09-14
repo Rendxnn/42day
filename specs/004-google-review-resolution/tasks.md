@@ -11,7 +11,7 @@
 **Purpose**: Confirmar baseline y preparar contratos sin cambiar comportamiento.
 
 - [x] T001 Verificar el estado limpio, rutas actuales y baseline de `packages/core/test/dynamic-links.test.mjs`, `apps/api/test/dynamic-links.test.mjs` y `apps/dashboard/test/dynamic-link-quick-setup*.test.mjs`
-- [ ] T002 [P] Añadir contratos compartidos de resolución a `packages/types/src/dynamic-links.ts` y `packages/types/src/index.ts` para FR-001, FR-002 y FR-022
+- [x] T002 [P] Añadir contratos compartidos de resolución a `packages/types/src/dynamic-links.ts` y `packages/types/src/index.ts` para FR-001, FR-002 y FR-022
 - [x] T003 Validar que no se requieren dependencias, bindings, migraciones ni cambios de ignore files según `specs/004-google-review-resolution/plan.md`
 
 **Verification**: Baseline focalizado verde antes de introducir pruebas nuevas.
@@ -22,9 +22,9 @@
 
 **Purpose**: Implementar clasificación, extracción y construcción puras compartidas.
 
-- [ ] T004 [P] Escribir pruebas fallidas de clasificación, seguridad, extracción inequívoca y construcción en `packages/core/test/dynamic-links.test.mjs` para FR-002, FR-004, FR-005 y FR-008-FR-010
-- [ ] T005 Implementar clasificación Google, extracción de feature ID y URL directa en `packages/core/src/dynamic-links.ts` y `packages/core/src/index.ts` para FR-002, FR-008-FR-010 y FR-022
-- [ ] T006 Ejecutar pruebas de core y typecheck de `@42day/core` y `@42day/types`
+- [x] T004 [P] Escribir pruebas fallidas de clasificación, seguridad, extracción inequívoca y construcción en `packages/core/test/dynamic-links.test.mjs` para FR-002, FR-004, FR-005 y FR-008-FR-010
+- [x] T005 Implementar clasificación Google, extracción de feature ID y URL directa en `packages/core/src/dynamic-links.ts` y `packages/core/src/index.ts` para FR-002, FR-008-FR-010 y FR-022
+- [x] T006 Ejecutar pruebas de core y typecheck de `@42day/core` y `@42day/types`
 
 **Checkpoint**: Reglas puras verificadas y listas para API/UI.
 

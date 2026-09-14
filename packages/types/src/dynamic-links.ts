@@ -64,3 +64,23 @@ export type QuickDynamicLinkConfigurationRequest = {
   destinationUrl: string;
   tenantId?: string | null;
 };
+
+export type GoogleReviewSourceKind =
+  | "maps_short_link"
+  | "maps_business_url"
+  | "direct_review_url";
+
+export type ResolveGoogleReviewDestinationRequest = {
+  destinationUrl: string;
+};
+
+export type GoogleReviewResolution = {
+  sourceKind: GoogleReviewSourceKind;
+  reviewUrl: string;
+  candidateLabel?: string;
+  confirmationRequired: true;
+};
+
+export type ResolveGoogleReviewDestinationResponse = {
+  resolution: GoogleReviewResolution;
+};
