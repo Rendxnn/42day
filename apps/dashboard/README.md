@@ -6,7 +6,7 @@ Aplicación React/Vite para la operación de restaurantes, la administración de
 
 - Restaurante: pedidos, filtros, detalle, transcripción, pausa/reanudación, agotados, reemplazos, progreso de cocina y notificaciones.
 - Configuración: menú, catálogo, cobertura, pagos, perfil público y conocimiento del concierge.
-- Plataforma: restaurantes, miembros y analytics internos.
+- Plataforma: restaurantes, miembros, analytics e inventario QR/NFC con filtros server-side y edición protegida.
 - Público: perfil del restaurante, carta, recomendaciones, concierge y páginas informativas/legales.
 
 ## Límites actuales

@@ -11,6 +11,11 @@ test("quick setup is reachable from the inventory and has a mobile sticky action
   assert.match(inventory, /Configuración rápida/);
   assert.match(inventory, /fixed bottom-5 right-5/);
   assert.match(inventory, /<QuickDynamicLinkSetup/);
+  assert.match(inventory, /pageSize/);
+  assert.match(inventory, /Siguiente/);
+  assert.match(inventory, /Editar configuración/);
+  assert.match(inventory, /Registrar bloqueo físico/);
+  assert.match(inventory, /Activo y protegido para editar/);
 });
 
 test("quick setup keeps camera input safe and provides manual, atomic configuration paths", async () => {

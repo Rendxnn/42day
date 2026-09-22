@@ -79,6 +79,67 @@ export async function listDynamicLinkUnits(env: ApiBindings, filters: {
   return createSupabaseRestClient(env).select<DynamicLinkUnitRow>({ schema: "control", table: "dynamic_link_units", query });
 }
 
+export type DynamicLinkPageRow = {
+  units: DynamicLinkUnitRow[];
+  totalCount: number;
+  hasNext: boolean;
+};
+
+export async function listDynamicLinkUnitsPage(env: ApiBindings, filters: {
+  query?: string;
+  status?: string;
+  tenantId?: string;
+  batchId?: string;
+  sort: "updatedAt" | "createdAt" | "code" | "label" | "status";
+  direction: "asc" | "desc";
+  pageSize: 25 | 50 | 100;
+  cursorValue?: string;
+  cursorId?: string;
+}): Promise<DynamicLinkPageRow> {
+  return createSupabaseRestClient(env).rpc<DynamicLinkPageRow>({
+    schema: "control",
+    functionName: "list_dynamic_link_units_page",
+    args: {
+      p_query: filters.query ?? null,
+      p_status: filters.status ?? null,
+      p_tenant_id: filters.tenantId ?? null,
+      p_batch_id: filters.batchId ?? null,
+      p_sort: filters.sort,
+      p_direction: filters.direction,
+      p_page_size: filters.pageSize,
+      p_cursor_value: filters.cursorValue ?? null,
+      p_cursor_id: filters.cursorId ?? null,
+    },
+  });
+}
+
+export async function listAllDynamicLinkUnits(env: ApiBindings, filters: {
+  query?: string;
+  status?: string;
+  tenantId?: string;
+  batchId?: string;
+}): Promise<DynamicLinkUnitRow[]> {
+  const units: DynamicLinkUnitRow[] = [];
+  let cursorValue: string | undefined;
+  let cursorId: string | undefined;
+  do {
+    const page = await listDynamicLinkUnitsPage(env, {
+      ...filters,
+      sort: "updatedAt",
+      direction: "desc",
+      pageSize: 100,
+      cursorValue,
+      cursorId,
+    });
+    units.push(...page.units);
+    const last = page.units.at(-1);
+    cursorValue = last?.updated_at;
+    cursorId = last?.id;
+    if (!page.hasNext) break;
+  } while (cursorValue && cursorId);
+  return units;
+}
+
 export async function listDynamicLinkAuditEvents(env: ApiBindings, unitId: string) {
   return createSupabaseRestClient(env).select<Record<string, unknown>>({
     schema: "control",

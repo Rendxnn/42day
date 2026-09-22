@@ -61,6 +61,10 @@ Un plan no trivial contiene:
 - estrategia de rollout, compatibilidad, observabilidad y rollback;
 - matriz de trazabilidad requisito-prueba.
 
+## Capacidades transversales internas
+
+`features/dynamic-links` es dueño de las URL permanentes QR/NFC, resolución pública temporal, inventario administrativo, auditoría y ciclo de vida físico. El dashboard consume exclusivamente su API; no consulta `control` directamente. Los perfiles públicos canónicos, configuración masiva y handoff NFC se incorporarán como fronteras explícitas en los features 006–008, manteniendo compatibilidad de rutas existentes.
+
 ## Fuentes detalladas
 
 - [Monorepo](./docs/architecture/monorepo.md)

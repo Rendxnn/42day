@@ -57,3 +57,5 @@ El repositorio incluye `control.refresh_postgrest_tenant_schemas()`, pero el alt
 - [ ] Realtime y Storage se verificaron si aplican.
 - [ ] La migración es repetible y no depende de SQL manual fuera del historial.
 - [ ] Se actualizó documentación solo si cambió una regla o procedimiento durable.
+
+Las capacidades globales que no pertenecen a un tenant —por ejemplo inventario físico QR/NFC, perfiles ligeros y handoff de escritura NFC— se incorporan en `control`, sin crear tablas duplicadas por cada schema `tenant_*`. Siguen requiriendo RLS forzado, grants mínimos y pruebas contra el rol real del Worker.

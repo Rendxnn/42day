@@ -37,9 +37,9 @@ Los ambientes soportados por `wrangler.toml` son `staging` y `production`. Carga
 
 ## Enlaces QR/NFC (`go.thaledon.com`)
 
-Antes de imprimir material físico, migra la zona autoritativa de `thaledon.com` a Cloudflare, asocia `go.thaledon.com` como Custom Domain del Worker y confirma que `DYNAMIC_LINK_BASE_URL` sea `https://go.thaledon.com`. No sustituir la ruta de perfiles `parahoy.thaledon.com/r/:tenantSlug`.
+Al corte documentado del 2026-09-21, el host responde, pero eso no certifica un código válido ni una redirección operativa. Confirma que `DYNAMIC_LINK_BASE_URL` sea `https://go.thaledon.com`. No sustituir la ruta de perfiles `parahoy.thaledon.com/r/:tenantSlug`.
 
-Después del despliegue, crea una unidad canario activa y valida durante 48 horas `GET` y `HEAD /r/<code>`: `302`, `Location` vigente, `Cache-Control: no-store, max-age=0`, `Pragma: no-cache` y `Referrer-Policy: no-referrer`. Solo después de esta evidencia se autoriza la impresión definitiva.
+Después de un despliegue autorizado, crea una unidad canario activa y valida durante 48 horas `GET` y `HEAD /r/<code>`: `302`, `Location` vigente, `Cache-Control: no-store, max-age=0`, `Pragma: no-cache` y `Referrer-Policy: no-referrer`. Solo después de esa evidencia se autoriza la impresión definitiva.
 
 ```bash
 bash scripts/bash/set-cf-worker-secret.sh META_VERIFY_TOKEN --environment staging

@@ -30,6 +30,14 @@ import type {
   QuickDynamicLinkConfigurationRequest,
   ResolveGoogleReviewDestinationRequest,
   ResolveGoogleReviewDestinationResponse,
+  DynamicLinkAuditEvent,
+  DynamicLinkBatch,
+  DynamicLinkDestinationType,
+  DynamicLinkPage,
+  DynamicLinkSortDirection,
+  DynamicLinkSortField,
+  DynamicLinkStatus,
+  DynamicLinkUnit,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
 
@@ -151,40 +159,16 @@ export type AdminOverview = {
 
 export type AdminRestaurantStatus = "active" | "inactive" | "suspended";
 
-export type DynamicLinkStatus = "available" | "active" | "suspended" | "archived";
-export type DynamicLinkDestinationType = "google_review" | "website" | "menu" | "whatsapp" | "instagram";
-export type DynamicLinkUnit = {
-  id: string;
-  publicCode: string;
-  publicUrl: string;
-  batchId?: string;
-  label: string;
-  tenantId?: string;
-  locationId?: string;
-  locationLabelSnapshot?: string;
-  destinationType?: DynamicLinkDestinationType;
-  destinationUrl?: string;
-  status: DynamicLinkStatus;
-  revision: number;
-  nfcUid?: string;
-  qrPrintedAt?: string;
-  nfcProgrammedAt?: string;
-  nfcVerifiedAt?: string;
-  nfcLockedAt?: string;
-  activatedAt?: string;
-  createdAt: string;
-  updatedAt: string;
+export type {
+  DynamicLinkAuditEvent,
+  DynamicLinkBatch,
+  DynamicLinkDestinationType,
+  DynamicLinkPage,
+  DynamicLinkSortDirection,
+  DynamicLinkSortField,
+  DynamicLinkStatus,
+  DynamicLinkUnit,
 };
-
-export type DynamicLinkAuditEvent = {
-  id: string;
-  event_type: string;
-  actor_user_id?: string;
-  created_at: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type DynamicLinkBatch = { id: string; label: string; supplierReference?: string; notes?: string; createdAt: string };
 
 export type AdminRestaurantMember = {
   userId: string;
@@ -445,15 +429,35 @@ export function listAdminRestaurants() {
   return request<{ restaurants: AdminRestaurant[] }>("/admin/restaurants");
 }
 
-export function listDynamicLinks(filters?: { query?: string; status?: DynamicLinkStatus }) {
-  const params = new URLSearchParams({ limit: "200" });
+export function listDynamicLinks(filters?: {
+  query?: string;
+  status?: DynamicLinkStatus;
+  tenantId?: string;
+  batchId?: string;
+  sort?: DynamicLinkSortField;
+  direction?: DynamicLinkSortDirection;
+  pageSize?: 25 | 50 | 100;
+  cursor?: string;
+}) {
+  const params = new URLSearchParams({
+    sort: filters?.sort ?? "updatedAt",
+    direction: filters?.direction ?? "desc",
+    pageSize: String(filters?.pageSize ?? 25),
+  });
   if (filters?.query) params.set("query", filters.query);
   if (filters?.status) params.set("status", filters.status);
-  return request<{ units: DynamicLinkUnit[] }>(`/admin/dynamic-links?${params.toString()}`);
+  if (filters?.tenantId) params.set("tenantId", filters.tenantId);
+  if (filters?.batchId) params.set("batchId", filters.batchId);
+  if (filters?.cursor) params.set("cursor", filters.cursor);
+  return request<DynamicLinkPage>(`/admin/dynamic-links?${params.toString()}`);
 }
 
 export function getDynamicLinkByCode(code: string) {
   return request<{ unit: DynamicLinkUnit }>(`/admin/dynamic-links/by-code/${encodeURIComponent(code)}`);
+}
+
+export function getDynamicLinkById(unitId: string) {
+  return request<{ unit: DynamicLinkUnit }>(`/admin/dynamic-links/${encodeURIComponent(unitId)}`);
 }
 
 export function quickConfigureDynamicLink(unitId: string, payload: QuickDynamicLinkConfigurationRequest) {

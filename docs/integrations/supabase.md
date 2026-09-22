@@ -25,6 +25,8 @@ El dashboard usa `apps/api` para datos y mutaciones de negocio. El acceso direct
 - `tenant_demo`: sandbox.
 - `tenant_<slug>`: datos operativos de un restaurante.
 
+Los enlaces QR/NFC, perfiles ligeros, operaciones masivas y sesiones de handoff NFC viven en `control`. Sus tablas tienen RLS forzado, grants revocados para `anon` y `authenticated`, y se operan solo desde el Worker con `service_role`; el dashboard no consulta esas tablas directamente.
+
 Consulta [Migraciones multi-tenant](../architecture/database-migrations.md) para baseline y rollout.
 
 ## Data API y RLS

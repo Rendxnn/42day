@@ -55,7 +55,7 @@ Una salida inválida no cambia el pedido. El sistema solicita aclaración o gene
 
 ## Estado implementado y desalineación
 
-El plan semántico estructurado y sus validaciones ya existen. Sin embargo, `features/chat-routing/router.ts` aún decide localmente algunos saludos, solicitudes de menú/estado y respuestas exactas de checkout, billing o configurables. Estos bypass deben retirarse: son deuda actual, no una excepción aceptada al principio de todo texto por IA.
+El plan semántico estructurado y sus validaciones ya existen. El texto llega primero al plan; una guardia posterior de canonicalización puede vincular menciones explícitas con IDs del menú cuando el modelo omitió un producto. Esa guardia no debe interpretar una intención autónoma ni crear acciones fuera del plan y sigue bajo revisión de paridad.
 
 ## Módulos dueños
 
@@ -66,6 +66,7 @@ El plan semántico estructurado y sus validaciones ya existen. Sin embargo, `fea
 - `features/payment-proofs`: archivos y revisión de transferencias.
 - `features/dashboard`: API operativa, administrativa y pública.
 - `features/carta-concierge` y `features/public-profile`: Presencia Digital.
+- `features/dynamic-links`: URL permanente, redirección, inventario, auditoría y resolver de reseñas QR/NFC.
 - `lib/supabase-rest`: acceso server-side a Data API.
 
 Las fachadas bajo nombres históricos solo preservan compatibilidad. La lógica nueva debe vivir en el feature dueño.

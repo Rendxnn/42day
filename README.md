@@ -4,6 +4,7 @@ ParaHoy es una plataforma modular para restaurantes:
 
 - **ParaHoy Pedidos:** automatización y operación de pedidos por WhatsApp.
 - **ParaHoy Presencia Digital:** landing básica, carta pública y concierge IA.
+- **Operación interna QR/NFC:** URLs permanentes, inventario físico paginado y configuración protegida.
 - **Paquete completo:** catálogo compartido y continuidad del carrito web en WhatsApp.
 
 El repositorio conserva identificadores técnicos históricos como `42day` y `@42day`; la marca de producto es ParaHoy.

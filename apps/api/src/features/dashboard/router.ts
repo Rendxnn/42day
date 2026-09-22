@@ -14,6 +14,7 @@ import { notificationsDashboardRoutes } from "./routes/notifications";
 import { ordersDashboardRoutes } from "./routes/orders";
 import { publicCartaRoutes } from "./routes/public-carta";
 import { publicProfileRoutes } from "./routes/public-profile";
+import { businessProfileRoutes } from "../public-profile/business-profile-routes";
 import { settingsDashboardRoutes } from "./routes/settings";
 import { uploadsDashboardRoutes } from "./routes/uploads";
 
@@ -26,6 +27,7 @@ dashboardRoutes.route("/", adminDashboardRoutes);
 dashboardRoutes.route("/", dynamicLinkAdminRoutes);
 dashboardRoutes.route("/", publicCartaRoutes);
 dashboardRoutes.route("/", publicProfileRoutes);
+dashboardRoutes.route("/", businessProfileRoutes);
 dashboardRoutes.use("/:tenantSlug/*", tenantAccessMiddleware);
 dashboardRoutes.route("/", ordersDashboardRoutes);
 dashboardRoutes.route("/", conversationsDashboardRoutes);

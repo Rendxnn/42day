@@ -15,6 +15,7 @@ La unidad de organización es el feature. Cada feature reúne componentes, estad
 ```text
 src/
   features/
+    admin/
     orders/
     configuration/
     public-carta/
@@ -36,7 +37,7 @@ La migración es incremental: se extrae una capacidad completa, se conserva una 
 
 ## Estado actual
 
-Ya existen features separados para configuración, carta y perfil público. Las áreas de pedidos y el archivo `App.tsx` siguen siendo grandes. La experiencia humana carece de bandeja y compositor completos; Presencia Digital carece de la landing y autogestión objetivo.
+Ya existen features separados para configuración, carta, perfil público e inventario QR/NFC. El inventario usa paginación con cursor en servidor, y las unidades activas empiezan en lectura protegida; la edición vuelve a obtener la revisión antes de crear el borrador. Las áreas de pedidos y el archivo `App.tsx` siguen siendo grandes.
 
 El paquete sí tiene pruebas automatizadas bajo `apps/dashboard/test`; no debe volver a documentarse como carente de suite. Parte de estas pruebas caracteriza código fuente, por lo que se complementará con pruebas de comportamiento y E2E.
 

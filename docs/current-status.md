@@ -1,6 +1,6 @@
 # Estado actual de ParaHoy
 
-> Corte documental: 2026-09-14. Esta es la única fuente para capacidades implementadas, parciales,
+> Corte documental: 2026-09-21. Esta es la única fuente para capacidades implementadas, parciales,
 > experimentales, deseadas y deuda de ingeniería pendiente. El estado de servicios externos debe
 > verificarse y fecharse antes de afirmarlo.
 
@@ -97,6 +97,8 @@ El catálogo compartido ya permite que conversación y carta lean la misma base 
 
 ## Capacidades internas
 
+- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. El esquema local ya reserva perfiles ligeros, operaciones masivas y sesiones de handoff NFC, pero sus APIs, transacciones, UI y certificación física siguen pendientes.
+
 - **Analytics — Actual, interno:** snapshots y vistas administrativas para seguimiento operativo. No se ofrece como analítica avanzada del producto.
 - **Recordatorios de almuerzo — Experimental:** existe preview y envío a clientes recientes. Permanece fuera del producto hasta contar con consentimiento, opt-out, plantillas aprobadas, segmentación y controles de frecuencia.
 
@@ -144,6 +146,8 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
 7. No hay automatización CI versionada en `.github/workflows`.
 
 ## Cambios recientes
+
+- **2026-09-21:** el inventario de QR/NFC dejó de limitar el dashboard a 200 registros y de filtrar localmente. La API usa cursor estable, total filtrado y orden allowlisted; el cliente conserva una pila para Anterior/Siguiente. El canario físico, 48 horas de observación y la matriz de chips siguen siendo evidencia externa pendiente.
 
 - **2026-09-14:** la Configuración rápida puede preparar enlaces directos de reseña a partir de enlaces
   compartidos o fichas completas de Google Maps. El Worker resuelve manualmente hasta cinco

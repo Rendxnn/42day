@@ -13,6 +13,8 @@ import {
   findTenantStatus,
   listDynamicLinkAuditEvents,
   listDynamicLinkBatches,
+  listAllDynamicLinkUnits,
+  listDynamicLinkUnitsPage,
   listDynamicLinkUnits,
   updateDynamicLinkUnit,
 } from "./repository.ts";
@@ -42,17 +44,32 @@ export const dynamicLinkAdminRoutes = new Hono<{ Bindings: ApiBindings; Variable
 dynamicLinkAdminRoutes.get("/admin/dynamic-links", async (c) => {
   const authUser = await requireSystemAdmin(c as DashboardContext);
   if (authUser instanceof Response) return authUser;
-  const limit = clampInteger(c.req.query("limit"), 1, 200, 50);
-  const offset = clampInteger(c.req.query("offset"), 0, 10_000, 0);
-  const units = await listDynamicLinkUnits(c.env, {
-    query: c.req.query("query")?.trim() || undefined,
-    status: isStatus(c.req.query("status")) ? c.req.query("status") : undefined,
-    tenantId: c.req.query("tenantId") || undefined,
-    batchId: c.req.query("batchId") || undefined,
-    limit,
-    offset,
-  });
-  return c.json({ units: units.map((unit) => toDynamicLinkUnit(unit, c.env)), limit, offset });
+  const sort = parseSort(c.req.query("sort"));
+  const direction = parseDirection(c.req.query("direction"));
+  const pageSize = parsePageSize(c.req.query("pageSize"));
+  if (!sort || !direction || !pageSize) return c.json({ error: "dynamic_link_page_invalid" }, 400);
+  const inventoryQuery: InventoryQuery = { query: c.req.query("query")?.trim() || undefined, status: c.req.query("status"), tenantId: c.req.query("tenantId"), batchId: c.req.query("batchId"), sort, direction, pageSize };
+  const cursor = parseCursor(c.req.query("cursor"), inventoryQuery);
+  if (cursor instanceof Response) return c.json({ error: "dynamic_link_page_invalid" }, 400);
+  try {
+    const page = await listDynamicLinkUnitsPage(c.env, {
+      query: c.req.query("query")?.trim() || undefined,
+      status: isStatus(c.req.query("status")) ? c.req.query("status") : undefined,
+      tenantId: c.req.query("tenantId") || undefined,
+      batchId: c.req.query("batchId") || undefined,
+      sort,
+      direction,
+      pageSize,
+      cursorValue: cursor?.value,
+      cursorId: cursor?.id,
+    });
+    const units = page.units.map((unit) => toDynamicLinkUnit(unit, c.env));
+    const last = units.at(-1);
+    const nextCursor = page.hasNext && last ? createCursor(inventoryQuery, { value: cursorValue(last, sort), id: last.id }) : undefined;
+    return c.json({ units, totalCount: page.totalCount, pageInfo: { hasNext: page.hasNext, ...(nextCursor ? { nextCursor } : {}) } });
+  } catch (error) {
+    return dynamicLinkError(c, error);
+  }
 });
 
 dynamicLinkAdminRoutes.get("/admin/dynamic-links/batches", async (c) => {
@@ -106,6 +123,14 @@ dynamicLinkAdminRoutes.get("/admin/dynamic-links/by-code/:code", async (c) => {
   } catch (error) {
     return dynamicLinkError(c, error);
   }
+  if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
+  return c.json({ unit: toDynamicLinkUnit(unit, c.env) });
+});
+
+dynamicLinkAdminRoutes.get("/admin/dynamic-links/:id", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+  const unit = await findDynamicLinkUnitById(c.env, c.req.param("id"));
   if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
   return c.json({ unit: toDynamicLinkUnit(unit, c.env) });
 });
@@ -279,13 +304,27 @@ dynamicLinkAdminRoutes.get("/admin/dynamic-links/:id/audit", async (c) => {
   const unit = await findDynamicLinkUnitById(c.env, c.req.param("id"));
   if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
   const events = await listDynamicLinkAuditEvents(c.env, unit.id);
-  return c.json({ events });
+  return c.json({ events: events.map((event) => ({
+    id: String(event.id),
+    unitId: String(event.unit_id),
+    actorUserId: typeof event.actor_user_id === "string" ? event.actor_user_id : undefined,
+    eventType: String(event.event_type),
+    beforeState: isRecord(event.before_state) ? event.before_state : undefined,
+    afterState: isRecord(event.after_state) ? event.after_state : undefined,
+    metadata: isRecord(event.metadata) ? event.metadata : undefined,
+    createdAt: String(event.created_at),
+  })) });
 });
 
 dynamicLinkAdminRoutes.get("/admin/dynamic-links/export", async (c) => {
   const authUser = await requireSystemAdmin(c as DashboardContext);
   if (authUser instanceof Response) return authUser;
-  const units = await listDynamicLinkUnits(c.env, { limit: 500, offset: 0 });
+  const units = await listAllDynamicLinkUnits(c.env, {
+    query: c.req.query("query")?.trim() || undefined,
+    status: isStatus(c.req.query("status")) ? c.req.query("status") : undefined,
+    tenantId: c.req.query("tenantId") || undefined,
+    batchId: c.req.query("batchId") || undefined,
+  });
   const csv = [
     "code,url,label,status,batch_id,tenant_id,location,nfc_uid",
     ...units.map((unit) => [unit.public_code, toDynamicLinkUnit(unit, c.env).publicUrl, unit.label, unit.status, unit.batch_id ?? "", unit.tenant_id ?? "", unit.location_label_snapshot ?? "", unit.nfc_uid ?? ""].map(csvCell).join(",")),
@@ -351,6 +390,40 @@ function isStatus(value: string | undefined): value is "available" | "active" | 
 function clampInteger(value: unknown, min: number, max: number, fallback: number) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+type InventoryQuery = { query?: string; status?: string; tenantId?: string; batchId?: string; sort: "updatedAt" | "createdAt" | "code" | "label" | "status"; direction: "asc" | "desc"; pageSize: 25 | 50 | 100 };
+type InventoryCursor = { value: string; id: string; fingerprint: string };
+
+function parseSort(value: string | undefined): InventoryQuery["sort"] | undefined {
+  return value === undefined || value === "updatedAt" ? "updatedAt" : value === "createdAt" || value === "code" || value === "label" || value === "status" ? value : undefined;
+}
+function parseDirection(value: string | undefined): InventoryQuery["direction"] | undefined {
+  return value === undefined || value === "desc" ? "desc" : value === "asc" ? "asc" : undefined;
+}
+function parsePageSize(value: string | undefined): InventoryQuery["pageSize"] | undefined {
+  return value === undefined || value === "25" ? 25 : value === "50" ? 50 : value === "100" ? 100 : undefined;
+}
+function createCursor(query: InventoryQuery, cursor: { value: string; id: string }) {
+  return btoa(JSON.stringify({ ...cursor, fingerprint: cursorFingerprint(query) }));
+}
+function parseCursor(value: string | undefined, query: InventoryQuery): InventoryCursor | undefined | Response {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(atob(value));
+    if (!isRecord(parsed) || typeof parsed.value !== "string" || typeof parsed.id !== "string" || typeof parsed.fingerprint !== "string" || !isUuid(parsed.id) || parsed.fingerprint !== cursorFingerprint(query)) return new Response();
+    return { value: parsed.value, id: parsed.id, fingerprint: parsed.fingerprint };
+  } catch { return new Response(); }
+}
+function cursorFingerprint(query: InventoryQuery) {
+  return JSON.stringify([query.query ?? "", query.status ?? "", query.tenantId ?? "", query.batchId ?? "", query.sort, query.direction, query.pageSize]);
+}
+function cursorValue(unit: ReturnType<typeof toDynamicLinkUnit>, sort: InventoryQuery["sort"]) {
+  if (sort === "updatedAt") return unit.updatedAt;
+  if (sort === "createdAt") return unit.createdAt;
+  if (sort === "code") return unit.publicCode;
+  if (sort === "label") return unit.label.toLowerCase();
+  return unit.status;
 }
 
 function isUuid(value: string) {

@@ -72,6 +72,8 @@ Con una cuenta administradora y una unidad de prueba no archivada:
 6. En una unidad activa modifica el destino y confirma que la pantalla muestra destino actual y nuevo antes de guardar.
 7. Cierra el flujo, cambia de pestaña y completa una lectura en pruebas separadas; la luz/indicador de cámara debe apagarse en cada caso.
 8. Repite en Safari de iPhone y Chrome de Android. Registra fecha, dispositivo, permiso, resultado de copia y al menos 20 lecturas físicas por plataforma antes de imprimir en producción.
+9. Con más de 250 unidades de prueba, busca una que no esté en la primera página; cambia orden y tamaño 25/50/100 y navega Anterior/Siguiente. Confirma que CSV filtrado contiene todo el resultado y que `SVG + CSV página` solo representa la página visible.
+10. Abre una unidad activa: debe empezar protegida en lectura. Selecciona **Editar configuración**, verifica que vuelve a consultar la revisión y confirma un cambio de destino actual→nuevo. Registra el bloqueo físico solo después de confirmar que el chip realmente fue bloqueado; ese hito no equivale a verificación NFC.
 
 ## Seguridad y aislamiento
 

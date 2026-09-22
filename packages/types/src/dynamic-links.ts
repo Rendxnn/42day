@@ -12,6 +12,15 @@ export const DYNAMIC_LINK_STATUSES = ["available", "active", "suspended", "archi
 
 export type DynamicLinkStatus = (typeof DYNAMIC_LINK_STATUSES)[number];
 
+export const DYNAMIC_LINK_SORT_FIELDS = ["updatedAt", "createdAt", "code", "label", "status"] as const;
+export type DynamicLinkSortField = (typeof DYNAMIC_LINK_SORT_FIELDS)[number];
+export type DynamicLinkSortDirection = "asc" | "desc";
+
+export type DynamicLinkPageInfo = {
+  hasNext: boolean;
+  nextCursor?: string;
+};
+
 export type DynamicLinkUnit = {
   id: string;
   publicCode: string;
@@ -35,6 +44,12 @@ export type DynamicLinkUnit = {
   activatedAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type DynamicLinkPage = {
+  units: DynamicLinkUnit[];
+  totalCount: number;
+  pageInfo: DynamicLinkPageInfo;
 };
 
 export type DynamicLinkBatch = {

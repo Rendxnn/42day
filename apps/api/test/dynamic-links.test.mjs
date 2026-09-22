@@ -133,6 +133,38 @@ test("inventory endpoints require a system administrator", async () => {
   }
 });
 
+test("inventory delegates filtered cursor pages to the server-side RPC", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("auth/v1/user")) return jsonResponse({ id: "admin-user", app_metadata: { system_admin: true } });
+    if (url.includes("rpc/list_dynamic_link_units_page")) {
+      const payload = JSON.parse(init.body);
+      assert.equal(payload.p_query, "Lote 201");
+      assert.equal(payload.p_sort, "code");
+      assert.equal(payload.p_direction, "asc");
+      assert.equal(payload.p_page_size, 25);
+      return jsonResponse({
+        units: [{ id: "11111111-1111-4111-8111-111111111111", public_code: "0123456789AB", label: "Lote 201", status: "available", revision: 1, created_at: "2026-09-21T00:00:00Z", updated_at: "2026-09-21T00:00:00Z" }],
+        totalCount: 251,
+        hasNext: true,
+      });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    const response = await app.request("https://api.test/dashboard/admin/dynamic-links?query=Lote%20201&sort=code&direction=asc&pageSize=25", { headers: { Authorization: "Bearer test-token" } }, env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.totalCount, 251);
+    assert.equal(body.units[0].publicCode, "0123456789AB");
+    assert.equal(body.pageInfo.hasNext, true);
+    assert.ok(body.pageInfo.nextCursor);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("Google review resolver endpoint requires an admin and converts a Maps short link", async () => {
   const unauthenticated = await app.request(
     "https://api.test/dashboard/admin/dynamic-links/google-review/resolve",
