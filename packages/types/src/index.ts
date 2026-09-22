@@ -6,3 +6,4 @@ export * from "./tenant";
 export * from "./whatsapp";
 export * from "./restaurant-knowledge";
 export * from "./dynamic-links";
+export * from "./business-profiles";

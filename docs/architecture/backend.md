@@ -67,6 +67,8 @@ El plan semántico estructurado y sus validaciones ya existen. El texto llega pr
 - `features/dashboard`: API operativa, administrativa y pública.
 - `features/carta-concierge` y `features/public-profile`: Presencia Digital.
 - `features/dynamic-links`: URL permanente, redirección, inventario, auditoría y resolver de reseñas QR/NFC.
+- `features/public-profile`: perfil canónico ligero, enlaces validados, publicación, compatibilidad legacy
+  de restaurante y suspensión transaccional de QRs al deshabilitar un perfil.
 - `lib/supabase-rest`: acceso server-side a Data API.
 
 Las fachadas bajo nombres históricos solo preservan compatibilidad. La lógica nueva debe vivir en el feature dueño.

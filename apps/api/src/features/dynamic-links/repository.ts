@@ -11,6 +11,7 @@ export type DynamicLinkUnitRow = {
   location_label_snapshot?: string | null;
   destination_type?: string | null;
   destination_url?: string | null;
+  profile_id?: string | null;
   status: string;
   revision: number;
   nfc_uid?: string | null;
@@ -26,7 +27,7 @@ export type DynamicLinkUnitRow = {
 type BatchRow = { id: string; label: string; supplier_reference?: string | null; notes?: string | null; created_at: string };
 type TenantRow = { id: string; name: string; status: string };
 
-const unitSelect = "id,public_code,batch_id,label,tenant_id,location_id,location_label_snapshot,destination_type,destination_url,status,revision,nfc_uid,qr_printed_at,nfc_programmed_at,nfc_verified_at,nfc_locked_at,activated_at,created_at,updated_at";
+const unitSelect = "id,public_code,batch_id,label,tenant_id,location_id,location_label_snapshot,destination_type,destination_url,profile_id,status,revision,nfc_uid,qr_printed_at,nfc_programmed_at,nfc_verified_at,nfc_locked_at,activated_at,created_at,updated_at";
 
 export async function findDynamicLinkUnitByCode(env: ApiBindings, publicCode: string) {
   const [unit] = await createSupabaseRestClient(env).select<DynamicLinkUnitRow>({
@@ -44,6 +45,17 @@ export async function findDynamicLinkUnitById(env: ApiBindings, id: string) {
     query: { select: unitSelect, id: `eq.${id}`, limit: 1 },
   });
   return unit;
+}
+
+export async function listDynamicLinkUnitsByIds(env: ApiBindings, ids: string[]) {
+  if (ids.length === 0) return [];
+  const safeIds = ids.filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
+  if (safeIds.length !== ids.length) throw new Error("dynamic_link_unit_ids_invalid");
+  return createSupabaseRestClient(env).select<DynamicLinkUnitRow>({
+    schema: "control",
+    table: "dynamic_link_units",
+    query: { select: unitSelect, id: `in.(${safeIds.join(",")})`, limit: 100 },
+  });
 }
 
 export async function findTenantStatus(env: ApiBindings, tenantId: string) {
@@ -196,6 +208,66 @@ export async function updateDynamicLinkUnit(env: ApiBindings, input: {
   const unit = Array.isArray(result) ? result[0] : result;
   if (!unit) throw new Error("dynamic_link_update_empty");
   return unit;
+}
+
+export async function quickConfigureDynamicLinkWithProfile(env: ApiBindings, input: {
+  unitId: string;
+  revision: number;
+  actorUserId: string;
+  profile: Record<string, unknown>;
+  publicBaseUrl: string;
+}) {
+  const result = await createSupabaseRestClient(env).rpc<{ unit: DynamicLinkUnitRow }>({
+    schema: "control",
+    functionName: "quick_configure_dynamic_link_with_profile",
+    args: {
+      p_unit_id: input.unitId,
+      p_expected_revision: input.revision,
+      p_actor_user_id: input.actorUserId,
+      p_profile: input.profile,
+      p_public_base_url: input.publicBaseUrl,
+    },
+  });
+  if (!result?.unit) throw new Error("dynamic_link_update_empty");
+  return result;
+}
+
+export async function applyDynamicLinkBulkConfiguration(env: ApiBindings, input: {
+  operationId: string;
+  actorUserId: string;
+  units: Array<{ id: string; revision: number }>;
+  target: Record<string, unknown>;
+  consentedActiveUnitIds: string[];
+  commandHash: string;
+}) {
+  return createSupabaseRestClient(env).rpc<Record<string, unknown>>({
+    schema: "control",
+    functionName: "apply_dynamic_link_bulk_configuration",
+    args: {
+      p_operation_id: input.operationId,
+      p_actor_user_id: input.actorUserId,
+      p_units: input.units,
+      p_target: input.target,
+      p_consented_active_ids: input.consentedActiveUnitIds,
+      p_command_hash: input.commandHash,
+    },
+  });
+}
+
+export async function createNfcHandoffSession(env: ApiBindings, input: { tokenHash: string; unitId: string; actorUserId: string; expiresAt: string }) {
+  return createSupabaseRestClient(env).rpc<Record<string, unknown>>({
+    schema: "control",
+    functionName: "create_nfc_handoff_session",
+    args: { p_token_hash: input.tokenHash, p_unit_id: input.unitId, p_actor_user_id: input.actorUserId, p_expires_at: input.expiresAt },
+  });
+}
+
+export async function consumeNfcHandoffSession(env: ApiBindings, input: { sessionId: string; tokenHash: string; actorUserId: string; reportedUid?: string }) {
+  return createSupabaseRestClient(env).rpc<Record<string, unknown>>({
+    schema: "control",
+    functionName: "consume_nfc_handoff_session",
+    args: { p_session_id: input.sessionId, p_token_hash: input.tokenHash, p_actor_user_id: input.actorUserId, p_reported_uid: input.reportedUid ?? null },
+  });
 }
 
 export async function listDynamicLinkBatches(env: ApiBindings) {

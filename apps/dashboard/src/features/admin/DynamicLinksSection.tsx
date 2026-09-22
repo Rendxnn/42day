@@ -4,15 +4,18 @@ import { Archive, Check, Copy, Download, ExternalLink, Loader2, Lock, QrCode, Ra
 import {
   DashboardApiError,
   createDynamicLinkBatch,
+  consumeNfcHandoff,
   getDynamicLinkById,
   getDynamicLinkAudit,
   listDynamicLinkBatches,
   listDynamicLinks,
+  listBusinessProfiles,
   runDynamicLinkAction,
   updateDynamicLink,
 } from "../../api";
-import type { AdminRestaurant, DynamicLinkAuditEvent, DynamicLinkBatch, DynamicLinkDestinationType, DynamicLinkSortDirection, DynamicLinkSortField, DynamicLinkStatus, DynamicLinkUnit } from "../../api";
+import type { AdminRestaurant, BusinessProfile, DynamicLinkAuditEvent, DynamicLinkBatch, DynamicLinkDestinationType, DynamicLinkSortDirection, DynamicLinkSortField, DynamicLinkStatus, DynamicLinkUnit } from "../../api";
 import { QuickDynamicLinkSetup } from "./QuickDynamicLinkSetup";
+import { BulkDynamicLinkSetup } from "./BulkDynamicLinkSetup";
 
 type Props = { restaurants: AdminRestaurant[] };
 
@@ -22,6 +25,7 @@ const destinationOptions: Array<{ value: DynamicLinkDestinationType; label: stri
   { value: "menu", label: "Menú o carta" },
   { value: "whatsapp", label: "WhatsApp" },
   { value: "instagram", label: "Instagram" },
+  { value: "profile", label: "Perfil de negocio" },
 ];
 
 export function DynamicLinksSection({ restaurants }: Props) {
@@ -37,6 +41,7 @@ export function DynamicLinksSection({ restaurants }: Props) {
   const [nextCursor, setNextCursor] = useState<string>();
   const [totalCount, setTotalCount] = useState(0);
   const [batches, setBatches] = useState<DynamicLinkBatch[]>([]);
+  const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
   const [batchLabel, setBatchLabel] = useState("Lote QR/NFC");
   const [batchCount, setBatchCount] = useState("1");
   const [isLoading, setIsLoading] = useState(true);
@@ -45,12 +50,13 @@ export function DynamicLinksSection({ restaurants }: Props) {
   const [error, setError] = useState("");
   const [audits, setAudits] = useState<Record<string, DynamicLinkAuditEvent[]>>({});
   const [isQuickSetupOpen, setIsQuickSetupOpen] = useState(false);
+  const [isBulkSetupOpen, setIsBulkSetupOpen] = useState(false);
 
   async function load(cursor?: string, resetCursor = false) {
     setIsLoading(true);
     try {
-      const [payload, batchPayload] = await Promise.all([listDynamicLinks({ query, status: status || undefined, tenantId: tenantFilter || undefined, batchId: batchFilter || undefined, sort, direction, pageSize, cursor }), listDynamicLinkBatches()]);
-      setUnits(payload.units); setBatches(batchPayload.batches); setTotalCount(payload.totalCount); setNextCursor(payload.pageInfo.nextCursor);
+      const [payload, batchPayload, profilePayload] = await Promise.all([listDynamicLinks({ query, status: status || undefined, tenantId: tenantFilter || undefined, batchId: batchFilter || undefined, sort, direction, pageSize, cursor }), listDynamicLinkBatches(), listBusinessProfiles()]);
+      setUnits(payload.units); setBatches(batchPayload.batches); setProfiles(profilePayload.profiles); setTotalCount(payload.totalCount); setNextCursor(payload.pageInfo.nextCursor);
       if (resetCursor) setCursorStack([]);
       setError("");
     } catch (loadError) {
@@ -61,6 +67,18 @@ export function DynamicLinksSection({ restaurants }: Props) {
   }
 
   useEffect(() => { void load(undefined, true); }, [query, status, tenantFilter, batchFilter, sort, direction, pageSize]);
+
+  useEffect(() => {
+    const sessionId = new URLSearchParams(window.location.search).get("session");
+    if (!sessionId) return;
+    const storageKey = `nfc-handoff:${sessionId}`;
+    const token = sessionStorage.getItem(storageKey);
+    if (!token) return;
+    const reportedUid = window.prompt("Si confirmaste la escritura, introduce opcionalmente el UID leído del chip:") || undefined;
+    void consumeNfcHandoff(sessionId, token, reportedUid)
+      .then(() => { sessionStorage.removeItem(storageKey); window.history.replaceState({}, "", window.location.pathname); setMessage("Escritura NFC reportada. Verifica físicamente el chip antes de registrar el hito."); })
+      .catch((consumeError) => setError(formatError(consumeError, "No se pudo confirmar el retorno de NFC Helper.")));
+  }, []);
 
   async function createBatch() {
     const count = Number(batchCount);
@@ -163,7 +181,7 @@ export function DynamicLinksSection({ restaurants }: Props) {
     <section className="p-5 sm:p-6">
       <div className="flex flex-col gap-4 border-b border-[rgba(118,93,71,0.12)] pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">Inventario físico</p><h2 className="mt-2 text-2xl font-extrabold text-[var(--text-strong)]">Enlaces QR y NFC</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-soft)]">El QR y el NFC siempre contienen la URL permanente de ParaHoy. Cambia el destino aquí sin reimprimir ni reprogramar.</p></div>
-        <div className="flex gap-2"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white" onClick={() => setIsQuickSetupOpen(true)} type="button"><ScanLine size={16} />Configuración rápida</button><button className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)]" disabled={isLoading} onClick={() => void load(cursorStack.at(-1))} type="button"><RefreshCw size={16} />Actualizar</button></div>
+        <div className="flex flex-wrap gap-2"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--text-strong)] px-4 text-sm font-semibold text-white" onClick={() => setIsQuickSetupOpen(true)} type="button"><ScanLine size={16} />Configuración rápida</button><button className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)]" onClick={() => setIsBulkSetupOpen(true)} type="button"><QrCode size={16} />Configurar varios</button><button className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(118,93,71,0.12)] px-4 text-sm font-semibold text-[var(--text-soft)]" disabled={isLoading} onClick={() => void load(cursorStack.at(-1))} type="button"><RefreshCw size={16} />Actualizar</button></div>
       </div>
 
       <div className="mt-5 grid gap-3 rounded-[22px] border border-[rgba(118,93,71,0.1)] bg-[var(--surface-base)] p-4 md:grid-cols-[1fr_130px_auto]">
@@ -184,17 +202,19 @@ export function DynamicLinksSection({ restaurants }: Props) {
       </div>
       {(error || message) && <p className={`mt-4 rounded-xl px-3 py-2 text-sm font-semibold ${error ? "bg-[rgba(190,110,95,0.12)] text-[#9a4b43]" : "bg-[rgba(79,122,97,0.1)] text-[var(--success)]"}`}>{error || message}</p>}
 
-      {isLoading ? <div className="grid min-h-52 place-items-center"><Loader2 className="animate-spin" size={24} /></div> : <div className="mt-5 space-y-3">{units.map((unit) => <UnitCard key={unit.id} unit={unit} restaurants={restaurants} audit={audits[unit.id]} onAction={action} onAudit={showAudit} onCopy={copy} onDownload={downloadQr} onEdit={refreshForEdit} onSave={save} />)}{units.length === 0 && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-[var(--text-soft)]">No hay unidades para este filtro.</p>}</div>}
+      {isLoading ? <div className="grid min-h-52 place-items-center"><Loader2 className="animate-spin" size={24} /></div> : <div className="mt-5 space-y-3">{units.map((unit) => <UnitCard key={unit.id} unit={unit} profiles={profiles} restaurants={restaurants} audit={audits[unit.id]} onAction={action} onAudit={showAudit} onCopy={copy} onDownload={downloadQr} onEdit={refreshForEdit} onSave={save} />)}{units.length === 0 && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-[var(--text-soft)]">No hay unidades para este filtro.</p>}</div>}
       <nav aria-label="Paginación del inventario" className="mt-5 flex items-center justify-between gap-3 text-sm"><span>{totalCount} unidad{totalCount === 1 ? "" : "es"} encontradas</span><div className="flex gap-2"><button className="rounded-lg border px-3 py-2 disabled:opacity-50" disabled={!cursorStack.length || isLoading} onClick={() => void goPrevious()} type="button">Anterior</button><button className="rounded-lg border px-3 py-2 disabled:opacity-50" disabled={!nextCursor || isLoading} onClick={() => void goNext()} type="button">Siguiente</button></div></nav>
       <button aria-label="Abrir configuración rápida" className="fixed bottom-5 right-5 z-30 inline-flex h-14 items-center gap-2 rounded-full bg-[var(--text-strong)] px-5 text-sm font-bold text-white shadow-lg sm:hidden" onClick={() => setIsQuickSetupOpen(true)} type="button"><ScanLine size={18} />Configurar QR</button>
-      {isQuickSetupOpen && <QuickDynamicLinkSetup restaurants={restaurants} onClose={() => setIsQuickSetupOpen(false)} onUpdated={replaceUnit} />}
+      {isQuickSetupOpen && <QuickDynamicLinkSetup restaurants={restaurants} profiles={profiles} onClose={() => setIsQuickSetupOpen(false)} onUpdated={replaceUnit} />}
+      {isBulkSetupOpen && <BulkDynamicLinkSetup profiles={profiles} onClose={() => setIsBulkSetupOpen(false)} onUpdated={replaceUnit} />}
     </section>
   );
 }
 
-function UnitCard({ unit, restaurants, audit, onAction, onAudit, onCopy, onDownload, onEdit, onSave }: { unit: DynamicLinkUnit; restaurants: AdminRestaurant[]; audit?: DynamicLinkAuditEvent[]; onAction: (unit: DynamicLinkUnit, action: Parameters<typeof runDynamicLinkAction>[1], nfcUid?: string) => Promise<void>; onAudit: (unit: DynamicLinkUnit) => Promise<void>; onCopy: (value: string) => Promise<void>; onDownload: (unit: DynamicLinkUnit, format: "svg" | "png") => Promise<void>; onEdit: (unit: DynamicLinkUnit) => Promise<DynamicLinkUnit>; onSave: (unit: DynamicLinkUnit, patch: Parameters<typeof updateDynamicLink>[1]) => Promise<void> }) {
+function UnitCard({ unit, profiles, restaurants, audit, onAction, onAudit, onCopy, onDownload, onEdit, onSave }: { unit: DynamicLinkUnit; profiles: BusinessProfile[]; restaurants: AdminRestaurant[]; audit?: DynamicLinkAuditEvent[]; onAction: (unit: DynamicLinkUnit, action: Parameters<typeof runDynamicLinkAction>[1], nfcUid?: string) => Promise<void>; onAudit: (unit: DynamicLinkUnit) => Promise<void>; onCopy: (value: string) => Promise<void>; onDownload: (unit: DynamicLinkUnit, format: "svg" | "png") => Promise<void>; onEdit: (unit: DynamicLinkUnit) => Promise<DynamicLinkUnit>; onSave: (unit: DynamicLinkUnit, patch: Parameters<typeof updateDynamicLink>[1]) => Promise<void> }) {
   const [destinationType, setDestinationType] = useState<DynamicLinkDestinationType>(unit.destinationType ?? "website");
   const [destinationUrl, setDestinationUrl] = useState(unit.destinationUrl ?? "");
+  const [profileId, setProfileId] = useState(unit.profileId ?? "");
   const [label, setLabel] = useState(unit.label);
   const [tenantId, setTenantId] = useState(unit.tenantId ?? "");
   const [nfcUid, setNfcUid] = useState(unit.nfcUid ?? "");
@@ -203,18 +223,18 @@ function UnitCard({ unit, restaurants, audit, onAction, onAudit, onCopy, onDownl
   const selectedRestaurant = restaurants.find((restaurant) => restaurant.id === tenantId);
   useEffect(() => {
     if (!isEditing) {
-      setEditingUnit(unit); setLabel(unit.label); setTenantId(unit.tenantId ?? ""); setDestinationType(unit.destinationType ?? "website"); setDestinationUrl(unit.destinationUrl ?? ""); setNfcUid(unit.nfcUid ?? "");
+      setEditingUnit(unit); setLabel(unit.label); setTenantId(unit.tenantId ?? ""); setDestinationType(unit.destinationType ?? "website"); setDestinationUrl(unit.destinationUrl ?? ""); setProfileId(unit.profileId ?? ""); setNfcUid(unit.nfcUid ?? "");
     }
   }, [isEditing, unit]);
   const shownUnit = isEditing ? editingUnit : unit;
   async function beginEdit() {
     const fresh = await onEdit(unit);
-    setEditingUnit(fresh); setLabel(fresh.label); setTenantId(fresh.tenantId ?? ""); setDestinationType(fresh.destinationType ?? "website"); setDestinationUrl(fresh.destinationUrl ?? ""); setNfcUid(fresh.nfcUid ?? ""); setIsEditing(true);
+    setEditingUnit(fresh); setLabel(fresh.label); setTenantId(fresh.tenantId ?? ""); setDestinationType(fresh.destinationType ?? "website"); setDestinationUrl(fresh.destinationUrl ?? ""); setProfileId(fresh.profileId ?? ""); setNfcUid(fresh.nfcUid ?? ""); setIsEditing(true);
   }
   async function confirmSave() {
     const destinationChanged = destinationUrl.trim() !== (editingUnit.destinationUrl ?? "") || destinationType !== (editingUnit.destinationType ?? "website") || tenantId !== (editingUnit.tenantId ?? "");
     if (destinationChanged && !window.confirm(`Destino público actual: ${editingUnit.destinationUrl ?? "sin destino"}\nNuevo destino: ${destinationUrl.trim() || "sin destino"}\n\n¿Confirmas este cambio?`)) return;
-    await onSave(editingUnit, { revision: editingUnit.revision, label, tenantId: tenantId || null, locationId: selectedRestaurant?.location?.id ?? null, locationLabelSnapshot: selectedRestaurant?.location?.name ?? null, destinationType: destinationUrl.trim() ? destinationType : null, destinationUrl: destinationUrl.trim() || null });
+    await onSave(editingUnit, { revision: editingUnit.revision, label, tenantId: tenantId || null, locationId: selectedRestaurant?.location?.id ?? null, locationLabelSnapshot: selectedRestaurant?.location?.name ?? null, profileId: destinationType === "profile" ? profileId : null, destinationType: destinationType === "profile" ? "profile" : destinationUrl.trim() ? destinationType : null, destinationUrl: destinationType === "profile" ? null : destinationUrl.trim() || null });
     setIsEditing(false);
   }
   return <article className={`rounded-[20px] border bg-white p-4 ${unit.status === "active" ? "border-[rgba(79,122,97,0.65)] bg-[rgba(79,122,97,0.05)]" : "border-[rgba(118,93,71,0.12)]"}`}>
@@ -223,6 +243,7 @@ function UnitCard({ unit, restaurants, audit, onAction, onAudit, onCopy, onDownl
     <div className="mt-4 grid gap-3 lg:grid-cols-2"><label className="text-xs font-bold text-[var(--text-soft)]">Etiqueta<input className="mt-1 h-10 w-full rounded-lg border px-3 text-sm disabled:bg-[var(--surface-base)]" disabled={!isEditing} onChange={(event) => setLabel(event.target.value)} value={label} /></label><label className="text-xs font-bold text-[var(--text-soft)]">Negocio<select className="mt-1 h-10 w-full rounded-lg border px-3 text-sm disabled:bg-[var(--surface-base)]" disabled={!isEditing} onChange={(event) => setTenantId(event.target.value)} value={tenantId}><option value="">Sin asignar</option>{restaurants.map((restaurant) => <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>)}</select></label><label className="text-xs font-bold text-[var(--text-soft)]">Tipo de destino<select className="mt-1 h-10 w-full rounded-lg border px-3 text-sm disabled:bg-[var(--surface-base)]" disabled={!isEditing} onChange={(event) => setDestinationType(event.target.value as DynamicLinkDestinationType)} value={destinationType}>{destinationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label className="text-xs font-bold text-[var(--text-soft)]">URL destino<input className="mt-1 h-10 w-full rounded-lg border px-3 text-sm disabled:bg-[var(--surface-base)]" disabled={!isEditing} onChange={(event) => setDestinationUrl(event.target.value)} placeholder="https://…" value={destinationUrl} /></label></div>
     <div className="mt-3 flex flex-wrap gap-2">{!isEditing && <button className="rounded-lg border border-[rgba(79,122,97,0.6)] px-3 py-2 text-xs font-bold" onClick={() => void beginEdit()} type="button">Editar configuración</button>}{isEditing && <><button className="rounded-lg bg-[var(--text-strong)] px-3 py-2 text-xs font-bold text-white" onClick={() => void confirmSave()} type="button">Guardar destino</button><button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => setIsEditing(false)} type="button">Cancelar</button></>}{unit.status !== "active" && unit.status !== "archived" && <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void onAction(shownUnit, "activate")} type="button"><Check className="mr-1 inline" size={14} />Activar</button>}{unit.status === "active" && <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void onAction(unit, "suspend")} type="button"><ShieldBan className="mr-1 inline" size={14} />Suspender</button>}{unit.status !== "archived" && <button className="rounded-lg border px-3 py-2 text-xs font-bold text-[#9a4b43]" onClick={() => void onAction(unit, "archive")} type="button"><Archive className="mr-1 inline" size={14} />Archivar</button>}<button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void onAction(unit, "mark-qr-printed")} type="button">QR impreso</button><button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void onAction(unit, "mark-nfc-programmed", nfcUid)} type="button"><Radio className="mr-1 inline" size={14} />NFC programado</button><button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void onAction(unit, "mark-nfc-verified")} type="button">NFC verificado</button><button className="rounded-lg border px-3 py-2 text-xs font-bold text-[#9a4b43]" onClick={() => { if (window.confirm("Este registro indica que el chip se bloqueó físicamente. El dashboard no puede bloquearlo ni revertirlo. ¿Confirmas que ya ocurrió?")) void onAction(unit, "mark-nfc-locked"); }} type="button"><Lock className="mr-1 inline" size={14} />Registrar bloqueo físico</button></div>
     {unit.nfcLockedAt && <p className="mt-3 text-xs font-bold text-[#9a4b43]">NFC bloqueado físicamente — {new Date(unit.nfcLockedAt).toLocaleString("es-CO")}</p>}<label className="mt-3 block text-xs font-bold text-[var(--text-soft)]">UID NFC opcional<input className="mt-1 h-9 w-full rounded-lg border px-3 text-sm" disabled={!isEditing} onChange={(event) => setNfcUid(event.target.value)} value={nfcUid} /></label><button className="mt-3 text-xs font-bold text-[var(--text-soft)] underline" onClick={() => void onAudit(unit)} type="button">Ver historial</button>{audit && <ol className="mt-2 space-y-1 text-xs text-[var(--text-soft)]">{audit.map((event) => <li key={event.id}>{new Date(event.createdAt).toLocaleString("es-CO")} — {event.eventType}</li>)}</ol>}
+    {destinationType === "profile" && <label className="mt-3 block text-xs font-bold text-[var(--text-soft)]">Perfil publicado<select className="mt-1 h-10 w-full rounded-lg border px-3 text-sm" disabled={!isEditing} onChange={(event) => setProfileId(event.target.value)} value={profileId}><option value="">Selecciona un perfil</option>{profiles.filter((profile) => profile.status === "published").map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · /p/{profile.slug}</option>)}</select></label>}
   </article>;
 }
 

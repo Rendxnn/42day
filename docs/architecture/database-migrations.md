@@ -59,3 +59,8 @@ El repositorio incluye `control.refresh_postgrest_tenant_schemas()`, pero el alt
 - [ ] Se actualizó documentación solo si cambió una regla o procedimiento durable.
 
 Las capacidades globales que no pertenecen a un tenant —por ejemplo inventario físico QR/NFC, perfiles ligeros y handoff de escritura NFC— se incorporan en `control`, sin crear tablas duplicadas por cada schema `tenant_*`. Siguen requiriendo RLS forzado, grants mínimos y pruebas contra el rol real del Worker.
+
+La migración `20260922050757_complete_business_link_profiles.sql` completa el modelo provisional de perfiles:
+idempotencia de creación, backfill desde la primera sede activa, dual-write con columnas legacy, índices de
+slug/tenant/enlaces, trigger de slug inmutable y RPC de actualización, publicación, conteo y suspensión
+atómica de QRs. Se aplica como forward migration; las columnas legacy no se eliminan durante este rollout.

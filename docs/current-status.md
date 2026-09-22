@@ -1,6 +1,6 @@
 # Estado actual de ParaHoy
 
-> Corte documental: 2026-09-21. Esta es la única fuente para capacidades implementadas, parciales,
+> Corte documental: 2026-09-22. Esta es la única fuente para capacidades implementadas, parciales,
 > experimentales, deseadas y deuda de ingeniería pendiente. El estado de servicios externos debe
 > verificarse y fecharse antes de afirmarlo.
 
@@ -97,7 +97,7 @@ El catálogo compartido ya permite que conversación y carta lean la misma base 
 
 ## Capacidades internas
 
-- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. El esquema local ya reserva perfiles ligeros, operaciones masivas y sesiones de handoff NFC, pero sus APIs, transacciones, UI y certificación física siguen pendientes.
+- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. Los perfiles ligeros ya tienen migración forward, API, editor público y destino `profile` para una unidad; las operaciones masivas, handoff NFC y certificación física siguen pendientes.
 
 - **Analytics — Actual, interno:** snapshots y vistas administrativas para seguimiento operativo. No se ofrece como analítica avanzada del producto.
 - **Recordatorios de almuerzo — Experimental:** existe preview y envío a clientes recientes. Permanece fuera del producto hasta contar con consentimiento, opt-out, plantillas aprobadas, segmentación y controles de frecuencia.
@@ -146,6 +146,57 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
 7. No hay automatización CI versionada en `.github/workflows`.
 
 ## Cambios recientes
+
+- **2026-09-22:** la implementación de la Fase 2 se desplegó en staging. Cloudflare Worker
+  `42day-api-staging` quedó en la versión `9732d7c3-6395-4f50-9605-8f374b11a936`; Vercel creó el Preview
+  `42day-dashboard-gd289kjwl-samiretru-4094s-projects.vercel.app` y el alias
+  `https://staging.parahoy.thaledon.com` apunta a él. Health, CORS, login persistente, inventario QR/NFC y
+  la pantalla de perfiles cargan correctamente. Producción no fue modificada.
+
+- **2026-09-22:** la Fase 1 de inventario QR/NFC quedó cerrada formalmente en implementación, aplicada en
+  staging y validada localmente:
+  23 pruebas API, prueba transaccional de cursor/filtros, `EXPLAIN ANALYZE` usando el índice de orden
+  y typecheck de API/dashboard pasan. La revisión independiente de accesibilidad y el escenario físico
+  de más de 250 unidades siguen siendo gates de certificación. Staging ya contiene una instantánea de
+  los datos de aplicación de producción (tenants, inventario y esquemas tenant); Auth, Storage,
+  `control.tenant_users` y secretos se mantienen propios de staging.
+
+- **2026-09-22:** comenzó la Fase 2 y la migración forward `20260922050757_complete_business_link_profiles`
+  quedó aplicada en el proyecto Supabase `42day-staging` (`jcruwwluxlhhwedvciog`). Completa idempotencia,
+  backfill compatible, RLS/grants, RPC de actualización/publicación/conteo y `disable-and-suspend`; el API
+  expone perfiles públicos `/p/:slug`, el editor administrativo muestra el impacto de QRs activos y un QR
+  puede usar el destino de perfil derivado server-side. Faltan revisión independiente del checklist,
+  datos de aceptación en staging y compatibilidad exhaustiva del editor de restaurante.
+  El build del dashboard pasa de forma directa; el build raíz con Turbo queda bloqueado por la verificación
+  de firma de `pnpm@9.15.0` en este entorno, no por un error de TypeScript o Vite.
+
+- **2026-09-22:** las fases 2, 3 y 4 quedaron implementadas para prueba en staging. La configuración
+  rápida permite seleccionar un perfil publicado o crear/publicar un perfil ligero y asignarlo al QR en
+  una transacción; se conserva la URL permanente y la asociación se deriva server-side. La sesión
+  `Configurar varios` deduplica entre 2 y 100 unidades, ejecuta preflight, protege activos con consentimiento
+  individual y aplica cambios todo-o-nada con `operationId`, hash y auditoría por unidad. El handoff NFC
+  opcional crea sesiones de diez minutos, deep links de NFC Helper sin bearer token y canje de callback de
+  un solo uso; el fallback de copiar URL permanece disponible y el callback nunca marca verificación ni
+  bloqueo físico.
+
+- **2026-09-22:** la migración `20260922145316_complete_qr_profile_bulk_nfc` fue validada con dry-run y
+  aplicada en Supabase staging `jcruwwluxlhhwedvciog`. Se verificaron las cuatro RPC y las tablas de
+  operaciones masivas/sesiones NFC; se ejecutó una prueba controlada de perfil, lote de dos unidades y
+  canje NFC. El Worker `42day-api-staging` y el preview Vercel asociado a
+  `https://staging.parahoy.thaledon.com` están publicados. No se ejecutó ninguna acción de producción.
+
+- **Gates restantes de las fases 2–4:** revisión independiente de checklists, pruebas de aislamiento de
+  manager/backfill contra Supabase real, spike físico con NTAG213 y mínimo 20 escrituras/lecturas en el
+  iPhone objetivo, además de observación operacional antes de promover cualquier cambio.
+
+- **2026-09-22:** staging (`jcruwwluxlhhwedvciog`) fue poblado desde una instantánea de producción tomada
+  durante este corte. Se conservaron los tres tenants (`demo`, `thaledon`, `los-carnivoros`), 3 lotes,
+  50 unidades QR/NFC y los datos de sus esquemas tenant; se alineó `tenant_demo` con la plantilla vigente
+  para aceptar columnas históricas sin perder compatibilidad. La carga fue verificada en staging. No se
+  copiaron usuarios de Auth, objetos de Storage, secretos ni `control.tenant_users`; el administrador
+  `prueba@gmail.com` y la configuración propia de staging permanecen intactos. Esta copia no es una
+  sincronización continua: cambios posteriores en producción requieren repetir el procedimiento con un
+  respaldo y una instantánea fechada.
 
 - **2026-09-21:** el inventario de QR/NFC dejó de limitar el dashboard a 200 registros y de filtrar localmente. La API usa cursor estable, total filtrado y orden allowlisted; el cliente conserva una pila para Anterior/Siguiente. El canario físico, 48 horas de observación y la matriz de chips siguen siendo evidencia externa pendiente.
 

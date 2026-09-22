@@ -18,6 +18,22 @@ export function dynamicLinkBaseUrl(env: ApiBindings) {
   return env.DYNAMIC_LINK_BASE_URL?.trim() || DYNAMIC_LINK_BASE_URL_FALLBACK;
 }
 
+export function dashboardBaseUrl(env: ApiBindings) {
+  const configured = env.APP_BASE_URL?.trim() || env.DASHBOARD_ALLOWED_ORIGINS?.split(",")[0]?.trim();
+  return configured || "https://parahoy.thaledon.com";
+}
+
+export async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+export function randomToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
 export function dynamicLinkUrl(env: ApiBindings, publicCode: string) {
   return buildDynamicLinkUrl(dynamicLinkBaseUrl(env), publicCode);
 }
@@ -34,7 +50,7 @@ export function normalizePublicCode(value: string) {
 }
 
 export function isDestinationType(value: unknown): value is DynamicLinkDestinationType {
-  return value === "google_review" || value === "website" || value === "menu" || value === "whatsapp" || value === "instagram";
+  return value === "google_review" || value === "website" || value === "menu" || value === "whatsapp" || value === "instagram" || value === "profile";
 }
 
 export function validateDestination(type: DynamicLinkDestinationType, url: string, env: ApiBindings) {
@@ -47,6 +63,14 @@ export function validateAdminDestination(
   env: ApiBindings,
   current?: { destinationType?: string | null; destinationUrl?: string | null },
 ) {
+  if (type === "profile") {
+    let candidate: URL;
+    try { candidate = new URL(url); } catch { throw new DynamicLinkValidationError("dynamic_link_profile_url_invalid"); }
+    if (candidate.protocol !== "https:" || !candidate.pathname.startsWith("/p/") || candidate.pathname.length <= 3) {
+      throw new DynamicLinkValidationError("dynamic_link_profile_url_invalid");
+    }
+    return candidate.toString();
+  }
   const validated = validateDestination(type, url, env);
   if (type !== "google_review" || isDirectGoogleReviewUrl(validated)) return validated;
   if (
@@ -60,7 +84,7 @@ export function validateAdminDestination(
 }
 
 export function inferDestinationType(url: string, env: ApiBindings) {
-  const publicMenuHost = new URL(env.APP_BASE_URL?.trim() || "https://parahoy.thaledon.com").hostname;
+  const publicMenuHost = new URL(dashboardBaseUrl(env)).hostname;
   return inferDynamicLinkDestinationType({ url, publicMenuHost });
 }
 
@@ -103,6 +127,7 @@ export function toDynamicLinkUnit(unit: DynamicLinkUnitRow, env: ApiBindings) {
     locationLabelSnapshot: unit.location_label_snapshot ?? undefined,
     destinationType: unit.destination_type ?? undefined,
     destinationUrl: unit.destination_url ?? undefined,
+    profileId: unit.profile_id ?? undefined,
     status: unit.status,
     revision: unit.revision,
     nfcUid: unit.nfc_uid ?? undefined,

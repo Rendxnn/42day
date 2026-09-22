@@ -24,6 +24,11 @@ Presencia pública del restaurante compuesta por:
 - enlace a encuesta de servicio;
 - URL de ParaHoy o dominio propio dentro de la oferta estándar.
 
+El módulo también ofrece un perfil ligero canónico para configurar desde un QR/NFC sin aprovisionar un
+restaurante completo. Nace en borrador, permite activar o desactivar carta, reseñas, redes, WhatsApp,
+teléfono, Maps, encuesta y enlaces personalizados, y publica una URL `/p/<slug>`. Los restaurantes
+existentes conservan `/r/<tenantSlug>` como fachada compatible durante el rollout.
+
 La página avanzada o diseñada a medida es una extensión personalizada, no parte de la plantilla estándar.
 
 ### Paquete completo

@@ -12,7 +12,9 @@ El onboarding es acompañado. La consola administrativa crea restaurante, sede i
 4. Verificar que el schema provenga de `tenant_template` y tenga las extensiones tenant-locales vigentes.
 5. Configurar explícitamente exposición Data API, grants mínimos, RLS y Realtime. No asumir exposición automática de tablas nuevas.
 6. Crear usuario/membresía y probar autorización real de `encargado` o `trabajador`.
-7. Configurar catálogo, carta, cobertura, pagos y Presencia Digital según el paquete.
+7. Configurar catálogo, carta, cobertura, pagos y Presencia Digital según el paquete. Un perfil ligero sin
+   tenant puede crearse únicamente desde la administración global y no aprovisiona un schema de restaurante;
+   un restaurante existente recibe su perfil canónico durante el backfill.
 8. Para ParaHoy Pedidos, registrar canal Meta y confirmar que `phone_number_id` resuelva al tenant correcto.
 9. Ejecutar [Smoke tests](../runbooks/smoke-tests.md) y fechar la evidencia externa.
 

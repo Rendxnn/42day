@@ -77,8 +77,10 @@ import { ConfigurationView } from "./features/configuration/ConfigurationView";
 import { PublicCartaConcierge } from "./features/public-carta/PublicCartaConcierge";
 import { PublicCartaProductDetail } from "./features/public-carta/PublicCartaProductDetail";
 import { PublicRestaurantProfilePage } from "./features/public-profile/PublicRestaurantProfilePage";
+import { PublicBusinessProfilePage } from "./features/public-profile/PublicBusinessProfilePage";
 import { AnalyticsSection } from "./features/admin/AnalyticsSection";
 import { DynamicLinksSection } from "./features/admin/DynamicLinksSection";
+import { BusinessProfileEditor } from "./features/admin/BusinessProfileEditor";
 import { httpPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.http";
 import {
   formatDashboardDateTime as formatLocalizedDateTime,
@@ -635,6 +637,14 @@ function isPublicRestaurantProfileRoute() {
     || window.location.pathname.startsWith("/r/");
 }
 
+function isPublicBusinessProfileRoute() {
+  return window.location.pathname.startsWith("/p/");
+}
+
+function getPublicBusinessProfileSlug() {
+  return window.location.pathname.split("/")[2] ?? "";
+}
+
 function getPublicRestaurantProfileTenantSlug() {
   const params = new URLSearchParams(window.location.search);
   const queryTenant = params.get("tenant") || params.get("restaurante");
@@ -667,6 +677,7 @@ export function App() {
   const marketingPage = resolvePublicMarketingPage(window.location.pathname);
 
   if (isPublicCartaRoute()) return <PublicCartaPage />;
+  if (isPublicBusinessProfileRoute()) return <PublicBusinessProfilePage slug={getPublicBusinessProfileSlug()} />;
   if (isPublicRestaurantProfileRoute()) return <PublicRestaurantProfilePage tenantSlug={getPublicRestaurantProfileTenantSlug()} />;
   if (marketingPage === "landing") return <LandingPage />;
   if (marketingPage) return <PublicInformationPage page={marketingPage} />;
@@ -4080,7 +4091,7 @@ type AdminMemberForm = {
   password: string;
 };
 
-type AdminSection = "overview" | "settings" | "users" | "analytics" | "links";
+type AdminSection = "overview" | "settings" | "users" | "analytics" | "links" | "profiles";
 
 const emptyAdminRestaurantCreateForm: AdminRestaurantCreateForm = {
   name: "",
@@ -4484,6 +4495,14 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
               <QrCode size={16} />
               QR / NFC
             </button>
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
+              onClick={() => setAdminSection("profiles")}
+              type="button"
+            >
+              <LayoutGrid size={16} />
+              Perfiles
+            </button>
             <LanguageToggle locale={locale} onChange={setLocale} />
             <button
               className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,242,227,0.12)] bg-[rgba(255,248,240,0.06)] px-4 text-sm font-semibold text-[rgba(246,236,223,0.82)] transition hover:bg-[rgba(255,248,240,0.12)] hover:text-[var(--text-on-dark)]"
@@ -4683,6 +4702,8 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
           <section className="app-panel min-h-[720px] overflow-hidden rounded-[24px]">
             {adminSection === "links" ? (
               <DynamicLinksSection restaurants={restaurants} />
+            ) : adminSection === "profiles" ? (
+              <BusinessProfileEditor />
             ) : !selectedRestaurant || !editForm ? (
               <div className="grid min-h-[720px] place-items-center p-8 text-center">
                 <div>
@@ -4742,6 +4763,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
                       { id: "overview" as const, label: locale === "en" ? "Overview" : "Resumen", icon: ClipboardList },
                       { id: "analytics" as const, label: locale === "en" ? "Analytics" : "Analítica", icon: BarChart3 },
                       { id: "links" as const, label: "QR / NFC", icon: QrCode },
+                      { id: "profiles" as const, label: "Perfiles", icon: LayoutGrid },
                       { id: "settings" as const, label: locale === "en" ? "Settings" : "Ajustes", icon: Power },
                       { id: "users" as const, label: locale === "en" ? "Users" : "Usuarios", icon: Users },
                     ].map((tab) => {

@@ -1,4 +1,5 @@
 import type {
+  BusinessProfileResponse,
   RestaurantPublicProfilePayload,
   RestaurantPublicProfileSettings,
   UpdateRestaurantPublicProfileSettingsRequest,
@@ -24,6 +25,32 @@ export function mapRestaurantPublicProfileSettings(
     websiteUrl: optional(location.website_url),
     mapsUrl: optional(location.maps_url),
     surveyUrl: optional(location.survey_url),
+    publicUrlPath: `/r/${tenantSlug}`,
+    cartaUrlPath: `/carta?tenant=${encodeURIComponent(tenantSlug)}`,
+  };
+}
+
+/** Projects the canonical profile back to the legacy settings contract. */
+export function mapCanonicalBusinessProfileSettings(
+  response: BusinessProfileResponse,
+  tenantSlug: string,
+  locationId: string,
+): RestaurantPublicProfileSettings {
+  const linkByKind = new Map(response.links.filter((link) => link.enabled).map((link) => [link.kind, link.href]));
+  const phone = linkByKind.get("phone")?.replace(/^tel:/i, "");
+  const whatsapp = linkByKind.get("whatsapp")?.match(/wa\.me\/(\d+)/i)?.[1];
+  return {
+    locationId,
+    profileEnabled: response.profile.status === "published" && linkByKind.has("menu"),
+    headline: response.profile.headline,
+    contactPhone: phone,
+    whatsappPhone: whatsapp,
+    instagramUrl: linkByKind.get("instagram"),
+    facebookUrl: linkByKind.get("facebook"),
+    tiktokUrl: linkByKind.get("tiktok"),
+    websiteUrl: linkByKind.get("website"),
+    mapsUrl: linkByKind.get("maps"),
+    surveyUrl: linkByKind.get("survey"),
     publicUrlPath: `/r/${tenantSlug}`,
     cartaUrlPath: `/carta?tenant=${encodeURIComponent(tenantSlug)}`,
   };

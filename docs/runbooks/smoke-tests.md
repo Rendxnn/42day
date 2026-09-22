@@ -74,6 +74,20 @@ Con una cuenta administradora y una unidad de prueba no archivada:
 8. Repite en Safari de iPhone y Chrome de Android. Registra fecha, dispositivo, permiso, resultado de copia y al menos 20 lecturas físicas por plataforma antes de imprimir en producción.
 9. Con más de 250 unidades de prueba, busca una que no esté en la primera página; cambia orden y tamaño 25/50/100 y navega Anterior/Siguiente. Confirma que CSV filtrado contiene todo el resultado y que `SVG + CSV página` solo representa la página visible.
 10. Abre una unidad activa: debe empezar protegida en lectura. Selecciona **Editar configuración**, verifica que vuelve a consultar la revisión y confirma un cambio de destino actual→nuevo. Registra el bloqueo físico solo después de confirmar que el chip realmente fue bloqueado; ese hito no equivale a verificación NFC.
+11. Selecciona **Configurar varios**, agrega entre 2 y 100 códigos sin duplicarlos y ejecuta el preflight. Los activos deben aparecer protegidos, las unidades archivadas excluidas y cualquier exclusión obliga a corregir la selección antes de aplicar.
+12. Confirma individualmente los activos y aplica un perfil o redirección. Repite el mismo `operationId` desde una prueba API y verifica que no duplica auditoría; cambia una revisión y comprueba que el lote completo se revierte.
+13. Desde una unidad activa elige **Escribir con NFC Helper**. La app debe recibir únicamente la URL permanente; cancelar o fallar no modifica `NFC verificado` ni `Bloqueado`. El retorno consume una sola sesión y el fallback de copiar URL sigue disponible si la app no está instalada.
+
+### Perfil ligero de negocio
+
+1. En administración global crea un perfil con nombre, titular y enlaces de Instagram, web y WhatsApp; deja
+   Instagram desactivado y confirma que el borrador devuelve 404 en `/p/<slug>`.
+2. Guarda, publica y abre la URL canónica. Solo los enlaces activados deben aparecer; la URL `/r/<tenantSlug>`
+   de un restaurante migrado debe conservar su resultado compatible.
+3. Edita una configuración publicada con una revisión vieja y confirma `business_profile_stale` sin reintento
+   automático. Consulta el perfil y verifica el conteo de QRs activos antes de deshabilitarlo.
+4. Con QRs activos usa exclusivamente **Deshabilitar y suspender**; confirma suspensión total, auditoría por
+   unidad y conservación de cada URL permanente.
 
 ## Seguridad y aislamiento
 

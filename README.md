@@ -4,7 +4,7 @@ ParaHoy es una plataforma modular para restaurantes:
 
 - **ParaHoy Pedidos:** automatización y operación de pedidos por WhatsApp.
 - **ParaHoy Presencia Digital:** landing básica, carta pública y concierge IA.
-- **Operación interna QR/NFC:** URLs permanentes, inventario físico paginado y configuración protegida.
+- **Operación interna QR/NFC:** URLs permanentes, inventario físico paginado, configuración protegida y perfiles ligeros de negocio.
 - **Paquete completo:** catálogo compartido y continuidad del carrito web en WhatsApp.
 
 El repositorio conserva identificadores técnicos históricos como `42day` y `@42day`; la marca de producto es ParaHoy.
@@ -73,5 +73,6 @@ specs/          SPEC, planes, tareas y evidencia por feature
 - [Arquitectura](./ARCHITECTURE.md)
 - [Flujo de pedidos](./docs/flows/conversation-flow.md)
 - [Presencia Digital](./docs/flows/presence-digital.md)
+- [Auditoría documental QR/NFC](./docs/documentation-audit-qr-nfc.md)
 - [Despliegue](./docs/runbooks/deployment.md)
 - [Smoke tests](./docs/runbooks/smoke-tests.md)

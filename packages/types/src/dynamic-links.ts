@@ -4,6 +4,7 @@ export const DYNAMIC_LINK_DESTINATION_TYPES = [
   "menu",
   "whatsapp",
   "instagram",
+  "profile",
 ] as const;
 
 export type DynamicLinkDestinationType = (typeof DYNAMIC_LINK_DESTINATION_TYPES)[number];
@@ -34,6 +35,7 @@ export type DynamicLinkUnit = {
   locationLabelSnapshot?: string;
   destinationType?: DynamicLinkDestinationType;
   destinationUrl?: string;
+  profileId?: string;
   status: DynamicLinkStatus;
   revision: number;
   nfcUid?: string;
@@ -76,9 +78,49 @@ export type DynamicLinkAuditEvent = {
 export type QuickDynamicLinkConfigurationRequest = {
   revision: number;
   label: string;
+  destinationUrl?: string;
+  tenantId?: string | null;
+  target?: QuickDynamicLinkTarget;
+};
+
+export type QuickDynamicLinkProfileTarget = {
+  kind: "profile";
+  profileId?: string;
+  creationRequestId?: string;
+  slug?: string;
+  displayName?: string;
+  headline?: string;
+  locationName?: string;
+  address?: string;
+  tenantId?: string | null;
+  links?: Array<{ kind: string; label?: string; href: string; enabled: boolean; sortOrder?: number }>;
+};
+
+export type QuickDynamicLinkRedirectTarget = {
+  kind: "redirect";
   destinationUrl: string;
   tenantId?: string | null;
 };
+
+export type QuickDynamicLinkTarget = QuickDynamicLinkProfileTarget | QuickDynamicLinkRedirectTarget;
+
+export type BulkDynamicLinkUnitReference = { id: string; revision: number };
+export type BulkDynamicLinkTarget =
+  | { kind: "profile"; profileId: string }
+  | { kind: "redirect"; destinationType: Exclude<DynamicLinkDestinationType, "profile">; destinationUrl: string; associationMode: "preserve" | "clear" | "set"; tenantId?: string };
+export type BulkDynamicLinkPreflightRequest = { units: BulkDynamicLinkUnitReference[]; target: BulkDynamicLinkTarget };
+export type BulkDynamicLinkPreflightItem = DynamicLinkUnit & { reason?: string };
+export type BulkDynamicLinkPreflightResponse = {
+  eligible: BulkDynamicLinkPreflightItem[];
+  protected: BulkDynamicLinkPreflightItem[];
+  excluded: Array<Partial<BulkDynamicLinkPreflightItem> & { id: string; reason: string }>;
+  target: BulkDynamicLinkTarget;
+};
+export type BulkDynamicLinkApplyRequest = BulkDynamicLinkPreflightRequest & { operationId: string; consentedActiveUnitIds: string[] };
+export type BulkDynamicLinkApplyResponse = { operationId: string; status: string; units: Array<{ id: string; publicCode: string; revision: number }>; completedAt: string };
+
+export type NfcHandoffResponse = { sessionId: string; token: string; expiresAt: string; handoffUrl: string };
+export type NfcHandoffConsumeResponse = { sessionId: string; unitId: string; reportedUid?: string; reportedAt?: string };
 
 export type GoogleReviewSourceKind =
   | "maps_short_link"

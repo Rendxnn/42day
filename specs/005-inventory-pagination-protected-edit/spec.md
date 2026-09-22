@@ -2,7 +2,9 @@
 
 **Feature**: `005-inventory-pagination-protected-edit`  
 **Creado**: 2026-09-21  
-**Estado**: aprobado para implementación
+**Estado**: fase 1 cerrada formalmente en implementación y validación local; staging está disponible para
+revisión independiente. La certificación externa permanece pendiente únicamente de la matriz de inventario
+grande, revisión de accesibilidad y aprobación de una persona distinta del implementador.
 
 ## Escenarios y pruebas
 

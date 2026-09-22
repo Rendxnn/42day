@@ -38,6 +38,18 @@ import type {
   DynamicLinkSortField,
   DynamicLinkStatus,
   DynamicLinkUnit,
+  BusinessProfile,
+  BusinessProfileLink,
+  BusinessProfileResponse,
+  BusinessProfilePayload,
+  CreateBusinessProfileRequest,
+  UpdateBusinessProfileRequest,
+  BulkDynamicLinkPreflightRequest,
+  BulkDynamicLinkPreflightResponse,
+  BulkDynamicLinkApplyRequest,
+  BulkDynamicLinkApplyResponse,
+  NfcHandoffResponse,
+  NfcHandoffConsumeResponse,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
 
@@ -168,6 +180,9 @@ export type {
   DynamicLinkSortField,
   DynamicLinkStatus,
   DynamicLinkUnit,
+  BusinessProfile,
+  BusinessProfileLink,
+  BusinessProfileResponse,
 };
 
 export type AdminRestaurantMember = {
@@ -467,6 +482,22 @@ export function quickConfigureDynamicLink(unitId: string, payload: QuickDynamicL
   });
 }
 
+export function preflightDynamicLinkBulkConfiguration(payload: BulkDynamicLinkPreflightRequest) {
+  return request<BulkDynamicLinkPreflightResponse>("/admin/dynamic-links/bulk-configuration/preflight", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function applyDynamicLinkBulkConfiguration(payload: BulkDynamicLinkApplyRequest) {
+  return request<BulkDynamicLinkApplyResponse>("/admin/dynamic-links/bulk-configuration", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function createNfcHandoff(unitId: string) {
+  return request<NfcHandoffResponse>(`/admin/dynamic-links/${encodeURIComponent(unitId)}/nfc-handoff`, { method: "POST", body: JSON.stringify({}) });
+}
+
+export function consumeNfcHandoff(sessionId: string, token: string, reportedUid?: string) {
+  return request<NfcHandoffConsumeResponse>(`/admin/nfc-handoff/${encodeURIComponent(sessionId)}/consume`, { method: "POST", body: JSON.stringify({ token, ...(reportedUid ? { reportedUid } : {}) }) });
+}
+
 export function resolveGoogleReviewDestination(payload: ResolveGoogleReviewDestinationRequest) {
   return request<ResolveGoogleReviewDestinationResponse>("/admin/dynamic-links/google-review/resolve", {
     method: "POST",
@@ -490,6 +521,7 @@ export function updateDynamicLink(unitId: string, payload: {
   locationLabelSnapshot?: string | null;
   destinationType?: DynamicLinkDestinationType | null;
   destinationUrl?: string | null;
+  profileId?: string | null;
   nfcUid?: string | null;
 }) {
   return request<{ unit: DynamicLinkUnit }>(`/admin/dynamic-links/${unitId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -602,6 +634,10 @@ export function getPublicRestaurantProfile(tenantSlug: string) {
   return publicRequest<RestaurantPublicProfilePayload>(`/public/${tenantSlug}/profile`);
 }
 
+export function getPublicBusinessProfile(slug: string) {
+  return publicRequest<BusinessProfilePayload>(`/public/p/${encodeURIComponent(slug)}`);
+}
+
 export function askPublicCartaConcierge(
   tenantSlug: string,
   input: {
@@ -641,6 +677,30 @@ export function updateRestaurantPublicProfileSettings(
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export function createBusinessProfile(input: CreateBusinessProfileRequest) {
+  return request<{ profile: BusinessProfile }>("/admin/business-profiles", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function listBusinessProfiles() {
+  return request<{ profiles: BusinessProfile[] }>("/admin/business-profiles");
+}
+
+export function getBusinessProfile(profileId: string) {
+  return request<BusinessProfileResponse>(`/admin/business-profiles/${encodeURIComponent(profileId)}`);
+}
+
+export function updateBusinessProfile(profileId: string, input: UpdateBusinessProfileRequest) {
+  return request<BusinessProfileResponse>(`/admin/business-profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function publishBusinessProfile(profileId: string, revision: number) {
+  return request<BusinessProfileResponse>(`/admin/business-profiles/${encodeURIComponent(profileId)}/publish`, { method: "POST", body: JSON.stringify({ revision }) });
+}
+
+export function disableBusinessProfileAndSuspend(profileId: string, revision: number) {
+  return request<{ profile: BusinessProfileResponse; suspendedUnitCount: number }>(`/admin/business-profiles/${encodeURIComponent(profileId)}/disable-and-suspend`, { method: "POST", body: JSON.stringify({ revision }) });
 }
 
 export function listOrders(tenantSlug: string, bucket: OrdersBucket = "pending_confirmation") {

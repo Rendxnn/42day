@@ -22,6 +22,7 @@ const PUBLIC_DESTINATION_TYPES = new Set<DynamicLinkDestinationType>([
   "menu",
   "whatsapp",
   "instagram",
+  "profile",
 ]);
 
 const terminalStatuses = new Set<DynamicLinkStatus>(["archived"]);
@@ -266,7 +267,7 @@ export function canTransitionDynamicLinkStatus(from: DynamicLinkStatus, to: Dyna
 }
 
 function hostAllowedForDestinationType(type: DynamicLinkDestinationType, hostname: string) {
-  if (type === "website" || type === "menu") return true;
+  if (type === "website" || type === "menu" || type === "profile") return true;
   if (type === "google_review") return isOfficialHost(hostname, ["google.com", "g.page", "maps.app", "goo.gl"]);
   if (type === "whatsapp") return isOfficialHost(hostname, ["wa.me", "whatsapp.com"]);
   return isOfficialHost(hostname, ["instagram.com"]);

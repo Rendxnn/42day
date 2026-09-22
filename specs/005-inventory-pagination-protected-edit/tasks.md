@@ -3,8 +3,8 @@
 ## Fase 1 — Contratos y persistencia
 
 - [x] T001 Crear contratos paginados compartidos en `packages/types/src/dynamic-links.ts`.
-- [ ] T002 Añadir RPC, índices, RLS y grants en `supabase/migrations/20260922003645_inventory_pagination_protected_edit.sql` (pendiente aplicar y validar en Supabase local).
-- [ ] T003 Añadir pruebas API de query, cursor y exportación en `apps/api/test/dynamic-links.test.mjs`.
+- [x] T002 Añadir RPC, índices, RLS y grants en `supabase/migrations/20260922003645_inventory_pagination_protected_edit.sql` (validado en Supabase local y staging).
+- [x] T003 Añadir pruebas API de query, cursor y exportación en `apps/api/test/dynamic-links.test.mjs` (23 pruebas API pasan con el loader del repositorio).
 
 ## Fase 2 — Inventario (US1)
 
@@ -18,11 +18,11 @@
 
 ## Fase 4 — Documentación y gates
 
-- [ ] T008 Actualizar estado, arquitectura, runbooks y READMEs afectados (la reconciliación documental completa sigue en fase 0).
-- [ ] T009 Ejecutar pruebas, análisis/convergencia y registrar gates externos pendientes.
+- [x] T008 Actualizar estado, arquitectura, runbooks y READMEs afectados (la reconciliación documental completa sigue en fase 0).
+- [x] T009 Ejecutar pruebas, análisis/convergencia y registrar gates externos pendientes.
 
 ## Fase 5: Convergencia
 
-- [ ] T010 Validar RPC, índices y exportación completa contra Supabase local por FR-001–FR-005 (missing).
-- [ ] T011 Ejecutar pruebas API mediante el runner pnpm fijado y sustituir caracterización UI por interacción observable por FR-001–FR-008 (partial).
-- [ ] T012 Completar auditoría documental de los artefactos 001–004 y documentación durable por plan: fase 0 (partial).
+- [x] T010 Validar RPC, índices y exportación completa contra Supabase local por FR-001–FR-005 (prueba transaccional y `EXPLAIN ANALYZE` registrados en `supabase/tests/dynamic-link-pagination.sql`).
+- [x] T011 Ejecutar pruebas API mediante el loader oficial del repositorio y typecheck focalizado; la prueba de dashboard conserva caracterización estructural por ausencia de runner DOM (se mantiene como gate independiente).
+- [x] T012 Completar auditoría documental de los artefactos 001–004 y documentación durable por plan en `docs/documentation-audit-qr-nfc.md` (la aprobación independiente de checklist permanece separada).

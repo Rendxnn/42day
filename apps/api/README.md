@@ -11,6 +11,8 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - Operar catálogo, menú, pagos, cobertura, alertas, notificaciones y configuración.
 - Servir perfil, carta y concierge públicos.
 - Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos.
+- Administrar perfiles ligeros en `features/public-profile`: borrador/publicación, enlaces activables,
+  backfill compatible de restaurantes y suspensión atómica de QRs antes de deshabilitar un perfil.
 - Integrar Supabase Postgres/Auth/Storage/Realtime y proveedores de IA.
 
 ## Entradas principales
@@ -21,6 +23,8 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - `src/features/dashboard/`: rutas del dashboard y endpoints públicos.
 - `src/features/carta-concierge/` y `src/features/public-profile/`: Presencia Digital.
 - `src/features/dynamic-links/`: enlaces permanentes QR/NFC, inventario global y resolver de reseñas.
+- `src/features/public-profile/`: perfiles canónicos `/p/:slug`, alias de restaurante y autorización de
+  administración/encargados. El dashboard nunca consulta `control` directamente.
 
 Las fachadas históricas bajo `src/modules/` pueden reexportar implementaciones nuevas; no deben recibir lógica adicional si existe un feature dueño de esa capacidad.
 

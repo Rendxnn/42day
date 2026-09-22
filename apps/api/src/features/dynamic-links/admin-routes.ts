@@ -16,10 +16,17 @@ import {
   listAllDynamicLinkUnits,
   listDynamicLinkUnitsPage,
   listDynamicLinkUnits,
+  listDynamicLinkUnitsByIds,
   updateDynamicLinkUnit,
+  quickConfigureDynamicLinkWithProfile,
+  applyDynamicLinkBulkConfiguration,
+  createNfcHandoffSession,
+  consumeNfcHandoffSession,
 } from "./repository.ts";
-import { createDynamicLinkCode, inferDestinationType, isDestinationType, normalizePublicCode, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
+import { createDynamicLinkCode, dashboardBaseUrl, inferDestinationType, isDestinationType, normalizePublicCode, randomToken, sha256Hex, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
 import { GoogleReviewResolutionError, resolveGoogleReviewDestination } from "./google-review-resolver.ts";
+import { findBusinessProfile } from "../public-profile/business-profile-repository.ts";
+import { BusinessProfileValidationError, normalizeLink } from "../public-profile/business-profile-validation.ts";
 
 type UpdateBody = {
   revision?: number;
@@ -29,6 +36,7 @@ type UpdateBody = {
   locationLabelSnapshot?: string | null;
   destinationType?: string | null;
   destinationUrl?: string | null;
+  profileId?: string | null;
   nfcUid?: string | null;
 };
 
@@ -37,6 +45,7 @@ type QuickConfigurationBody = {
   label?: string;
   destinationUrl?: string;
   tenantId?: string | null;
+  target?: Record<string, unknown>;
 };
 
 export const dynamicLinkAdminRoutes = new Hono<{ Bindings: ApiBindings; Variables: DashboardVariables }>();
@@ -176,6 +185,28 @@ dynamicLinkAdminRoutes.patch("/admin/dynamic-links/:id/quick-configuration", asy
   if (typeof body.revision !== "number" || !Number.isInteger(body.revision) || body.revision < 1) return c.json({ error: "dynamic_link_revision_invalid" }, 400);
   const label = typeof body.label === "string" ? body.label.trim() : "";
   if (!label || label.length > 160) return c.json({ error: "dynamic_link_label_invalid" }, 400);
+
+  if (isRecord(body.target) && body.target.kind === "profile") {
+    const profileTarget = parseQuickProfileTarget(body.target);
+    if (profileTarget instanceof Response) return profileTarget;
+    let current;
+    try { current = await findDynamicLinkUnitById(c.env, c.req.param("id")); } catch (error) { return dynamicLinkError(c, error); }
+    if (!current) return c.json({ error: "dynamic_link_not_found" }, 404);
+    if (current.status === "archived") return c.json({ error: "dynamic_link_archived" }, 409);
+    try {
+      const result = await quickConfigureDynamicLinkWithProfile(c.env, {
+        unitId: current.id,
+        revision: body.revision,
+        actorUserId: authUser.id,
+        profile: profileTarget,
+        publicBaseUrl: dashboardBaseUrl(c.env),
+      });
+      return c.json({ unit: toDynamicLinkUnit(result.unit, c.env) });
+    } catch (error) {
+      return dynamicLinkError(c, error);
+    }
+  }
+
   if (typeof body.destinationUrl !== "string" || !body.destinationUrl.trim()) return c.json({ error: "dynamic_link_destination_invalid" }, 400);
 
   let current;
@@ -236,6 +267,91 @@ dynamicLinkAdminRoutes.patch("/admin/dynamic-links/:id/quick-configuration", asy
       patch,
     });
     return c.json({ unit: toDynamicLinkUnit(updated, c.env) });
+  } catch (error) {
+    return dynamicLinkError(c, error);
+  }
+});
+
+dynamicLinkAdminRoutes.post("/admin/dynamic-links/bulk-configuration/preflight", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = parseBulkRequest(body, false);
+  if (parsed instanceof Response) return parsed;
+  try {
+    const rows = await listDynamicLinkUnitsByIds(c.env, parsed.units.map((unit) => unit.id));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const eligible = [] as ReturnType<typeof toDynamicLinkUnit>[];
+    const protectedUnits = [] as ReturnType<typeof toDynamicLinkUnit>[];
+    const excluded: Array<Record<string, unknown>> = [];
+    for (const reference of parsed.units) {
+      const row = byId.get(reference.id);
+      if (!row) { excluded.push({ id: reference.id, reason: "not_found" }); continue; }
+      const unit = toDynamicLinkUnit(row, c.env);
+      if (row.revision !== reference.revision) { excluded.push({ ...unit, reason: "stale" }); continue; }
+      if (row.status === "archived") { excluded.push({ ...unit, reason: "archived" }); continue; }
+      if (row.status === "active") protectedUnits.push(unit);
+      else eligible.push(unit);
+    }
+    return c.json({ eligible, protected: protectedUnits, excluded, target: parsed.target });
+  } catch (error) {
+    return dynamicLinkError(c, error);
+  }
+});
+
+dynamicLinkAdminRoutes.post("/admin/dynamic-links/bulk-configuration", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = parseBulkRequest(body, true);
+  if (parsed instanceof Response) return parsed;
+  const operationId = isRecord(body) && typeof body.operationId === "string" && isUuid(body.operationId) ? body.operationId : "";
+  const consentedActiveUnitIds = isRecord(body) && Array.isArray(body.consentedActiveUnitIds) && body.consentedActiveUnitIds.every((id) => typeof id === "string" && isUuid(id)) ? body.consentedActiveUnitIds as string[] : null;
+  if (!operationId || !consentedActiveUnitIds) return c.json({ error: "dynamic_link_bulk_request_invalid" }, 400);
+  const command = { operationId, units: parsed.units, target: parsed.target, consentedActiveUnitIds };
+  try {
+    const rpcTarget = await resolveBulkRpcTarget(c.env, parsed.target);
+    const result = await applyDynamicLinkBulkConfiguration(c.env, {
+      operationId,
+      actorUserId: authUser.id,
+      units: parsed.units,
+      target: rpcTarget,
+      consentedActiveUnitIds,
+      commandHash: await sha256Hex(stableJson(command)),
+    });
+    return c.json(result);
+  } catch (error) {
+    return dynamicLinkError(c, error);
+  }
+});
+
+dynamicLinkAdminRoutes.post("/admin/dynamic-links/:id/nfc-handoff", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+  const unit = await findDynamicLinkUnitById(c.env, c.req.param("id"));
+  if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
+  if (unit.status === "archived") return c.json({ error: "dynamic_link_archived" }, 409);
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const session = await createNfcHandoffSession(c.env, { tokenHash: await sha256Hex(token), unitId: unit.id, actorUserId: authUser.id, expiresAt });
+  const sessionId = String(session.id ?? "");
+  if (!isUuid(sessionId)) return c.json({ error: "nfc_handoff_failed" }, 502);
+  const callbackUrl = new URL(`/admin/dynamic-links/nfc-callback?session=${encodeURIComponent(sessionId)}`, dashboardBaseUrl(c.env)).toString();
+  const handoffUrl = `nfchelper://write?url=${encodeURIComponent(toDynamicLinkUnit(unit, c.env).publicUrl)}&callback=${encodeURIComponent(callbackUrl)}`;
+  return c.json({ sessionId, token, expiresAt, handoffUrl });
+});
+
+dynamicLinkAdminRoutes.post("/admin/nfc-handoff/:sessionId/consume", async (c) => {
+  const authUser = await requireSystemAdmin(c as DashboardContext);
+  if (authUser instanceof Response) return authUser;
+  const sessionId = c.req.param("sessionId");
+  const body = await c.req.json().catch(() => ({}));
+  if (!isUuid(sessionId) || !isRecord(body) || typeof body.token !== "string" || body.token.length < 20 || (body.reportedUid !== undefined && typeof body.reportedUid !== "string")) {
+    return c.json({ error: "nfc_handoff_request_invalid" }, 400);
+  }
+  try {
+    const result = await consumeNfcHandoffSession(c.env, { sessionId, tokenHash: await sha256Hex(body.token), actorUserId: authUser.id, reportedUid: body.reportedUid });
+    return c.json(result);
   } catch (error) {
     return dynamicLinkError(c, error);
   }
@@ -356,15 +472,30 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
     if ((destinationType === null || destinationType === "") && (destinationUrl === null || destinationUrl === "")) {
       patch.destination_type = null;
       patch.destination_url = null;
-    } else if (!isDestinationType(destinationType) || typeof destinationUrl !== "string") {
+    } else if (!isDestinationType(destinationType) || (destinationType !== "profile" && typeof destinationUrl !== "string")) {
       return new Response(JSON.stringify({ error: "dynamic_link_destination_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
     } else {
       try {
-        patch.destination_type = destinationType;
-        patch.destination_url = validateAdminDestination(destinationType, destinationUrl, env, {
-          destinationType: current.destination_type,
-          destinationUrl: current.destination_url,
-        });
+        if (destinationType === "profile") {
+          const profileId = body.profileId ?? current.profile_id;
+          if (typeof profileId !== "string") return new Response(JSON.stringify({ error: "business_profile_required" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          const profile = await findBusinessProfile(env, profileId);
+          if (!profile || profile.profile.status !== "published") return new Response(JSON.stringify({ error: "business_profile_not_published" }), { status: 409, headers: { "Content-Type": "application/json" } });
+          patch.profile_id = profile.profile.id;
+          patch.tenant_id = profile.profile.tenantId ?? null;
+          patch.location_id = null;
+          patch.location_label_snapshot = profile.profile.locationName ?? null;
+          patch.destination_type = "profile";
+          patch.destination_url = new URL(`/p/${profile.profile.slug}`, dashboardBaseUrl(env)).toString();
+        } else {
+          if (typeof destinationUrl !== "string") return new Response(JSON.stringify({ error: "dynamic_link_destination_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          patch.profile_id = null;
+          patch.destination_type = destinationType;
+          patch.destination_url = validateAdminDestination(destinationType, destinationUrl, env, {
+            destinationType: current.destination_type,
+            destinationUrl: current.destination_url,
+          });
+        }
       } catch (error) {
         if (error instanceof DynamicLinkValidationError) return new Response(JSON.stringify({ error: error.code }), { status: 400, headers: { "Content-Type": "application/json" } });
         throw error;
@@ -378,6 +509,13 @@ function dynamicLinkError(c: Context<{ Bindings: ApiBindings; Variables: Dashboa
   const message = error instanceof SupabaseRestError ? error.body : error instanceof Error ? error.message : "dynamic_link_update_failed";
   if (message.includes("dynamic_link_stale")) return c.json({ error: "dynamic_link_stale" }, 409);
   if (message.includes("dynamic_link_archived")) return c.json({ error: "dynamic_link_archived" }, 409);
+  if (message.includes("dynamic_link_bulk_active_consent_required")) return c.json({ error: "dynamic_link_bulk_active_consent_required" }, 409);
+  if (message.includes("dynamic_link_bulk_operation_reuse")) return c.json({ error: "dynamic_link_bulk_operation_reuse" }, 409);
+  if (message.includes("dynamic_link_bulk_size_invalid") || message.includes("dynamic_link_bulk_request_invalid") || message.includes("dynamic_link_bulk_target_invalid")) return c.json({ error: "dynamic_link_bulk_request_invalid" }, 400);
+  if (message.includes("business_profile_not_published") || message.includes("business_profile_disabled") || message.includes("business_profile_required")) return c.json({ error: message.match(/business_profile_[a-z_]+/)?.[0] ?? "business_profile_invalid" }, 409);
+  if (message.includes("nfc_handoff_used") || message.includes("nfc_handoff_expired") || message.includes("nfc_handoff_invalid")) return c.json({ error: "nfc_handoff_invalid" }, 409);
+  if (message.includes("nfc_handoff_forbidden")) return c.json({ error: "nfc_handoff_forbidden" }, 403);
+  if (message.includes("nfc_handoff")) return c.json({ error: "nfc_handoff_invalid" }, 400);
   if (message.includes("dynamic_link_not_found")) return c.json({ error: "dynamic_link_not_found" }, 404);
   if (error instanceof SupabaseRestError) return c.json({ error: "dynamic_link_storage_failed" }, 502);
   return c.json({ error: "dynamic_link_invalid" }, 400);
@@ -444,4 +582,91 @@ function safeHostname(value: string) {
 
 function csvCell(value: string) {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+type BulkRequest = {
+  units: Array<{ id: string; revision: number }>;
+  target: {
+    kind: "profile";
+    profileId: string;
+  } | {
+    kind: "redirect";
+    destinationType: Exclude<ReturnType<typeof inferDestinationType>, "profile">;
+    destinationUrl: string;
+    associationMode: "preserve" | "clear" | "set";
+    tenantId?: string;
+  };
+};
+
+function parseBulkRequest(value: unknown, allowApply: boolean): BulkRequest | Response {
+  if (!isRecord(value) || !Array.isArray(value.units) || value.units.length < 2 || value.units.length > 100 || !isRecord(value.target)) {
+    return new Response(JSON.stringify({ error: "dynamic_link_bulk_request_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  const units: Array<{ id: string; revision: number }> = [];
+  const seen = new Set<string>();
+  for (const item of value.units) {
+    const revision = isRecord(item) && typeof item.revision === "number" ? item.revision : undefined;
+    if (!isRecord(item) || typeof item.id !== "string" || !isUuid(item.id) || revision === undefined || !Number.isInteger(revision) || revision < 1 || seen.has(item.id)) {
+      return new Response(JSON.stringify({ error: "dynamic_link_bulk_units_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    seen.add(item.id);
+    units.push({ id: item.id, revision });
+  }
+  const target = value.target;
+  if (target.kind === "profile") {
+    if (typeof target.profileId !== "string" || !isUuid(target.profileId)) return new Response(JSON.stringify({ error: "business_profile_required" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    return { units, target: { kind: "profile", profileId: target.profileId } };
+  }
+  if (target.kind !== "redirect" || typeof target.destinationType !== "string" || !isDestinationType(target.destinationType) || target.destinationType === "profile" || typeof target.destinationUrl !== "string" || !target.destinationUrl.trim() || !["preserve", "clear", "set"].includes(String(target.associationMode))) {
+    return new Response(JSON.stringify({ error: "dynamic_link_bulk_target_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  if (target.associationMode === "set" && (typeof target.tenantId !== "string" || !isUuid(target.tenantId))) return new Response(JSON.stringify({ error: "dynamic_link_tenant_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  try {
+    validateAdminDestination(target.destinationType, target.destinationUrl, { DYNAMIC_LINK_BASE_URL: undefined } as ApiBindings);
+  } catch (error) {
+    if (error instanceof DynamicLinkValidationError) return new Response(JSON.stringify({ error: error.code }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  const targetTenantId = typeof target.tenantId === "string" ? target.tenantId : undefined;
+  return { units, target: { kind: "redirect", destinationType: target.destinationType, destinationUrl: target.destinationUrl.trim(), associationMode: target.associationMode as "preserve" | "clear" | "set", ...(targetTenantId ? { tenantId: targetTenantId } : {}) } };
+}
+
+function bulkTargetToRpc(target: BulkRequest["target"]): Record<string, unknown> {
+  if (target.kind === "profile") return { kind: "profile", profile_id: target.profileId };
+  return { kind: "redirect", destination_type: target.destinationType, destination_url: target.destinationUrl, association_mode: target.associationMode, ...(target.tenantId ? { tenant_id: target.tenantId } : {}) };
+}
+
+async function resolveBulkRpcTarget(env: ApiBindings, target: BulkRequest["target"]) {
+  if (target.kind === "redirect") return bulkTargetToRpc(target);
+  const profile = await findBusinessProfile(env, target.profileId);
+  if (!profile || profile.profile.status === "disabled") throw new Error("business_profile_not_found");
+  return { kind: "profile", profile_id: target.profileId, destination_url: new URL(`/p/${profile.profile.slug}`, dashboardBaseUrl(env)).toString() };
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function parseQuickProfileTarget(target: Record<string, unknown>): Record<string, unknown> | Response {
+  const profileId = typeof target.profileId === "string" && isUuid(target.profileId) ? target.profileId : undefined;
+  if (target.profileId !== undefined && !profileId) return new Response(JSON.stringify({ error: "business_profile_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  if (profileId) return { profile_id: profileId };
+  const creationRequestId = typeof target.creationRequestId === "string" && isUuid(target.creationRequestId) ? target.creationRequestId : undefined;
+  const displayName = typeof target.displayName === "string" ? target.displayName.trim() : "";
+  const slug = typeof target.slug === "string" ? target.slug.trim().toLowerCase() : displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!creationRequestId || !displayName || displayName.length > 160 || !slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return new Response(JSON.stringify({ error: "business_profile_request_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  const linksValue = target.links === undefined ? [] : target.links;
+  if (!Array.isArray(linksValue) || linksValue.length > 30) return new Response(JSON.stringify({ error: "business_profile_links_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  try {
+    const links = linksValue.filter((link) => isRecord(link) && link.enabled === true).map((link, index) => {
+      const normalized = normalizeLink(link, index);
+      return { kind: normalized.kind, label: normalized.label ?? null, href: normalized.href, enabled: normalized.enabled, sort_order: normalized.sortOrder };
+    });
+    const tenantId = target.tenantId === null ? null : target.tenantId === undefined ? null : typeof target.tenantId === "string" && isUuid(target.tenantId) ? target.tenantId : (() => { throw new BusinessProfileValidationError("business_profile_tenant_invalid"); })();
+    return { creation_request_id: creationRequestId, slug, display_name: displayName, headline: target.headline, location_name: target.locationName, address: target.address, tenant_id: tenantId, links };
+  } catch (error) {
+    const code = error instanceof BusinessProfileValidationError ? error.code : "business_profile_invalid";
+    return new Response(JSON.stringify({ error: code }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
 }

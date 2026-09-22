@@ -28,9 +28,11 @@ import { loadRestaurantKnowledgeSnapshot, saveRestaurantKnowledgeSnapshot } from
 import { selectProducts } from "../support/catalog";
 import {
   mapRestaurantPublicProfileSettings,
+  mapCanonicalBusinessProfileSettings,
   parseRestaurantPublicProfileSettingsUpdate,
   toRestaurantPublicProfileDatabaseValues,
 } from "../../public-profile/service";
+import { findBusinessProfileByTenant, updateBusinessProfile } from "../../public-profile/business-profile-repository";
 
 export const settingsDashboardRoutes = new Hono<{
   Bindings: ApiBindings;
@@ -200,6 +202,11 @@ settingsDashboardRoutes.get("/:tenantSlug/settings/public-profile", async (c) =>
     },
   });
 
+  const canonical = await findBusinessProfileByTenant(c.env, tenant.id);
+  if (canonical && location) {
+    return c.json(mapCanonicalBusinessProfileSettings(canonical, tenant.slug, location.id));
+  }
+
   return location
     ? c.json(mapRestaurantPublicProfileSettings(location, tenant.slug))
     : c.json({ error: "active_location_not_found" }, 404);
@@ -228,12 +235,37 @@ settingsDashboardRoutes.patch("/:tenantSlug/settings/public-profile", async (c) 
   });
   if (!location) return c.json({ error: "active_location_not_found" }, 404);
 
-  await supabase.update({
-    schema: tenant.schema_name,
-    table: "locations",
-    query: { id: `eq.${location.id}` },
-    values: toRestaurantPublicProfileDatabaseValues(body),
-  });
+  const canonical = await findBusinessProfileByTenant(c.env, tenant.id);
+  let canonicalUpdated = canonical;
+  if (canonical && canonical.profile.status !== "disabled") {
+    const hrefByKind: Record<string, string | undefined> = {
+      phone: body.contactPhone ? `tel:+${body.contactPhone.replace(/\D/g, "")}` : undefined,
+      whatsapp: body.whatsappPhone ? `https://wa.me/${body.whatsappPhone.replace(/\D/g, "")}` : undefined,
+      instagram: body.instagramUrl,
+      facebook: body.facebookUrl,
+      tiktok: body.tiktokUrl,
+      website: body.websiteUrl,
+      maps: body.mapsUrl,
+      survey: body.surveyUrl,
+    };
+    canonicalUpdated = await updateBusinessProfile(c.env, {
+      profileId: canonical.profile.id,
+      expectedRevision: canonical.profile.revision,
+      actorUserId: c.get("authUser").id,
+      displayName: canonical.profile.displayName,
+      headline: body.headline,
+      locationName: canonical.profile.locationName,
+      address: canonical.profile.address,
+      links: canonical.links.map((link) => ({ ...link, href: hrefByKind[link.kind] ?? link.href, enabled: link.kind === "menu" ? body.profileEnabled : Boolean(hrefByKind[link.kind]) })),
+    });
+  } else {
+    await supabase.update({
+      schema: tenant.schema_name,
+      table: "locations",
+      query: { id: `eq.${location.id}` },
+      values: toRestaurantPublicProfileDatabaseValues(body),
+    });
+  }
 
   const [updated] = await supabase.select<LocationRow>({
     schema: tenant.schema_name,
@@ -250,7 +282,9 @@ settingsDashboardRoutes.patch("/:tenantSlug/settings/public-profile", async (c) 
   });
 
   return updated
-    ? c.json(mapRestaurantPublicProfileSettings(updated, tenant.slug))
+    ? c.json(canonicalUpdated
+      ? mapCanonicalBusinessProfileSettings(canonicalUpdated, tenant.slug, updated.id)
+      : mapRestaurantPublicProfileSettings(updated, tenant.slug))
     : c.json({ error: "active_location_not_found" }, 404);
 });
 

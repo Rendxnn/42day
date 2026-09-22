@@ -1,13 +1,14 @@
 import { DynamicLinkValidationError, parseDynamicLinkReference } from "@42day/core";
-import { Check, Clipboard, ExternalLink, Loader2, QrCode, ScanLine, X } from "lucide-react";
+import { Check, Clipboard, ExternalLink, Loader2, QrCode, Radio, ScanLine, X } from "lucide-react";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   DashboardApiError,
+  createNfcHandoff,
   getDynamicLinkByCode,
   quickConfigureDynamicLink,
   resolveGoogleReviewDestination,
 } from "../../api";
-import type { AdminRestaurant, DynamicLinkUnit } from "../../api";
+import type { AdminRestaurant, BusinessProfile, DynamicLinkUnit } from "../../api";
 import { DynamicLinkQrScanner } from "./DynamicLinkQrScanner";
 import { formatDynamicLinkLookupFailure } from "./dynamicLinkQuickSetupErrors";
 import {
@@ -27,19 +28,36 @@ type Phase = "scan" | "manual" | "resolving" | "form" | "confirm" | "saving" | "
 
 type Props = {
   restaurants: AdminRestaurant[];
+  profiles: BusinessProfile[];
   onClose: () => void;
   onUpdated: (unit: DynamicLinkUnit) => void;
 };
 
 const permanentBaseUrl = "https://go.thaledon.com";
+const profileLinkDefaults: Array<{ kind: string; label: string; href: string; enabled: boolean }> = [
+  { kind: "menu", label: "Carta", href: "https://parahoy.thaledon.com/carta", enabled: false },
+  { kind: "google_review", label: "Reseñas de Google", href: "https://www.google.com/maps", enabled: false },
+  { kind: "instagram", label: "Instagram", href: "https://instagram.com", enabled: false },
+  { kind: "tiktok", label: "TikTok", href: "https://tiktok.com", enabled: false },
+  { kind: "website", label: "Página web", href: "https://example.com", enabled: false },
+  { kind: "whatsapp", label: "WhatsApp", href: "https://wa.me/573000000000", enabled: false },
+];
 const idleGooglePreparation: GoogleReviewPreparationState = { status: "idle" };
 
-export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props) {
+export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdated }: Props) {
   const [phase, setPhase] = useState<Phase>("scan");
   const [unit, setUnit] = useState<DynamicLinkUnit>();
   const [reference, setReference] = useState("");
   const [label, setLabel] = useState("");
   const [destinationUrl, setDestinationUrl] = useState("");
+  const [targetMode, setTargetMode] = useState<"redirect" | "profile">("redirect");
+  const [profileId, setProfileId] = useState("");
+  const [createProfile, setCreateProfile] = useState(false);
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileHeadline, setProfileHeadline] = useState("");
+  const [profileLocation, setProfileLocation] = useState("");
+  const [profileAddress, setProfileAddress] = useState("");
+  const [profileLinks, setProfileLinks] = useState(() => profileLinkDefaults.map((link) => ({ ...link })));
   const [association, setAssociation] = useState<AssociationChoice>("preserve");
   const [googlePreparation, setGooglePreparation] = useState<GoogleReviewPreparationState>(idleGooglePreparation);
   const [error, setError] = useState("");
@@ -60,6 +78,9 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
       setUnit(result.unit);
       setLabel(result.unit.label);
       setDestinationUrl(result.unit.destinationUrl ?? "");
+      setTargetMode(result.unit.destinationType === "profile" ? "profile" : "redirect");
+      setProfileId(result.unit.profileId ?? "");
+      setCreateProfile(false);
       setAssociation("preserve");
       setGooglePreparation(idleGooglePreparation);
       setCopyFailed(false);
@@ -116,6 +137,19 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
       setError("La etiqueta o nombre del lugar es obligatoria.");
       return;
     }
+    if (targetMode === "profile") {
+      if (!profileId && (!createProfile || !profileDisplayName.trim())) {
+        setError("Selecciona un perfil publicado o crea uno indicando el nombre del negocio.");
+        return;
+      }
+      setError("");
+      if (unit.status === "active") {
+        setPhase("confirm");
+        return;
+      }
+      void save();
+      return;
+    }
     try {
       const url = new URL(destinationUrl.trim());
       if (url.protocol !== "https:") throw new Error("invalid");
@@ -142,7 +176,7 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
     if (!unit) return;
     const destination = destinationOverride
       ?? destinationForQuickSetupSave(destinationUrl, googlePreparation, unit.destinationUrl);
-    if (!destination) {
+    if (targetMode === "redirect" && !destination) {
       setError("Vuelve a preparar y confirmar el enlace de reseña antes de guardar.");
       setPhase("form");
       return;
@@ -151,10 +185,15 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
     setPhase("saving");
     setError("");
     try {
+      const target = targetMode === "profile"
+        ? profileId
+          ? { kind: "profile" as const, profileId }
+          : { kind: "profile" as const, creationRequestId: crypto.randomUUID(), displayName: profileDisplayName.trim(), headline: profileHeadline.trim() || undefined, locationName: profileLocation.trim() || undefined, address: profileAddress.trim() || undefined, tenantId: association === "preserve" ? unit.tenantId ?? null : association === "clear" ? null : association, links: profileLinks.map((link, index) => ({ ...link, sortOrder: (index + 1) * 10 })) }
+        : undefined;
       const result = await quickConfigureDynamicLink(unit.id, {
         revision: unit.revision,
         label: label.trim(),
-        destinationUrl: destination,
+        ...(target ? { target } : { destinationUrl: destination! }),
         ...(association === "preserve" ? {} : { tenantId: association === "clear" ? null : association }),
       });
       setUnit(result.unit);
@@ -191,12 +230,24 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
     }
   }
 
+  async function openNfcHelper() {
+    if (!unit) return;
+    try {
+      const handoff = await createNfcHandoff(unit.id);
+      sessionStorage.setItem(`nfc-handoff:${handoff.sessionId}`, handoff.token);
+      window.location.href = handoff.handoffUrl;
+    } catch (handoffError) {
+      setError(formatError(handoffError));
+    }
+  }
+
   function scanAnother() {
     googlePreparationAttempt.current += 1;
     setUnit(undefined);
     setReference("");
     setLabel("");
     setDestinationUrl("");
+    setTargetMode("redirect"); setProfileId(""); setCreateProfile(false); setProfileDisplayName(""); setProfileHeadline(""); setProfileLocation(""); setProfileAddress(""); setProfileLinks(profileLinkDefaults.map((link) => ({ ...link })));
     setAssociation("preserve");
     setGooglePreparation(idleGooglePreparation);
     setError("");
@@ -211,6 +262,8 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
   const isWorking = phase === "resolving" || phase === "saving" || googleIsResolving;
   const isFormLocked = isWorking || phase === "confirm";
   const requiresGooglePreparation = Boolean(
+    targetMode === "redirect"
+    &&
     unit
     && hasPotentialGoogleReviewUrl(destinationUrl)
     && hasDestinationChanged(unit.destinationUrl, destinationUrl),
@@ -273,10 +326,30 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
               Etiqueta o nombre del lugar
               <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} onChange={(event) => setLabel(event.target.value)} value={label} />
             </label>
-            <label className="block text-sm font-bold text-[var(--text-strong)]">
-              URL destino
-              <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} inputMode="url" onChange={(event) => updateDestination(event.target.value)} placeholder="https://…" value={destinationUrl} />
-            </label>
+            <div className="rounded-2xl border border-[rgba(118,93,71,0.14)] bg-white p-4">
+              <p className="text-sm font-bold text-[var(--text-strong)]">Destino</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button className={`rounded-xl border px-3 py-3 text-sm font-bold ${targetMode === "redirect" ? "bg-[var(--text-strong)] text-white" : ""}`} disabled={isFormLocked} onClick={() => setTargetMode("redirect")} type="button">Redirección</button>
+                <button className={`rounded-xl border px-3 py-3 text-sm font-bold ${targetMode === "profile" ? "bg-[var(--text-strong)] text-white" : ""}`} disabled={isFormLocked} onClick={() => setTargetMode("profile")} type="button">Perfil 42day</button>
+              </div>
+              {targetMode === "redirect" ? (
+                <label className="mt-4 block text-sm font-bold text-[var(--text-strong)]">
+                  URL destino
+                  <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} inputMode="url" onChange={(event) => updateDestination(event.target.value)} placeholder="https://…" value={destinationUrl} />
+                </label>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-bold">Perfil publicado<select className="mt-2 h-12 w-full rounded-xl border px-3 font-normal" disabled={isFormLocked || createProfile} onChange={(event) => { setProfileId(event.target.value); setCreateProfile(false); }} value={profileId}><option value="">Selecciona un perfil</option>{profiles.filter((profile) => profile.status === "published").map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · /p/{profile.slug}</option>)}</select></label>
+                  <label className="flex items-center gap-2 text-sm"><input checked={createProfile} disabled={isFormLocked} onChange={(event) => { setCreateProfile(event.target.checked); if (event.target.checked) setProfileId(""); }} type="checkbox" />Crear perfil rápido</label>
+                  {createProfile && <>
+                    <input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Nombre del negocio" value={profileDisplayName} />
+                    <input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileHeadline(event.target.value)} placeholder="Descripción corta (opcional)" value={profileHeadline} />
+                    <div className="grid gap-3 sm:grid-cols-2"><input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileLocation(event.target.value)} placeholder="Sede o ciudad" value={profileLocation} /><input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileAddress(event.target.value)} placeholder="Dirección (opcional)" value={profileAddress} /></div>
+                    <div className="space-y-2"><p className="text-xs font-bold text-[var(--text-soft)]">Enlaces visibles</p>{profileLinks.map((link, index) => <div className="grid grid-cols-[auto_1fr] items-center gap-2" key={link.kind}><input aria-label={`Activar ${link.label}`} checked={link.enabled} disabled={isFormLocked} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} type="checkbox" /><input className="h-10 w-full rounded-lg border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, href: event.target.value } : item))} placeholder={link.label} value={link.href} /></div>)}</div>
+                  </>}
+                </div>
+              )}
+            </div>
 
             {requiresGooglePreparation && (
               <GoogleReviewPreparationCard
@@ -310,7 +383,7 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
               <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm">
                 <p className="font-bold">Vas a cambiar el destino de una unidad activa.</p>
                 <p className="mt-2 break-all text-[var(--text-soft)]"><span className="font-semibold">Actual:</span> {unit.destinationUrl}</p>
-                <p className="mt-2 break-all text-[var(--text-soft)]"><span className="font-semibold">Nuevo:</span> {destinationForConfirmation}</p>
+                <p className="mt-2 break-all text-[var(--text-soft)]"><span className="font-semibold">Nuevo:</span> {targetMode === "profile" ? (profileId ? "Perfil publicado seleccionado" : `Perfil nuevo: ${profileDisplayName || "sin nombre"}`) : destinationForConfirmation}</p>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <button className="rounded-xl border px-3 py-3 font-bold" onClick={() => setPhase("form")} type="button">Cancelar</button>
                   <button className="rounded-xl bg-[var(--text-strong)] px-3 py-3 font-bold text-white" onClick={() => void save(destinationForConfirmation)} type="button">Confirmar</button>
@@ -333,6 +406,9 @@ export function QuickDynamicLinkSetup({ restaurants, onClose, onUpdated }: Props
             <p className="mt-4 text-sm text-[var(--text-soft)]">Programa este mismo enlace en el chip NFC.</p>
             <code className="mt-3 block break-all rounded-xl bg-[var(--surface-base)] p-3 text-sm font-bold text-[var(--text-strong)]">{unit.publicUrl}</code>
             <button className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--text-strong)] px-4 text-sm font-bold text-white" onClick={() => void copyNfcLink()} type="button"><Clipboard size={17} />Copiar enlace para NFC</button>
+            <button className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold" onClick={() => void openNfcHelper()} type="button"><Radio size={17} />Escribir con NFC Helper</button>
+            <a className="mt-3 block text-center text-sm font-bold underline" href="https://apps.apple.com/us/app/nfc-helper/id6472720100" rel="noopener noreferrer" target="_blank">Instalar NFC Helper</a>
+            <p className="mt-3 text-xs text-[var(--text-soft)]">El callback solo informa una escritura reportada. La verificación y el bloqueo físico se registran por separado después de leer el chip.</p>
             {copied && <p aria-live="polite" className="mt-3 text-sm font-semibold text-[var(--success)]">Enlace copiado para programar el NFC.</p>}
             {copyFailed && (
               <>

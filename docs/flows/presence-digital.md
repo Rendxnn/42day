@@ -18,6 +18,7 @@ El estándar incluye una URL de ParaHoy o dominio propio. Una página avanzada c
 ### Actual
 
 - Ruta pública de perfil por slug.
+- Perfil canónico ligero `/p/:profileSlug` para negocios genéricos y restaurantes migrados.
 - Enlaces de WhatsApp, teléfono, redes, web, Maps y encuesta.
 - Carta pública conectada al menú operativo.
 - Concierge IA con historial acotado y conocimiento del restaurante.
@@ -26,6 +27,8 @@ El estándar incluye una URL de ParaHoy o dominio propio. Una página avanzada c
 ### Parcial
 
 - El perfil es principalmente un hub de enlaces, no la landing completa.
+- El editor de perfil ligero ya permite guardar enlaces preparados y activar cada uno por separado; todavía
+  no incorpora branding avanzado, analítica pública ni carrito multi-producto.
 - La identidad visual, información y autogestión no cubren todos los campos objetivo.
 - El modo `standalone`/`connected` depende de `automation_enabled`; esto mezcla producto contratado y operación.
 
