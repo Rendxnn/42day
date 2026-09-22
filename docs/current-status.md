@@ -147,6 +147,15 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
 
 ## Cambios recientes
 
+- **2026-09-22:** con autorización explícita se promovió el commit `b29e34b` a producción. Se aplicaron
+  las seis migraciones QR/NFC de las fases 1–4 en Supabase productivo, sin reparar ni alterar las
+  migraciones históricas que no están en esta rama; se publicaron el Worker `42day-api-production`
+  (health `200`) y el dashboard Vercel en `https://parahoy.thaledon.com`. El bundle productivo apunta
+  al Worker y al proyecto Supabase correctos. Un código QR existente respondió `GET` y `HEAD` con
+  `302`, `Cache-Control: no-store, max-age=0`, `Pragma: no-cache` y `Referrer-Policy: no-referrer`.
+  Siguen pendientes la revisión independiente, la certificación física con NTAG213/iPhone (mínimo 20
+  ciclos), la observación de 48 horas del canario y la validación funcional autorizada en producción.
+
 - **2026-09-22:** la implementación de la Fase 2 se desplegó en staging. Cloudflare Worker
   `42day-api-staging` quedó en la versión `9732d7c3-6395-4f50-9605-8f374b11a936`; Vercel creó el Preview
   `42day-dashboard-gd289kjwl-samiretru-4094s-projects.vercel.app` y el alias

@@ -41,6 +41,10 @@ Al corte documentado del 2026-09-21, el host responde, pero eso no certifica un 
 
 Después de un despliegue autorizado, crea una unidad canario activa y valida durante 48 horas `GET` y `HEAD /r/<code>`: `302`, `Location` vigente, `Cache-Control: no-store, max-age=0`, `Pragma: no-cache` y `Referrer-Policy: no-referrer`. Solo después de esa evidencia se autoriza la impresión definitiva.
 
+El despliegue productivo del 2026-09-22 validó un código existente en `GET` y `HEAD` con esas cabeceras.
+Esa comprobación puntual no sustituye la observación continua de 48 horas ni la certificación física
+del NTAG213 antes de imprimir nuevos lotes.
+
 ```bash
 bash scripts/bash/set-cf-worker-secret.sh META_VERIFY_TOKEN --environment staging
 bash scripts/bash/set-cf-worker-secret.sh META_ACCESS_TOKEN --environment staging
