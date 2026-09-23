@@ -77,7 +77,7 @@ export function DynamicLinksSection({ restaurants }: Props) {
     const reportedUid = window.prompt("Si confirmaste la escritura, introduce opcionalmente el UID leído del chip:") || undefined;
     void consumeNfcHandoff(sessionId, token, reportedUid)
       .then(() => { sessionStorage.removeItem(storageKey); window.history.replaceState({}, "", window.location.pathname); setMessage("Escritura NFC reportada. Verifica físicamente el chip antes de registrar el hito."); })
-      .catch((consumeError) => setError(formatError(consumeError, "No se pudo confirmar el retorno de NFC Helper.")));
+      .catch((consumeError) => setError(formatError(consumeError, "No se pudo confirmar un retorno NFC legado.")));
   }, []);
 
   async function createBatch() {

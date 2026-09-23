@@ -86,7 +86,7 @@ test("bulk preflight separa unidades activas protegidas", async () => {
   } finally { globalThis.fetch = previousFetch; }
 });
 
-test("NFC handoff devuelve deep link sin bearer y consume una sola sesión", async () => {
+test("NFC handoff entrega NFC.cool con URL permanente sin crear sesión", async () => {
   const previousFetch = globalThis.fetch;
   let handoffRpc = 0;
   globalThis.fetch = async (input, init) => {
@@ -101,11 +101,37 @@ test("NFC handoff devuelve deep link sin bearer y consume una sola sesión", asy
     const created = await app.request(`https://api.test/dashboard/admin/dynamic-links/${unitId}/nfc-handoff`, { method: "POST", headers: { Authorization: "Bearer test" } }, env);
     assert.equal(created.status, 200);
     const payload = await created.json();
-    assert.match(payload.handoffUrl, /^nfchelper:\/\/write\?/);
-    assert.equal(payload.handoffUrl.includes(payload.token), false);
-    assert.equal(handoffRpc, 1);
-    const consumed = await app.request("https://api.test/dashboard/admin/nfc-handoff/88888888-8888-4888-8888-888888888888/consume", { method: "POST", headers: { Authorization: "Bearer test", "Content-Type": "application/json" }, body: JSON.stringify({ token: payload.token, reportedUid: "04A1" }) }, env);
-    assert.equal(consumed.status, 200);
+    const handoffUrl = new URL(payload.handoffUrl);
+    assert.equal(payload.provider, "nfc_cool");
+    assert.equal(payload.shortcutName, "Escribir NFC ParaHoy");
+    assert.equal(payload.setupUrl, "https://nfc.cool/developers/");
+    assert.equal(handoffUrl.protocol, "shortcuts:");
+    assert.equal(handoffUrl.hostname, "run-shortcut");
+    assert.equal(handoffUrl.searchParams.get("name"), "Escribir NFC ParaHoy");
+    assert.equal(handoffUrl.searchParams.get("input"), "text");
+    assert.equal(handoffUrl.searchParams.get("text"), "https://go-staging.thaledon.com/r/000000000991");
+    assert.equal("token" in payload, false);
+    assert.equal("sessionId" in payload, false);
+    assert.equal(payload.handoffUrl.includes("example.com"), false);
+    assert.equal(handoffRpc, 0);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test("NFC handoff rechaza unidades archivadas sin crear sesión", async () => {
+  const previousFetch = globalThis.fetch;
+  let handoffRpc = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("auth/v1/user")) return json({ id: actor, app_metadata: { system_admin: true } });
+    if (url.includes("dynamic_link_units") && url.includes("id=eq.")) return json([{ ...unit, status: "archived" }]);
+    if (url.includes("rpc/create_nfc_handoff_session")) { handoffRpc += 1; return json({ id: "88888888-8888-4888-8888-888888888888" }); }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    const response = await app.request(`https://api.test/dashboard/admin/dynamic-links/${unitId}/nfc-handoff`, { method: "POST", headers: { Authorization: "Bearer test" } }, env);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, "dynamic_link_archived");
+    assert.equal(handoffRpc, 0);
   } finally { globalThis.fetch = previousFetch; }
 });
 

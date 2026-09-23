@@ -21,10 +21,10 @@ import {
   updateDynamicLinkUnit,
   quickConfigureDynamicLinkWithProfile,
   applyDynamicLinkBulkConfiguration,
-  createNfcHandoffSession,
   consumeNfcHandoffSession,
 } from "./repository.ts";
-import { createDynamicLinkCode, dashboardBaseUrl, inferDestinationType, isDestinationType, normalizePublicCode, randomToken, sha256Hex, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
+import { createDynamicLinkCode, dashboardBaseUrl, inferDestinationType, isDestinationType, normalizePublicCode, sha256Hex, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
+import { createActiveNfcHandoff, NfcHandoffError } from "./nfc-handoff.ts";
 import { GoogleReviewResolutionError, resolveGoogleReviewDestination } from "./google-review-resolver.ts";
 import { findBusinessProfile } from "../public-profile/business-profile-repository.ts";
 import { BusinessProfileValidationError, normalizeLink, parseCreateBusinessProfile } from "../public-profile/business-profile-validation.ts";
@@ -332,14 +332,12 @@ dynamicLinkAdminRoutes.post("/admin/dynamic-links/:id/nfc-handoff", async (c) =>
   const unit = await findDynamicLinkUnitById(c.env, c.req.param("id"));
   if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
   if (unit.status === "archived") return c.json({ error: "dynamic_link_archived" }, 409);
-  const token = randomToken();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const session = await createNfcHandoffSession(c.env, { tokenHash: await sha256Hex(token), unitId: unit.id, actorUserId: authUser.id, expiresAt });
-  const sessionId = String(session.id ?? "");
-  if (!isUuid(sessionId)) return c.json({ error: "nfc_handoff_failed" }, 502);
-  const callbackUrl = new URL(`/admin/dynamic-links/nfc-callback?session=${encodeURIComponent(sessionId)}`, dashboardBaseUrl(c.env)).toString();
-  const handoffUrl = `nfchelper://write?url=${encodeURIComponent(toDynamicLinkUnit(unit, c.env).publicUrl)}&callback=${encodeURIComponent(callbackUrl)}`;
-  return c.json({ sessionId, token, expiresAt, handoffUrl });
+  try {
+    return c.json(createActiveNfcHandoff(toDynamicLinkUnit(unit, c.env).publicUrl));
+  } catch (error) {
+    if (error instanceof NfcHandoffError) return c.json({ error: "nfc_handoff_failed" }, 502);
+    throw error;
+  }
 });
 
 dynamicLinkAdminRoutes.post("/admin/nfc-handoff/:sessionId/consume", async (c) => {

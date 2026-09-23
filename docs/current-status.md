@@ -97,7 +97,7 @@ El catálogo compartido ya permite que conversación y carta lean la misma base 
 
 ## Capacidades internas
 
-- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. Los perfiles ligeros tienen migración forward, API, inventario paginado y modal de edición; el puente MCP privado puede preparar y confirmar una creación/publicación/asignación de negocio con idempotencia y auditoría. La certificación física de NFC, revisión independiente de seguridad y pruebas de rendimiento staging siguen pendientes.
+- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. El handoff activo abre NFC.cool mediante el Atajo `Escribir NFC ParaHoy` y solo entrega la URL permanente; copiar el enlace sigue disponible. NFC Helper se conserva como adaptador legado deshabilitado para callbacks que ya existían, y ningún handoff nuevo crea sesión/callback ni marca hitos. Los perfiles ligeros tienen migración forward, API, inventario paginado y modal de edición; el puente MCP privado puede preparar y confirmar una creación/publicación/asignación de negocio con idempotencia y auditoría. La certificación física de NFC, revisión independiente de seguridad y pruebas de rendimiento staging siguen pendientes.
 
 - **Analytics — Actual, interno:** snapshots y vistas administrativas para seguimiento operativo. No se ofrece como analítica avanzada del producto.
 - **Recordatorios de almuerzo — Experimental:** existe preview y envío a clientes recientes. Permanece fuera del producto hasta contar con consentimiento, opt-out, plantillas aprobadas, segmentación y controles de frecuencia.
@@ -200,6 +200,13 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
   datos de aceptación en staging y compatibilidad exhaustiva del editor de restaurante.
   El build del dashboard pasa de forma directa; el build raíz con Turbo queda bloqueado por la verificación
   de firma de `pnpm@9.15.0` en este entorno, no por un error de TypeScript o Vite.
+
+- **2026-09-23:** el proveedor visible de escritura NFC pasó a NFC.cool mediante el Atajo de iPhone
+  `Escribir NFC ParaHoy`. El endpoint devuelve únicamente un enlace `shortcuts://` con la URL permanente;
+  ya no crea sesiones ni callbacks NFC Helper. El CTA de NFC Helper quedó deshabilitado, aunque el canje de
+  callbacks emitidos antes del cambio se conserva como compatibilidad temporal. La escritura, cancelación o
+  apertura del Atajo no marca UID, programación, verificación ni bloqueo. Falta el spike físico de 20
+  escrituras/lecturas con NTAG213 para certificar el proveedor.
 
 - **2026-09-22:** las fases 2, 3 y 4 quedaron implementadas para prueba en staging. La configuración
   rápida permite seleccionar un perfil publicado o crear/publicar un perfil ligero y asignarlo al QR en

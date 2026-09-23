@@ -10,7 +10,7 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - Validar y ejecutar acciones controladas sobre drafts y órdenes.
 - Operar catálogo, menú, pagos, cobertura, alertas, notificaciones y configuración.
 - Servir perfil, carta y concierge públicos.
-- Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos.
+- Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos. El handoff activo de escritura genera un enlace de Atajos para NFC.cool con la URL permanente; NFC Helper permanece como adaptador legado deshabilitado y no se emiten nuevas sesiones/callbacks.
 - Administrar perfiles ligeros en `features/public-profile`: borrador/publicación, enlaces activables,
   backfill compatible de restaurantes y suspensión atómica de QRs antes de deshabilitar un perfil.
 - Validar perfiles con límites compartidos y respuestas controladas (`error`, `message`, `field`); los

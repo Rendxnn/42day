@@ -119,7 +119,12 @@ export type BulkDynamicLinkPreflightResponse = {
 export type BulkDynamicLinkApplyRequest = BulkDynamicLinkPreflightRequest & { operationId: string; consentedActiveUnitIds: string[] };
 export type BulkDynamicLinkApplyResponse = { operationId: string; status: string; units: Array<{ id: string; publicCode: string; revision: number }>; completedAt: string };
 
-export type NfcHandoffResponse = { sessionId: string; token: string; expiresAt: string; handoffUrl: string };
+export type NfcHandoffResponse = {
+  provider: "nfc_cool";
+  handoffUrl: string;
+  shortcutName: "Escribir NFC ParaHoy";
+  setupUrl: "https://nfc.cool/developers/";
+};
 export type NfcHandoffConsumeResponse = { sessionId: string; unitId: string; reportedUid?: string; reportedAt?: string };
 
 export type GoogleReviewSourceKind =

@@ -7,6 +7,7 @@ Aplicación React/Vite para la operación de restaurantes, la administración de
 - Restaurante: pedidos, filtros, detalle, transcripción, pausa/reanudación, agotados, reemplazos, progreso de cocina y notificaciones.
 - Configuración: menú, catálogo, cobertura, pagos, perfil público y conocimiento del concierge.
 - Plataforma: restaurantes, miembros, analytics e inventario QR/NFC con filtros server-side y edición protegida.
+- Handoff NFC: configuración rápida abre NFC.cool mediante el Atajo `Escribir NFC ParaHoy`, conserva copiar la URL permanente y no registra hitos físicos automáticamente. NFC Helper no es una acción visible.
 - Perfiles: inventario paginado por cursor con búsqueda, filtros, orden y tamaños 25/50/100; crear/editar
   ocurre en un modal que carga la revisión vigente, permite activar enlaces y resuelve "eliminar" como
   deshabilitación lógica con suspensión atómica de QRs.

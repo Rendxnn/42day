@@ -76,7 +76,9 @@ Con una cuenta administradora y una unidad de prueba no archivada:
 10. Abre una unidad activa: debe empezar protegida en lectura. Selecciona **Editar configuración**, verifica que vuelve a consultar la revisión y confirma un cambio de destino actual→nuevo. Registra el bloqueo físico solo después de confirmar que el chip realmente fue bloqueado; ese hito no equivale a verificación NFC.
 11. Selecciona **Configurar varios**, agrega entre 2 y 100 códigos sin duplicarlos y ejecuta el preflight. Los activos deben aparecer protegidos, las unidades archivadas excluidas y cualquier exclusión obliga a corregir la selección antes de aplicar.
 12. Confirma individualmente los activos y aplica un perfil o redirección. Repite el mismo `operationId` desde una prueba API y verifica que no duplica auditoría; cambia una revisión y comprueba que el lote completo se revierte.
-13. Desde una unidad activa elige **Escribir con NFC Helper**. La app debe recibir únicamente la URL permanente; cancelar o fallar no modifica `NFC verificado` ni `Bloqueado`. El retorno consume una sola sesión y el fallback de copiar URL sigue disponible si la app no está instalada.
+13. En un iPhone con NFC.cool Tools, crea una sola vez el Atajo llamado exactamente **Escribir NFC ParaHoy**. Debe recibir texto y entregarlo a la acción `Write NFC` de NFC.cool como URL.
+14. Desde una unidad activa elige **Escribir con NFC.cool**. Atajos debe recibir únicamente la URL permanente; cancelar, fallar o volver al dashboard no modifica UID, `NFC programado`, `NFC verificado` ni `Bloqueado`. El fallback de copiar URL sigue disponible si NFC.cool o el Atajo no están instalados.
+15. Antes de certificar NFC.cool, completa 20 escrituras/lecturas físicas con NTAG213 en el iPhone objetivo. En cada ciclo compara byte a byte la URL NDEF leída con la URL permanente del dashboard; incluye chips nuevos, regrabables, preescritos y bloqueados.
 
 ### Perfil ligero de negocio
 
