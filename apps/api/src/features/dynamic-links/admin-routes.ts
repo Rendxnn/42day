@@ -1,5 +1,6 @@
 import { DynamicLinkValidationError } from "@42day/core";
 import { Hono, type Context } from "hono";
+import { businessProfileErrorMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings.ts";
 import { logEvent } from "../../lib/observability/logger.ts";
 import { SupabaseRestError } from "../../lib/supabase-rest.ts";
@@ -26,7 +27,7 @@ import {
 import { createDynamicLinkCode, dashboardBaseUrl, inferDestinationType, isDestinationType, normalizePublicCode, randomToken, sha256Hex, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
 import { GoogleReviewResolutionError, resolveGoogleReviewDestination } from "./google-review-resolver.ts";
 import { findBusinessProfile } from "../public-profile/business-profile-repository.ts";
-import { BusinessProfileValidationError, normalizeLink } from "../public-profile/business-profile-validation.ts";
+import { BusinessProfileValidationError, normalizeLink, parseCreateBusinessProfile } from "../public-profile/business-profile-validation.ts";
 
 type UpdateBody = {
   revision?: number;
@@ -452,13 +453,13 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
   const patch: Record<string, unknown> = {};
   if (body.label !== undefined) {
     const label = body.label.trim();
-    if (!label || label.length > 160) return new Response(JSON.stringify({ error: "dynamic_link_label_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    if (!label || label.length > 160) return dynamicLinkValidationResponse("dynamic_link_label_invalid");
     patch.label = label;
   }
   if (body.tenantId !== undefined) {
     if (body.tenantId) {
       const tenant = await findTenantStatus(env, body.tenantId);
-      if (!tenant) return new Response(JSON.stringify({ error: "dynamic_link_tenant_not_found" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      if (!tenant) return dynamicLinkValidationResponse("dynamic_link_tenant_not_found");
     }
     patch.tenant_id = body.tenantId;
   }
@@ -473,14 +474,14 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
       patch.destination_type = null;
       patch.destination_url = null;
     } else if (!isDestinationType(destinationType) || (destinationType !== "profile" && typeof destinationUrl !== "string")) {
-      return new Response(JSON.stringify({ error: "dynamic_link_destination_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      return dynamicLinkValidationResponse("dynamic_link_destination_invalid");
     } else {
       try {
         if (destinationType === "profile") {
           const profileId = body.profileId ?? current.profile_id;
-          if (typeof profileId !== "string") return new Response(JSON.stringify({ error: "business_profile_required" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          if (typeof profileId !== "string") return dynamicLinkValidationResponse("business_profile_required");
           const profile = await findBusinessProfile(env, profileId);
-          if (!profile || profile.profile.status !== "published") return new Response(JSON.stringify({ error: "business_profile_not_published" }), { status: 409, headers: { "Content-Type": "application/json" } });
+          if (!profile || profile.profile.status !== "published") return dynamicLinkValidationResponse("business_profile_not_published", 409);
           patch.profile_id = profile.profile.id;
           patch.tenant_id = profile.profile.tenantId ?? null;
           patch.location_id = null;
@@ -488,7 +489,7 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
           patch.destination_type = "profile";
           patch.destination_url = new URL(`/p/${profile.profile.slug}`, dashboardBaseUrl(env)).toString();
         } else {
-          if (typeof destinationUrl !== "string") return new Response(JSON.stringify({ error: "dynamic_link_destination_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          if (typeof destinationUrl !== "string") return dynamicLinkValidationResponse("dynamic_link_destination_invalid");
           patch.profile_id = null;
           patch.destination_type = destinationType;
           patch.destination_url = validateAdminDestination(destinationType, destinationUrl, env, {
@@ -497,7 +498,7 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
           });
         }
       } catch (error) {
-        if (error instanceof DynamicLinkValidationError) return new Response(JSON.stringify({ error: error.code }), { status: 400, headers: { "Content-Type": "application/json" } });
+        if (error instanceof DynamicLinkValidationError) return dynamicLinkValidationResponse(error.code);
         throw error;
       }
     }
@@ -506,19 +507,35 @@ async function normalizeUpdatePatch(env: ApiBindings, current: NonNullable<Await
 }
 
 function dynamicLinkError(c: Context<{ Bindings: ApiBindings; Variables: DashboardVariables }>, error: unknown) {
+  if (error instanceof BusinessProfileValidationError) {
+    return c.json({ error: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) }, 400);
+  }
   const message = error instanceof SupabaseRestError ? error.body : error instanceof Error ? error.message : "dynamic_link_update_failed";
-  if (message.includes("dynamic_link_stale")) return c.json({ error: "dynamic_link_stale" }, 409);
-  if (message.includes("dynamic_link_archived")) return c.json({ error: "dynamic_link_archived" }, 409);
-  if (message.includes("dynamic_link_bulk_active_consent_required")) return c.json({ error: "dynamic_link_bulk_active_consent_required" }, 409);
-  if (message.includes("dynamic_link_bulk_operation_reuse")) return c.json({ error: "dynamic_link_bulk_operation_reuse" }, 409);
-  if (message.includes("dynamic_link_bulk_size_invalid") || message.includes("dynamic_link_bulk_request_invalid") || message.includes("dynamic_link_bulk_target_invalid")) return c.json({ error: "dynamic_link_bulk_request_invalid" }, 400);
-  if (message.includes("business_profile_not_published") || message.includes("business_profile_disabled") || message.includes("business_profile_required")) return c.json({ error: message.match(/business_profile_[a-z_]+/)?.[0] ?? "business_profile_invalid" }, 409);
-  if (message.includes("nfc_handoff_used") || message.includes("nfc_handoff_expired") || message.includes("nfc_handoff_invalid")) return c.json({ error: "nfc_handoff_invalid" }, 409);
-  if (message.includes("nfc_handoff_forbidden")) return c.json({ error: "nfc_handoff_forbidden" }, 403);
-  if (message.includes("nfc_handoff")) return c.json({ error: "nfc_handoff_invalid" }, 400);
-  if (message.includes("dynamic_link_not_found")) return c.json({ error: "dynamic_link_not_found" }, 404);
-  if (error instanceof SupabaseRestError) return c.json({ error: "dynamic_link_storage_failed" }, 502);
-  return c.json({ error: "dynamic_link_invalid" }, 400);
+  if (message.includes("dynamic_link_stale")) return c.json({ error: "dynamic_link_stale", message: "Esta unidad cambió en otra sesión. Vuelve a escanearla antes de guardar." }, 409);
+  if (message.includes("dynamic_link_archived")) return c.json({ error: "dynamic_link_archived", message: "La unidad fue archivada y no puede modificarse." }, 409);
+  if (message.includes("dynamic_link_bulk_active_consent_required")) return c.json({ error: "dynamic_link_bulk_active_consent_required", message: "Confirma explícitamente cada QR activo antes de aplicar el cambio." }, 409);
+  if (message.includes("dynamic_link_bulk_operation_reuse")) return c.json({ error: "dynamic_link_bulk_operation_reuse", message: "Ese identificador de operación ya se usó con otros datos." }, 409);
+  if (message.includes("dynamic_link_bulk_size_invalid") || message.includes("dynamic_link_bulk_request_invalid") || message.includes("dynamic_link_bulk_target_invalid")) return c.json({ error: "dynamic_link_bulk_request_invalid", message: "Revisa las unidades y el destino seleccionados para la operación masiva." }, 400);
+  if (message.includes("business_profile_not_published") || message.includes("business_profile_disabled") || message.includes("business_profile_required")) {
+    const code = message.match(/business_profile_[a-z_]+/)?.[0] ?? "business_profile_invalid";
+    return c.json({ error: code, message: businessProfileErrorMessage(code) }, 409);
+  }
+  if (message.includes("nfc_handoff_used") || message.includes("nfc_handoff_expired") || message.includes("nfc_handoff_invalid")) return c.json({ error: "nfc_handoff_invalid", message: "La sesión de NFC expiró o ya fue utilizada. Inicia una nueva." }, 409);
+  if (message.includes("nfc_handoff_forbidden")) return c.json({ error: "nfc_handoff_forbidden", message: "No tienes permiso para usar esta sesión de NFC." }, 403);
+  if (message.includes("nfc_handoff")) return c.json({ error: "nfc_handoff_invalid", message: "No se pudo validar la sesión de NFC." }, 400);
+  if (message.includes("dynamic_link_not_found")) return c.json({ error: "dynamic_link_not_found", message: "No encontramos esa unidad QR." }, 404);
+  if (error instanceof SupabaseRestError) return c.json({ error: "dynamic_link_storage_failed", message: "No se pudo guardar la configuración. Inténtalo de nuevo." }, 502);
+  return c.json({ error: "dynamic_link_invalid", message: "No se pudo guardar la configuración. Revisa los datos e inténtalo de nuevo." }, 400);
+}
+
+function dynamicLinkValidationResponse(code: string, status = 400, field?: string) {
+  const fallback = code.startsWith("business_profile_")
+    ? "Revisa los datos del perfil e inténtalo de nuevo."
+    : "Revisa los datos de configuración e inténtalo de nuevo.";
+  return new Response(JSON.stringify({ error: code, message: businessProfileErrorMessage(code, fallback), ...(field ? { field } : {}) }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function isStatus(value: string | undefined): value is "available" | "active" | "suspended" | "archived" {
@@ -650,23 +667,32 @@ function stableJson(value: unknown): string {
 
 function parseQuickProfileTarget(target: Record<string, unknown>): Record<string, unknown> | Response {
   const profileId = typeof target.profileId === "string" && isUuid(target.profileId) ? target.profileId : undefined;
-  if (target.profileId !== undefined && !profileId) return new Response(JSON.stringify({ error: "business_profile_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  if (target.profileId !== undefined && !profileId) return dynamicLinkValidationResponse("business_profile_invalid");
   if (profileId) return { profile_id: profileId };
   const creationRequestId = typeof target.creationRequestId === "string" && isUuid(target.creationRequestId) ? target.creationRequestId : undefined;
   const displayName = typeof target.displayName === "string" ? target.displayName.trim() : "";
-  const slug = typeof target.slug === "string" ? target.slug.trim().toLowerCase() : displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!creationRequestId || !displayName || displayName.length > 160 || !slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return new Response(JSON.stringify({ error: "business_profile_request_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  const slug = typeof target.slug === "string" ? target.slug.trim().toLowerCase() : displayName;
+  if (!creationRequestId) return new Response(JSON.stringify({ error: "business_profile_request_invalid", message: businessProfileErrorMessage("business_profile_request_invalid") }), { status: 400, headers: { "Content-Type": "application/json" } });
   const linksValue = target.links === undefined ? [] : target.links;
-  if (!Array.isArray(linksValue) || linksValue.length > 30) return new Response(JSON.stringify({ error: "business_profile_links_invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  if (!Array.isArray(linksValue) || linksValue.length > 30) return new Response(JSON.stringify({ error: "business_profile_links_invalid", message: businessProfileErrorMessage("business_profile_links_invalid") }), { status: 400, headers: { "Content-Type": "application/json" } });
   try {
+    const parsedProfile = parseCreateBusinessProfile({
+      requestId: creationRequestId,
+      slug,
+      displayName,
+      headline: target.headline,
+      locationName: target.locationName,
+      address: target.address,
+      tenantId: target.tenantId === null ? null : target.tenantId,
+    });
     const links = linksValue.filter((link) => isRecord(link) && link.enabled === true).map((link, index) => {
       const normalized = normalizeLink(link, index);
       return { kind: normalized.kind, label: normalized.label ?? null, href: normalized.href, enabled: normalized.enabled, sort_order: normalized.sortOrder };
     });
-    const tenantId = target.tenantId === null ? null : target.tenantId === undefined ? null : typeof target.tenantId === "string" && isUuid(target.tenantId) ? target.tenantId : (() => { throw new BusinessProfileValidationError("business_profile_tenant_invalid"); })();
-    return { creation_request_id: creationRequestId, slug, display_name: displayName, headline: target.headline, location_name: target.locationName, address: target.address, tenant_id: tenantId, links };
+    return { creation_request_id: creationRequestId, slug: parsedProfile.slug, display_name: parsedProfile.displayName, headline: parsedProfile.headline, location_name: parsedProfile.locationName, address: parsedProfile.address, tenant_id: parsedProfile.tenantId ?? null, links };
   } catch (error) {
     const code = error instanceof BusinessProfileValidationError ? error.code : "business_profile_invalid";
-    return new Response(JSON.stringify({ error: code }), { status: 400, headers: { "Content-Type": "application/json" } });
+    const body = { error: code, message: error instanceof BusinessProfileValidationError ? error.message : businessProfileErrorMessage(code), ...(error instanceof BusinessProfileValidationError && error.field ? { field: error.field } : {}) };
+    return new Response(JSON.stringify(body), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 }

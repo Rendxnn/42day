@@ -40,6 +40,32 @@ test("quick setup crea/asigna el perfil sin aceptar una URL pública del cliente
   } finally { globalThis.fetch = previousFetch; }
 });
 
+test("quick setup devuelve un mensaje controlado para un teléfono inválido", async () => {
+  const previousFetch = globalThis.fetch;
+  let rpcCalled = false;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("auth/v1/user")) return json({ id: actor, app_metadata: { system_admin: true } });
+    if (url.includes("dynamic_link_units") && url.includes("id=eq.")) return json([unit]);
+    if (url.includes("rpc/quick_configure_dynamic_link_with_profile")) {
+      rpcCalled = true;
+      return json({});
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    const response = await app.request(`https://api.test/dashboard/admin/dynamic-links/${unitId}/quick-configuration`, {
+      method: "PATCH", headers: { Authorization: "Bearer test", "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: 1, label: "QR café", target: { kind: "profile", creationRequestId: "22222222-2222-4222-8222-222222222222", displayName: "Café", slug: "cafe", links: [{ kind: "phone", href: "abc", enabled: true }] } }),
+    }, env);
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, "business_profile_phone_invalid");
+    assert.match(body.message, /teléfono/i);
+    assert.equal(rpcCalled, false);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test("bulk preflight separa unidades activas protegidas", async () => {
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {

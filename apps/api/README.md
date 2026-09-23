@@ -13,6 +13,13 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos.
 - Administrar perfiles ligeros en `features/public-profile`: borrador/publicación, enlaces activables,
   backfill compatible de restaurantes y suspensión atómica de QRs antes de deshabilitar un perfil.
+- Validar perfiles con límites compartidos y respuestas controladas (`error`, `message`, `field`); los
+  teléfonos aceptan formatos internacionales con separadores, pero deben contener entre 7 y 15 dígitos.
+  Los enlaces desactivados pueden permanecer sin URL y no bloquean el guardado.
+- Exponer el inventario paginado de perfiles (`/dashboard/admin/business-profiles`) con búsqueda,
+  filtros y cursores, además del puente MCP privado (`POST /mcp`) para que un agente prepare y confirme
+  una configuración de negocio desde una conversación móvil. El puente exige JWT de Supabase,
+  `system_admin`, cliente permitido y una confirmación idempotente separada de la preparación.
 - Integrar Supabase Postgres/Auth/Storage/Realtime y proveedores de IA.
 
 ## Entradas principales
@@ -41,6 +48,11 @@ Variables requeridas o usadas según la capacidad:
 ```text
 APP_BASE_URL
 DYNAMIC_LINK_BASE_URL
+DASHBOARD_ALLOWED_ORIGINS
+MCP_OAUTH_ISSUER
+MCP_JWT_AUDIENCE
+MCP_ALLOWED_CLIENT_IDS
+MCP_RESOURCE_URL
 META_VERIFY_TOKEN
 META_ACCESS_TOKEN
 META_PHONE_NUMBER_ID
@@ -64,3 +76,5 @@ AUDIO_TRANSCRIPTION_PROVIDER
 - [Flujo conversacional](../../docs/flows/conversation-flow.md)
 - [Integración con WhatsApp](../../docs/integrations/whatsapp-cloud-api.md)
 - [Despliegue](../../docs/runbooks/deployment.md)
+- [Feature 009: perfiles y acciones del agente](../../specs/009-profile-management-agent-actions/spec.md)
+- [Feature 010: validación y errores comprensibles](../../specs/010-profile-validation-errors/spec.md)

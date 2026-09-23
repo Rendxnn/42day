@@ -80,7 +80,7 @@ import { PublicRestaurantProfilePage } from "./features/public-profile/PublicRes
 import { PublicBusinessProfilePage } from "./features/public-profile/PublicBusinessProfilePage";
 import { AnalyticsSection } from "./features/admin/AnalyticsSection";
 import { DynamicLinksSection } from "./features/admin/DynamicLinksSection";
-import { BusinessProfileEditor } from "./features/admin/BusinessProfileEditor";
+import { BusinessProfilesSection } from "./features/admin/BusinessProfilesSection";
 import { httpPaymentConfigurationAdapter } from "./features/configuration/paymentConfiguration.http";
 import {
   formatDashboardDateTime as formatLocalizedDateTime,
@@ -4703,7 +4703,7 @@ function AdminOverviewScreen({ overview, onLogout }: { overview: AdminOverview; 
             {adminSection === "links" ? (
               <DynamicLinksSection restaurants={restaurants} />
             ) : adminSection === "profiles" ? (
-              <BusinessProfileEditor />
+              <BusinessProfilesSection />
             ) : !selectedRestaurant || !editForm ? (
               <div className="grid min-h-[720px] place-items-center p-8 text-center">
                 <div>

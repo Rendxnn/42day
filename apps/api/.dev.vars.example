@@ -2,6 +2,11 @@ APP_ENV=local
 APP_BASE_URL=http://localhost:8787
 DYNAMIC_LINK_BASE_URL=https://go.thaledon.com
 DASHBOARD_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+# MCP is disabled for local clients unless an explicit allowlist is configured.
+MCP_OAUTH_ISSUER=
+MCP_JWT_AUDIENCE=authenticated
+MCP_ALLOWED_CLIENT_IDS=
+MCP_RESOURCE_URL=http://localhost:8787/mcp
 
 META_VERIFY_TOKEN=replace-me
 META_ACCESS_TOKEN=replace-me

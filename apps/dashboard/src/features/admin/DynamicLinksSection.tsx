@@ -55,7 +55,7 @@ export function DynamicLinksSection({ restaurants }: Props) {
   async function load(cursor?: string, resetCursor = false) {
     setIsLoading(true);
     try {
-      const [payload, batchPayload, profilePayload] = await Promise.all([listDynamicLinks({ query, status: status || undefined, tenantId: tenantFilter || undefined, batchId: batchFilter || undefined, sort, direction, pageSize, cursor }), listDynamicLinkBatches(), listBusinessProfiles()]);
+      const [payload, batchPayload, profilePayload] = await Promise.all([listDynamicLinks({ query, status: status || undefined, tenantId: tenantFilter || undefined, batchId: batchFilter || undefined, sort, direction, pageSize, cursor }), listDynamicLinkBatches(), listBusinessProfiles({ pageSize: 100, status: "published", sort: "displayName", direction: "asc" })]);
       setUnits(payload.units); setBatches(batchPayload.batches); setProfiles(profilePayload.profiles); setTotalCount(payload.totalCount); setNextCursor(payload.pageInfo.nextCursor);
       if (resetCursor) setCursorStack([]);
       setError("");

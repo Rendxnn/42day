@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { businessProfileErrorMessage } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings.ts";
 import { SupabaseRestError } from "../../lib/supabase-rest.ts";
 import { requireSystemAdmin } from "../dashboard/auth.ts";
@@ -14,6 +15,7 @@ import {
   updateBusinessProfile,
 } from "./business-profile-repository.ts";
 import { BusinessProfileValidationError, parseCreateBusinessProfile, parseUpdateBusinessProfile } from "./business-profile-validation.ts";
+import { parseBusinessProfileListRequest } from "./business-profile-pagination.ts";
 
 export const businessProfileRoutes = new Hono<{ Bindings: ApiBindings; Variables: DashboardVariables }>();
 
@@ -35,7 +37,12 @@ businessProfileRoutes.post("/admin/business-profiles", async (c) => {
 businessProfileRoutes.get("/admin/business-profiles", async (c) => {
   const actor = await requireSystemAdmin(c as DashboardContext);
   if (actor instanceof Response) return actor;
-  return c.json({ profiles: await listBusinessProfiles(c.env) });
+  try {
+    const request = parseBusinessProfileListRequest(new URL(c.req.url));
+    return c.json(await listBusinessProfiles(c.env, request));
+  } catch (error) {
+    return businessProfileError(c, error);
+  }
 });
 
 businessProfileRoutes.get("/admin/business-profiles/:id", async (c) => {
@@ -43,7 +50,7 @@ businessProfileRoutes.get("/admin/business-profiles/:id", async (c) => {
   if (actor instanceof Response) return actor;
   try {
     const result = await findBusinessProfile(c.env, c.req.param("id"), true);
-    return result ? c.json(result) : c.json({ error: "business_profile_not_found" }, 404);
+    return result ? c.json(result) : c.json({ error: "business_profile_not_found", message: businessProfileErrorMessage("business_profile_not_found") }, 404);
   } catch (error) {
     return businessProfileError(c, error);
   }
@@ -66,7 +73,7 @@ businessProfileRoutes.post("/admin/business-profiles/:id/publish", async (c) => 
   if (actor instanceof Response) return actor;
   try {
     const body = await c.req.json().catch(() => undefined) as { revision?: unknown } | undefined;
-    if (!Number.isInteger(body?.revision) || Number(body?.revision) < 1) return c.json({ error: "business_profile_revision_invalid" }, 400);
+    if (!Number.isInteger(body?.revision) || Number(body?.revision) < 1) return c.json({ error: "business_profile_revision_invalid", message: businessProfileErrorMessage("business_profile_revision_invalid"), field: "revision" }, 400);
     const result = await publishBusinessProfile(c.env, c.req.param("id"), Number(body?.revision), actor.id);
     return c.json(result);
   } catch (error) {
@@ -79,7 +86,7 @@ businessProfileRoutes.post("/admin/business-profiles/:id/disable-and-suspend", a
   if (actor instanceof Response) return actor;
   try {
     const body = await c.req.json().catch(() => undefined) as { revision?: unknown } | undefined;
-    if (!Number.isInteger(body?.revision) || Number(body?.revision) < 1) return c.json({ error: "business_profile_revision_invalid" }, 400);
+    if (!Number.isInteger(body?.revision) || Number(body?.revision) < 1) return c.json({ error: "business_profile_revision_invalid", message: businessProfileErrorMessage("business_profile_revision_invalid"), field: "revision" }, 400);
     const result = await disableBusinessProfileAndSuspend(c.env, c.req.param("id"), Number(body?.revision), actor.id);
     return c.json(result);
   } catch (error) {
@@ -90,9 +97,9 @@ businessProfileRoutes.post("/admin/business-profiles/:id/disable-and-suspend", a
 async function publicProfile(c: Context<{ Bindings: ApiBindings; Variables: DashboardVariables }>) {
   try {
     const slug = c.req.param("slug");
-    if (!slug) return c.json({ error: "business_profile_not_found" }, 404);
+    if (!slug) return c.json({ error: "business_profile_not_found", message: businessProfileErrorMessage("business_profile_not_found") }, 404);
     const result = await findBusinessProfileBySlug(c.env, slug, true);
-    if (!result) return c.json({ error: "business_profile_not_found" }, 404);
+    if (!result) return c.json({ error: "business_profile_not_found", message: businessProfileErrorMessage("business_profile_not_found") }, 404);
     c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return c.json({
       profile: {
@@ -113,13 +120,15 @@ async function publicProfile(c: Context<{ Bindings: ApiBindings; Variables: Dash
 }
 
 function businessProfileError(c: Context, error: unknown) {
-  if (error instanceof BusinessProfileValidationError) return c.json({ error: error.code }, 400);
+  if (error instanceof BusinessProfileValidationError) {
+    return c.json({ error: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) }, 400);
+  }
   if (error instanceof SupabaseRestError) {
     const code = extractDatabaseCode(error.body) ?? "business_profile_database_error";
     const status = code.includes("not_found") ? 404 : code.includes("stale") || code.includes("conflict") || code.includes("disabled") || code.includes("not_draft") ? 409 : 400;
-    return c.json({ error: code }, status);
+    return c.json({ error: code, message: businessProfileErrorMessage(code) }, status);
   }
-  throw error;
+  return c.json({ error: "business_profile_operation_failed", message: businessProfileErrorMessage("business_profile_operation_failed") }, 500);
 }
 
 function extractDatabaseCode(body: string) {

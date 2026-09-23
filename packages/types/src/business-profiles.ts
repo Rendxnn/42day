@@ -14,6 +14,9 @@ export const BUSINESS_PROFILE_LINK_KINDS = [
 
 export type BusinessProfileLinkKind = (typeof BUSINESS_PROFILE_LINK_KINDS)[number];
 export type BusinessProfileStatus = "draft" | "published" | "disabled";
+export type BusinessProfileAssociation = "linked" | "generic";
+export type BusinessProfileSortField = "updatedAt" | "createdAt" | "displayName" | "slug" | "status";
+export type BusinessProfileSortDirection = "asc" | "desc";
 
 export type BusinessProfileLink = {
   id?: string;
@@ -38,6 +41,27 @@ export type BusinessProfile = {
   publishedAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BusinessProfileSummary = Pick<BusinessProfile, "id" | "creationRequestId" | "slug" | "tenantId" | "displayName" | "headline" | "locationName" | "address" | "status" | "revision" | "publishedAt" | "createdAt" | "updatedAt"> & {
+  association: BusinessProfileAssociation;
+  activeQrCount: number;
+};
+
+export type BusinessProfileListRequest = {
+  query?: string;
+  status?: BusinessProfileStatus;
+  association?: BusinessProfileAssociation;
+  sort?: BusinessProfileSortField;
+  direction?: BusinessProfileSortDirection;
+  pageSize?: 25 | 50 | 100;
+  cursor?: string;
+};
+
+export type BusinessProfilePage = {
+  profiles: BusinessProfileSummary[];
+  totalCount: number;
+  pageInfo: { hasNext: boolean; nextCursor?: string };
 };
 
 export type BusinessProfilePayload = {
@@ -68,4 +92,5 @@ export type BusinessProfileResponse = {
   profile: BusinessProfile;
   links: BusinessProfileLink[];
   activeQrCount?: number;
+  usage?: { activeQrCount: number };
 };

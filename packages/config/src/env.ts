@@ -22,6 +22,10 @@ export const appEnvSchema = z.object({
   GEMINI_MODEL: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().optional(),
+  MCP_OAUTH_ISSUER: z.string().url().optional(),
+  MCP_JWT_AUDIENCE: z.string().optional(),
+  MCP_ALLOWED_CLIENT_IDS: z.string().optional(),
+  MCP_RESOURCE_URL: z.string().url().optional(),
 });
 
 export type AppEnv = z.infer<typeof appEnvSchema>;

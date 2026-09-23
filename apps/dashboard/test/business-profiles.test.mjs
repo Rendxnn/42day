@@ -3,12 +3,35 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("profile editor exposes draft, publication, visibility and safe suspension actions", async () => {
-  const editor = await readFile(new URL("../src/features/admin/BusinessProfileEditor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /Crear borrador/);
+  const [editor, section] = await Promise.all([
+    readFile(new URL("../src/features/admin/BusinessProfileModal.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/admin/BusinessProfilesSection.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(section, /Buscar perfiles/);
+  assert.match(section, /Siguiente/);
+  assert.match(section, /Editar/);
+  assert.match(section, /Deshabilitar/);
   assert.match(editor, /Publicar/);
-  assert.match(editor, /Deshabilitar y suspender QRs/);
+  assert.match(editor, /Deshabilitar perfil/);
+  assert.match(editor, /cambios sin guardar/);
   assert.match(editor, /enabled/);
   assert.match(editor, /revision/);
+  assert.match(editor, /BUSINESS_PROFILE_LIMITS/);
+  assert.match(editor, /aria-live/);
+});
+
+test("profile validation never renders technical error identifiers", async () => {
+  const [modal, quickSetup, errors, api] = await Promise.all([
+    readFile(new URL("../src/features/admin/BusinessProfileModal.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/admin/QuickDynamicLinkSetup.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/admin/business-profile-errors.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(modal, /formatError\(/);
+  assert.match(quickSetup, /formatBusinessProfileError/);
+  assert.match(errors, /businessProfileErrorMessage/);
+  assert.match(api, /backendMessage/);
+  assert.match(quickSetup, /7 y 15/);
 });
 
 test("dashboard routes canonical public profiles and profile destinations through the API", async () => {

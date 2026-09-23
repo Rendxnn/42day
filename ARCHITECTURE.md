@@ -63,7 +63,7 @@ Un plan no trivial contiene:
 
 ## Capacidades transversales internas
 
-`features/dynamic-links` es dueño de las URL permanentes QR/NFC, resolución pública temporal, inventario administrativo, auditoría y ciclo de vida físico. `features/public-profile` es dueño del perfil canónico ligero, sus enlaces activables, la fachada compatible de restaurantes y la proyección pública `/p/:slug`. El dashboard consume exclusivamente estas APIs; no consulta `control` directamente. La configuración masiva y el handoff NFC siguen siendo fronteras explícitas de los features 007–008, manteniendo compatibilidad de rutas existentes.
+`features/dynamic-links` es dueño de las URL permanentes QR/NFC, resolución pública temporal, inventario administrativo, auditoría y ciclo de vida físico. `features/public-profile` es dueño del perfil canónico ligero, sus enlaces activables, la fachada compatible de restaurantes y la proyección pública `/p/:slug`. `features/business-setup-agent` es dueño de la frontera MCP privada que autentica un administrador, prepara propuestas y confirma una asignación de QR mediante una RPC idempotente. El dashboard consume exclusivamente estas APIs; no consulta `control` directamente. La configuración masiva y el handoff NFC siguen siendo fronteras explícitas de los features 007–008, manteniendo compatibilidad de rutas existentes.
 
 ## Fuentes detalladas
 

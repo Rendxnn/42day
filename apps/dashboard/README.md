@@ -7,7 +7,14 @@ Aplicación React/Vite para la operación de restaurantes, la administración de
 - Restaurante: pedidos, filtros, detalle, transcripción, pausa/reanudación, agotados, reemplazos, progreso de cocina y notificaciones.
 - Configuración: menú, catálogo, cobertura, pagos, perfil público y conocimiento del concierge.
 - Plataforma: restaurantes, miembros, analytics e inventario QR/NFC con filtros server-side y edición protegida.
-- Perfiles: editor de perfiles ligeros con enlaces activables y asociación de un QR a un perfil publicado.
+- Perfiles: inventario paginado por cursor con búsqueda, filtros, orden y tamaños 25/50/100; crear/editar
+  ocurre en un modal que carga la revisión vigente, permite activar enlaces y resuelve "eliminar" como
+  deshabilitación lógica con suspensión atómica de QRs.
+- Asistencia de agente: el backend expone un puente MCP privado; el dashboard sigue siendo la superficie
+  para revisar conflictos, publicaciones y el impacto de QRs activos.
+- Validación de perfiles: los campos muestran límites y ayudas de formato; los errores de API se traducen
+  a mensajes accionables en español y nunca exponen identificadores `business_profile_*` ni detalles de
+  Supabase/Postgres.
 - Público: perfil del restaurante, carta, recomendaciones, concierge y páginas informativas/legales.
 
 ## Límites actuales

@@ -69,6 +69,10 @@ El plan semántico estructurado y sus validaciones ya existen. El texto llega pr
 - `features/dynamic-links`: URL permanente, redirección, inventario, auditoría y resolver de reseñas QR/NFC.
 - `features/public-profile`: perfil canónico ligero, enlaces validados, publicación, compatibilidad legacy
   de restaurante y suspensión transaccional de QRs al deshabilitar un perfil.
+- `features/business-setup-agent`: frontera MCP privada para consultar la cuenta, listar/leer perfiles,
+  preparar propuestas de negocio y confirmar una creación/publicación/asignación todo-o-nada. La ruta
+  valida JWT/JWKS, `system_admin`, audiencia y cliente autorizado; nunca entrega al agente una escritura
+  directa sobre Supabase.
 - `lib/supabase-rest`: acceso server-side a Data API.
 
 Las fachadas bajo nombres históricos solo preservan compatibilidad. La lógica nueva debe vivir en el feature dueño.
@@ -82,5 +86,15 @@ Las llamadas externas deben tener errores observables y evitar mutaciones parcia
 ## API pública
 
 Los endpoints públicos de perfil, carta y concierge no requieren sesión. Deben limitarse a datos explícitamente públicos. Rate limiting, cuotas y presupuesto del concierge permanecen como brecha antes de escalar.
+
+### Frontera MCP de configuración de negocio
+
+`POST /mcp` implementa JSON-RPC para las herramientas `parahoy_get_connected_account`,
+`parahoy_list_business_profiles`, `parahoy_get_business_profile`, `parahoy_prepare_business_setup` y
+`parahoy_commit_business_setup`. Preparar crea únicamente un registro efímero de propuesta; confirmar
+usa un `operationId`, hash de comando, revisiones esperadas y una RPC transaccional. El token de preparación
+se entrega solo en la respuesta de la herramienta, expira en diez minutos y no se escribe en logs.
+Los metadatos de recurso protegido se publican en `/.well-known/oauth-protected-resource`; las URLs del
+servidor OAuth deben apuntar al proveedor configurado y probarse en staging antes de registrar el conector.
 
 Consulta [Flujo conversacional](../flows/conversation-flow.md), [Presencia Digital](../flows/presence-digital.md) y [Supabase](../integrations/supabase.md).

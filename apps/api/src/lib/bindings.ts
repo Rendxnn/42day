@@ -29,4 +29,8 @@ export type ApiBindings = {
   OPENROUTER_MODEL?: string;
   AI_CONFIG_ENCRYPTION_KEY?: string;
   GOOGLE_MAPS_GEOCODING_API_KEY?: string;
+  MCP_OAUTH_ISSUER?: string;
+  MCP_JWT_AUDIENCE?: string;
+  MCP_ALLOWED_CLIENT_IDS?: string;
+  MCP_RESOURCE_URL?: string;
 };

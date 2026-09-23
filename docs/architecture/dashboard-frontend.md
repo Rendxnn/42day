@@ -37,7 +37,7 @@ La migración es incremental: se extrae una capacidad completa, se conserva una 
 
 ## Estado actual
 
-Ya existen features separados para configuración, carta, perfil público, perfiles ligeros e inventario QR/NFC. El inventario usa paginación con cursor en servidor, y las unidades activas empiezan en lectura protegida; la edición vuelve a obtener la revisión antes de crear el borrador. El editor de perfiles consume únicamente la API autorizada y el perfil público canónico usa `/p/:slug`. Las áreas de pedidos y el archivo `App.tsx` siguen siendo grandes.
+Ya existen features separados para configuración, carta, perfil público, perfiles ligeros e inventario QR/NFC. El inventario usa paginación con cursor en servidor, y las unidades activas empiezan en lectura protegida; la edición vuelve a obtener la revisión antes de crear el borrador. `BusinessProfilesSection` conserva filtros, orden, tamaño y pila de cursores; `BusinessProfileModal` carga el detalle vigente, edita enlaces activables y presenta la retirada como deshabilitación lógica. El perfil público canónico usa `/p/:slug`. Las acciones del agente se ejecutan en el Worker/MCP, no desde Supabase directo. Las áreas de pedidos y el archivo `App.tsx` siguen siendo grandes.
 
 El paquete sí tiene pruebas automatizadas bajo `apps/dashboard/test`; no debe volver a documentarse como carente de suite. Parte de estas pruebas caracteriza código fuente, por lo que se complementará con pruebas de comportamiento y E2E.
 

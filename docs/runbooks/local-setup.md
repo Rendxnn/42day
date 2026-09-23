@@ -28,6 +28,8 @@ Completa valores locales sin versionarlos. Los grupos principales son:
 - Meta: `META_VERIFY_TOKEN`, `META_ACCESS_TOKEN`, `META_PHONE_NUMBER_ID`, `META_WABA_ID`, `META_GRAPH_API_VERSION`.
 - Supabase: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` y, si el flujo lo necesita, `DATABASE_URL`.
 - IA/audio: Gemini, OpenRouter, OpenAI o Hugging Face según configuración.
+- MCP/agente privado: `MCP_OAUTH_ISSUER`, `MCP_JWT_AUDIENCE`, `MCP_ALLOWED_CLIENT_IDS` y
+  `MCP_RESOURCE_URL` cuando se habilite el conector móvil en staging.
 - Geocoding: clave server-side para API y clave restringida por referrer para dashboard.
 
 Nunca pongas `SUPABASE_SERVICE_ROLE_KEY` ni claves de IA en variables `VITE_*`.
@@ -37,6 +39,9 @@ Nunca pongas `SUPABASE_SERVICE_ROLE_KEY` ni claves de IA en variables `VITE_*`.
 1. Confirma CLI con `supabase --version` y consulta `supabase --help`.
 2. Enlaza únicamente el proyecto de desarrollo apropiado.
 3. Aplica el historial de `supabase/migrations` con el workflow vigente del equipo.
+   Para el stack local, el comando no destructivo es `supabase migration up --local --yes`; para
+   revisar sintaxis y advisors usa `supabase db lint --local`. No uses `supabase db push --linked` sin
+   confirmar explícitamente el proyecto y ambiente.
 4. Provisiona o valida un tenant de prueba desde `tenant_template`.
 5. Confirma schemas expuestos, grants, RLS, Realtime y buckets necesarios.
 

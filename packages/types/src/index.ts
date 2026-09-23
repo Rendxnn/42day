@@ -7,3 +7,4 @@ export * from "./whatsapp";
 export * from "./restaurant-knowledge";
 export * from "./dynamic-links";
 export * from "./business-profiles";
+export * from "./business-profile-validation";

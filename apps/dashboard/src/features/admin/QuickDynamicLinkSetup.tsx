@@ -1,4 +1,6 @@
-import { DynamicLinkValidationError, parseDynamicLinkReference } from "@42day/core";
+import { DynamicLinkValidationError, normalizeBusinessProfileLink, parseDynamicLinkReference } from "@42day/core";
+import { BUSINESS_PROFILE_LIMITS } from "@42day/types";
+import type { BusinessProfileLinkKind } from "@42day/types";
 import { Check, Clipboard, ExternalLink, Loader2, QrCode, Radio, ScanLine, X } from "lucide-react";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
@@ -22,6 +24,7 @@ import {
   type GoogleReviewPreparationState,
 } from "./googleReviewPreparation";
 import { formatGoogleReviewResolutionFailure } from "./googleReviewResolutionErrors";
+import { formatBusinessProfileError } from "./business-profile-errors";
 
 type AssociationChoice = "preserve" | "clear" | string;
 type Phase = "scan" | "manual" | "resolving" | "form" | "confirm" | "saving" | "success" | "archived";
@@ -41,6 +44,7 @@ const profileLinkDefaults: Array<{ kind: string; label: string; href: string; en
   { kind: "tiktok", label: "TikTok", href: "https://tiktok.com", enabled: false },
   { kind: "website", label: "Página web", href: "https://example.com", enabled: false },
   { kind: "whatsapp", label: "WhatsApp", href: "https://wa.me/573000000000", enabled: false },
+  { kind: "phone", label: "Teléfono", href: "+57 300 000 0000", enabled: false },
 ];
 const idleGooglePreparation: GoogleReviewPreparationState = { status: "idle" };
 
@@ -133,14 +137,45 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
 
   function requestSave() {
     if (!unit) return;
-    if (!label.trim()) {
+    const normalizedLabel = label.trim();
+    if (!normalizedLabel) {
       setError("La etiqueta o nombre del lugar es obligatoria.");
+      return;
+    }
+    if (normalizedLabel.length > 160) {
+      setError("La etiqueta no puede superar 160 caracteres.");
       return;
     }
     if (targetMode === "profile") {
       if (!profileId && (!createProfile || !profileDisplayName.trim())) {
         setError("Selecciona un perfil publicado o crea uno indicando el nombre del negocio.");
         return;
+      }
+      if (createProfile) {
+        const textLimits: Array<[string, string, number]> = [
+          ["el nombre del negocio", profileDisplayName, BUSINESS_PROFILE_LIMITS.displayName],
+          ["la descripción corta", profileHeadline, BUSINESS_PROFILE_LIMITS.headline],
+          ["la sede", profileLocation, BUSINESS_PROFILE_LIMITS.locationName],
+          ["la dirección", profileAddress, BUSINESS_PROFILE_LIMITS.address],
+        ];
+        const invalidText = textLimits.find(([, value, max]) => value.trim().length > max);
+        if (invalidText) {
+          setError(`${invalidText[0]} no puede superar ${invalidText[2]} caracteres.`);
+          return;
+        }
+        const invalidLink = profileLinks.find((link) => link.enabled && !link.href.trim());
+        if (invalidLink) {
+          setError(`Completa el enlace de ${invalidLink.label} o déjalo desactivado.`);
+          return;
+        }
+        try {
+          profileLinks.filter((link) => link.enabled).forEach((link) => normalizeBusinessProfileLink(link.kind as BusinessProfileLinkKind, link.href));
+        } catch (error) {
+          setError(error instanceof Error && error.message === "business_profile_phone_invalid"
+            ? "Teléfono o WhatsApp: usa entre 7 y 15 dígitos, con +, espacios, paréntesis o guiones; no agregues extensiones."
+            : "Revisa los enlaces activos. Usa URLs HTTPS públicas y prepara las reseñas de Google antes de guardar.");
+          return;
+        }
       }
       setError("");
       if (unit.status === "active") {
@@ -202,7 +237,7 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
       setCopied(false);
       setPhase("success");
     } catch (saveError) {
-      setError(formatError(saveError));
+      setError(formatBusinessProfileError(saveError, "No se pudo guardar la configuración. Revisa los campos e inténtalo de nuevo."));
       setPhase("form");
     }
   }
@@ -324,7 +359,8 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
             <UnitSummary restaurants={restaurants} unit={unit} />
             <label className="block text-sm font-bold text-[var(--text-strong)]">
               Etiqueta o nombre del lugar
-              <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} onChange={(event) => setLabel(event.target.value)} value={label} />
+              <input aria-describedby="quick-setup-label-hint" className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} maxLength={160} onChange={(event) => setLabel(event.target.value)} value={label} />
+            <p className="mt-1 text-xs font-normal text-[var(--text-faint)]" id="quick-setup-label-hint">Etiqueta visible para identificar la unidad · {label.length}/160</p>
             </label>
             <div className="rounded-2xl border border-[rgba(118,93,71,0.14)] bg-white p-4">
               <p className="text-sm font-bold text-[var(--text-strong)]">Destino</p>
@@ -335,17 +371,17 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
               {targetMode === "redirect" ? (
                 <label className="mt-4 block text-sm font-bold text-[var(--text-strong)]">
                   URL destino
-                  <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} inputMode="url" onChange={(event) => updateDestination(event.target.value)} placeholder="https://…" value={destinationUrl} />
+                  <input className="mt-2 h-12 w-full rounded-xl border border-[rgba(118,93,71,0.16)] px-3 text-base font-normal" disabled={isFormLocked} inputMode="url" maxLength={BUSINESS_PROFILE_LIMITS.linkHref} onChange={(event) => updateDestination(event.target.value)} placeholder="https://…" value={destinationUrl} />
                 </label>
               ) : (
                 <div className="mt-4 space-y-3">
                   <label className="block text-sm font-bold">Perfil publicado<select className="mt-2 h-12 w-full rounded-xl border px-3 font-normal" disabled={isFormLocked || createProfile} onChange={(event) => { setProfileId(event.target.value); setCreateProfile(false); }} value={profileId}><option value="">Selecciona un perfil</option>{profiles.filter((profile) => profile.status === "published").map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · /p/{profile.slug}</option>)}</select></label>
                   <label className="flex items-center gap-2 text-sm"><input checked={createProfile} disabled={isFormLocked} onChange={(event) => { setCreateProfile(event.target.checked); if (event.target.checked) setProfileId(""); }} type="checkbox" />Crear perfil rápido</label>
                   {createProfile && <>
-                    <input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Nombre del negocio" value={profileDisplayName} />
-                    <input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileHeadline(event.target.value)} placeholder="Descripción corta (opcional)" value={profileHeadline} />
-                    <div className="grid gap-3 sm:grid-cols-2"><input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileLocation(event.target.value)} placeholder="Sede o ciudad" value={profileLocation} /><input className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileAddress(event.target.value)} placeholder="Dirección (opcional)" value={profileAddress} /></div>
-                    <div className="space-y-2"><p className="text-xs font-bold text-[var(--text-soft)]">Enlaces visibles</p>{profileLinks.map((link, index) => <div className="grid grid-cols-[auto_1fr] items-center gap-2" key={link.kind}><input aria-label={`Activar ${link.label}`} checked={link.enabled} disabled={isFormLocked} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} type="checkbox" /><input className="h-10 w-full rounded-lg border px-3 text-sm" disabled={isFormLocked} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, href: event.target.value } : item))} placeholder={link.label} value={link.href} /></div>)}</div>
+                    <input aria-label="Nombre del negocio" className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} maxLength={BUSINESS_PROFILE_LIMITS.displayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Nombre del negocio" value={profileDisplayName} />
+                    <input aria-label="Descripción corta" className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} maxLength={BUSINESS_PROFILE_LIMITS.headline} onChange={(event) => setProfileHeadline(event.target.value)} placeholder="Descripción corta (opcional)" value={profileHeadline} />
+                    <div className="grid gap-3 sm:grid-cols-2"><input aria-label="Sede o ciudad" className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} maxLength={BUSINESS_PROFILE_LIMITS.locationName} onChange={(event) => setProfileLocation(event.target.value)} placeholder="Sede o ciudad" value={profileLocation} /><input aria-label="Dirección" className="h-11 w-full rounded-xl border px-3 text-sm" disabled={isFormLocked} maxLength={BUSINESS_PROFILE_LIMITS.address} onChange={(event) => setProfileAddress(event.target.value)} placeholder="Dirección (opcional)" value={profileAddress} /></div>
+                    <div className="space-y-2"><p className="text-xs font-bold text-[var(--text-soft)]">Enlaces visibles</p><p className="text-xs text-[var(--text-faint)]">Activa solo los enlaces que quieras publicar. Teléfono y WhatsApp aceptan 7–15 dígitos, por ejemplo +57 300 123 4567.</p>{profileLinks.map((link, index) => <div className="grid grid-cols-[auto_1fr] items-center gap-2" key={link.kind}><input aria-label={`Activar ${link.label}`} checked={link.enabled} disabled={isFormLocked} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} type="checkbox" /><input aria-label={`${link.label} URL o número`} className="h-10 w-full rounded-lg border px-3 text-sm" disabled={isFormLocked} inputMode={link.kind === "phone" || link.kind === "whatsapp" ? "tel" : "url"} maxLength={BUSINESS_PROFILE_LIMITS.linkHref} onChange={(event) => setProfileLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, href: event.target.value } : item))} placeholder={link.label} value={link.href} /></div>)}</div>
                   </>}
                 </div>
               )}

@@ -1,6 +1,7 @@
-import type { BusinessProfile, BusinessProfileLink, BusinessProfileResponse } from "@42day/types";
+import type { BusinessProfile, BusinessProfileLink, BusinessProfileListRequest, BusinessProfilePage, BusinessProfileResponse, BusinessProfileSummary } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings.ts";
 import { createSupabaseRestClient } from "../../lib/supabase-rest.ts";
+import { businessProfileCursorFingerprint, decodeBusinessProfileCursor, encodeBusinessProfileCursor } from "./business-profile-pagination.ts";
 
 type ProfileRow = {
   id: string;
@@ -20,6 +21,12 @@ type ProfileRow = {
 };
 
 type LinkRow = { id: string; profile_id: string; kind: BusinessProfileLink["kind"]; label?: string | null; href: string; enabled: boolean; sort_order: number };
+type BusinessProfileSummaryRpc = BusinessProfileSummary;
+type BusinessProfilePageRpc = {
+  profiles?: BusinessProfileSummaryRpc[];
+  totalCount?: number;
+  pageInfo?: { hasNext?: boolean; nextCursor?: { value?: string; id?: string } | null };
+};
 
 const profileSelect = "id,creation_request_id,slug,tenant_id,display_name,headline,location_name,address,status,revision,published_at,created_by,created_at,updated_at";
 const linkSelect = "id,profile_id,kind,label,href,enabled,sort_order";
@@ -58,9 +65,37 @@ export async function findBusinessProfileByTenant(env: ApiBindings, tenantId: st
   return loadProfileResponse(env, row);
 }
 
-export async function listBusinessProfiles(env: ApiBindings) {
-  const rows = await createSupabaseRestClient(env).select<ProfileRow>({ schema: "control", table: "business_profiles", query: { select: profileSelect, order: "updated_at.desc", limit: 200 } });
-  return rows.map(mapProfile);
+export async function listBusinessProfiles(env: ApiBindings, request: BusinessProfileListRequest = {}): Promise<BusinessProfilePage> {
+  const { cursor, ...cursorRequest } = request;
+  const decodedCursor = decodeBusinessProfileCursor(cursor, cursorRequest);
+  const raw = await createSupabaseRestClient(env).rpc<BusinessProfilePageRpc>({
+    schema: "control",
+    functionName: "list_business_profiles_page",
+    args: {
+      p_query: request.query ?? null,
+      p_status: request.status ?? null,
+      p_association: request.association ?? null,
+      p_sort: request.sort ?? "updatedAt",
+      p_direction: request.direction ?? "desc",
+      p_page_size: request.pageSize ?? 25,
+      p_cursor: decodedCursor ? { value: decodedCursor.value, id: decodedCursor.id } : null,
+    },
+  });
+  const profiles = (raw.profiles ?? []).map((profile) => ({
+    ...profile,
+    tenantId: profile.tenantId ?? undefined,
+    creationRequestId: profile.creationRequestId ?? undefined,
+    headline: profile.headline ?? undefined,
+    locationName: profile.locationName ?? undefined,
+    address: profile.address ?? undefined,
+    publishedAt: profile.publishedAt ?? undefined,
+  }));
+  const hasNext = raw.pageInfo?.hasNext === true;
+  const next = raw.pageInfo?.nextCursor;
+  const nextCursor = hasNext && next?.value && next.id
+    ? encodeBusinessProfileCursor({ fingerprint: businessProfileCursorFingerprint(cursorRequest), value: next.value, id: next.id })
+    : undefined;
+  return { profiles, totalCount: Number(raw.totalCount ?? 0), pageInfo: { hasNext, ...(nextCursor ? { nextCursor } : {}) } };
 }
 
 export async function updateBusinessProfile(env: ApiBindings, input: {
@@ -94,7 +129,7 @@ async function loadProfileResponse(env: ApiBindings, row: ProfileRow, includeAct
   const activeQrCount = includeActiveQrCount
     ? await createSupabaseRestClient(env).rpc<number>({ schema: "control", functionName: "count_active_business_profile_qrs", args: { p_profile_id: row.id } })
     : undefined;
-  return { profile: mapProfile(row), links: links.map(mapLink), ...(activeQrCount === undefined ? {} : { activeQrCount }) };
+  return { profile: mapProfile(row), links: links.map(mapLink), ...(activeQrCount === undefined ? {} : { activeQrCount, usage: { activeQrCount } }) };
 }
 
 export function mapProfile(row: ProfileRow): BusinessProfile {

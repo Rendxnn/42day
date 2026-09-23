@@ -25,10 +25,13 @@ El dashboard usa `apps/api` para datos y mutaciones de negocio. El acceso direct
 - `tenant_demo`: sandbox.
 - `tenant_<slug>`: datos operativos de un restaurante.
 
-Los enlaces QR/NFC, perfiles ligeros, operaciones masivas y sesiones de handoff NFC viven en `control`. Las
-tablas `business_profiles` y `business_profile_links` tienen RLS forzado, restricciones de slug/enlaces,
-índices de consulta y grants revocados para `anon` y `authenticated`; las mutaciones pasan por RPC
-`security invoker` expuestas únicamente a `service_role`. El dashboard no consulta esas tablas directamente.
+Los enlaces QR/NFC, perfiles ligeros, operaciones masivas, sesiones de handoff NFC y propuestas del agente
+viven en `control`. Las tablas `business_profiles`, `business_profile_links` y
+`business_setup_operations` tienen RLS forzado, restricciones de slug/enlaces, índices de consulta y
+grants revocados para `anon` y `authenticated`; las mutaciones pasan por RPC `security invoker` expuestas
+únicamente a `service_role`. `list_business_profiles_page` usa cursores keyset allowlisted y devuelve el
+conteo agregado de QRs activos; `commit_business_setup` bloquea y valida revisiones, publica/asigna en una
+transacción, audita y guarda el resultado idempotente. El dashboard no consulta esas tablas directamente.
 
 Consulta [Migraciones multi-tenant](../architecture/database-migrations.md) para baseline y rollout.
 

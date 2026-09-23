@@ -39,6 +39,8 @@ import type {
   DynamicLinkStatus,
   DynamicLinkUnit,
   BusinessProfile,
+  BusinessProfileListRequest,
+  BusinessProfilePage,
   BusinessProfileLink,
   BusinessProfileResponse,
   BusinessProfilePayload,
@@ -61,6 +63,8 @@ export class DashboardApiError extends Error {
     readonly status: number,
     readonly path: string,
     readonly backendError?: string,
+    readonly backendMessage?: string,
+    readonly field?: string,
   ) {
     super(message);
   }
@@ -85,13 +89,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const payload = await response.json().catch(() => undefined) as { error?: string; message?: string; field?: string } | undefined;
     const backendError = payload?.error;
     throw new DashboardApiError(
-      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      payload?.message ?? (backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`),
       response.status,
       path,
       backendError,
+      payload?.message,
+      payload?.field,
     );
   }
 
@@ -109,13 +115,15 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const payload = await response.json().catch(() => undefined) as { error?: string; message?: string; field?: string } | undefined;
     const backendError = payload?.error;
     throw new DashboardApiError(
-      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      payload?.message ?? (backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`),
       response.status,
       path,
       backendError,
+      payload?.message,
+      payload?.field,
     );
   }
 
@@ -132,13 +140,15 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    const payload = await response.json().catch(() => undefined) as { error?: string; message?: string; field?: string } | undefined;
     const backendError = payload?.error;
     throw new DashboardApiError(
-      backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`,
+      payload?.message ?? (backendError ? `${backendError} (${response.status})` : `dashboard_api_error:${response.status}`),
       response.status,
       path,
       backendError,
+      payload?.message,
+      payload?.field,
     );
   }
 
@@ -683,8 +693,17 @@ export function createBusinessProfile(input: CreateBusinessProfileRequest) {
   return request<{ profile: BusinessProfile }>("/admin/business-profiles", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function listBusinessProfiles() {
-  return request<{ profiles: BusinessProfile[] }>("/admin/business-profiles");
+export function listBusinessProfiles(input: BusinessProfileListRequest = {}) {
+  const params = new URLSearchParams();
+  if (input.query) params.set("query", input.query);
+  if (input.status) params.set("status", input.status);
+  if (input.association) params.set("association", input.association);
+  if (input.sort) params.set("sort", input.sort);
+  if (input.direction) params.set("direction", input.direction);
+  if (input.pageSize) params.set("pageSize", String(input.pageSize));
+  if (input.cursor) params.set("cursor", input.cursor);
+  const suffix = params.toString();
+  return request<BusinessProfilePage>(`/admin/business-profiles${suffix ? `?${suffix}` : ""}`);
 }
 
 export function getBusinessProfile(profileId: string) {

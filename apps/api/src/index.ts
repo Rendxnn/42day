@@ -4,6 +4,7 @@ import { dashboardRoutes } from "./features/dashboard/router.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { whatsappRoutes } from "./routes/whatsapp.ts";
 import { dynamicLinkPublicRoutes } from "./features/dynamic-links/public-routes.ts";
+import { businessSetupMcpRoutes } from "./features/business-setup-agent/mcp-routes.ts";
 import type { ApiBindings } from "./lib/bindings.ts";
 import { SupabaseRestError } from "./lib/supabase-rest.ts";
 import { logEvent, safeErrorSummary, sanitizeErrorDetail } from "./lib/observability/logger.ts";
@@ -43,6 +44,26 @@ app.use(
 app.route("/dashboard", dashboardRoutes);
 app.route("/health", healthRoutes);
 app.route("/webhooks/whatsapp", whatsappRoutes);
+app.get("/.well-known/oauth-protected-resource", (c) => {
+  const issuer = c.env.MCP_OAUTH_ISSUER?.trim() || `${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
+  return c.json({
+    resource: c.env.MCP_RESOURCE_URL ?? new URL("/mcp", c.req.url).toString(),
+    authorization_servers: [issuer],
+  });
+});
+app.get("/.well-known/oauth-authorization-server", (c) => {
+  const issuer = c.env.MCP_OAUTH_ISSUER?.trim() || `${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
+  return c.json({
+    issuer,
+    authorization_endpoint: `${issuer}/authorize`,
+    token_endpoint: `${issuer}/token`,
+    jwks_uri: `${issuer}/.well-known/jwks.json`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+  });
+});
+app.route("/", businessSetupMcpRoutes);
 app.route("/", dynamicLinkPublicRoutes);
 
 app.notFound((c) => {

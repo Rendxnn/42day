@@ -97,7 +97,7 @@ El catálogo compartido ya permite que conversación y carta lean la misma base 
 
 ## Capacidades internas
 
-- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. Los perfiles ligeros ya tienen migración forward, API, editor público y destino `profile` para una unidad; las operaciones masivas, handoff NFC y certificación física siguen pendientes.
+- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. Los perfiles ligeros tienen migración forward, API, inventario paginado y modal de edición; el puente MCP privado puede preparar y confirmar una creación/publicación/asignación de negocio con idempotencia y auditoría. La certificación física de NFC, revisión independiente de seguridad y pruebas de rendimiento staging siguen pendientes.
 
 - **Analytics — Actual, interno:** snapshots y vistas administrativas para seguimiento operativo. No se ofrece como analítica avanzada del producto.
 - **Recordatorios de almuerzo — Experimental:** existe preview y envío a clientes recientes. Permanece fuera del producto hasta contar con consentimiento, opt-out, plantillas aprobadas, segmentación y controles de frecuencia.
@@ -146,6 +146,28 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
 7. No hay automatización CI versionada en `.github/workflows`.
 
 ## Cambios recientes
+
+- **2026-09-23:** se validó el flujo de creación para un negocio real usando la cuenta de prueba de staging. El QR disponible `7431D6V7YMWH` quedó activo y asociado atómicamente al perfil genérico `odontologia-tatiana-botero`, con Instagram, WhatsApp y teléfono normalizados; la dirección quedó vacía por discrepancia entre fuentes públicas. La operación se ejecutó por API autenticada porque el consentimiento OAuth/MCP de staging aún no está habilitado. La API pública responde `200`; el host personalizado `go-staging.thaledon.com` todavía no resuelve DNS y requiere configuración antes de certificar el escaneo externo.
+
+- **2026-09-22:** se implementó el feature `009-profile-management-agent-actions` en la rama de staging. El dashboard ahora lista perfiles con búsqueda, filtros de estado/asociación, orden ascendente/descendente, cursores Anterior/Siguiente y tamaños 25/50/100; crear y editar usan un modal que obtiene la revisión fresca, permite activar enlaces y convierte “eliminar” en deshabilitación lógica. El API delega el inventario a `control.list_business_profiles_page`, con total filtrado, desempate por UUID e índices dedicados.
+
+- **2026-09-22:** se añadió `POST /mcp` para el asistente privado de ParaHoy. Las herramientas separan lectura, preparación y confirmación; la preparación expira en diez minutos y la confirmación usa `operationId`, hash, revisiones y la RPC `control.commit_business_setup` para crear/publicar/asignar de forma atómica. Se publican metadatos de recurso protegido y el JWT se valida contra issuer, audiencia, expiración y JWKS; no se registran tokens ni cuerpos sensibles. Las migraciones `20260922190000_business_profile_inventory.sql` y `20260922190001_business_setup_agent.sql` fueron aplicadas y probadas localmente y quedaron aplicadas en el proyecto Supabase de staging `jcruwwluxlhhwedvciog`.
+
+- **2026-09-22:** se implementó `010-profile-validation-errors`. Los límites de campos y el catálogo de mensajes
+  seguros viven en `@42day/types`; API, configuración rápida y MCP comparten la normalización de teléfonos (7–15
+  dígitos, separadores y prefijos permitidos), distinguen `field` y devuelven `{ error, message, field? }`.
+  El dashboard muestra ayudas, contadores, `aria-live` y fallbacks seguros para red, JSON inválido y errores
+  desconocidos. No requiere migración de base de datos.
+
+- **2026-09-22:** se publicó esta validación en staging. El Worker `42day-api-staging` quedó en la versión
+  `f5167b9f-291e-45c3-acb1-2b4a6d31438f`; health responde `200` con `env: staging` y las rutas administrativas
+  continúan exigiendo autenticación. El dashboard quedó en el deployment Preview
+  `42day-dashboard-of46y6jnn-samiretru-4094s-projects.vercel.app`, asociado a
+  `https://staging.parahoy.thaledon.com`. Producción no fue modificada.
+
+- **2026-09-22:** se publicó la versión actual para pruebas en staging. El Worker `42day-api-staging` quedó en la versión `a19042cc-ed87-4b0e-a6dc-22858d6d35e4` (`https://42day-api-staging.42day.workers.dev`) y el deployment Preview de Vercel quedó listo (`https://42day-dashboard-oaze5da3r-samiretru-4094s-projects.vercel.app`), con el alias `https://staging.parahoy.thaledon.com`. Health responde `200` con `env: staging`, el bundle apunta a la API de staging, las rutas administrativas responden `401` sin sesión y MCP publica sus metadatos OAuth. Producción no fue modificada.
+
+- **2026-09-22:** validación local: `supabase db lint --local` sin errores; las migraciones se aplicaron con `supabase migration up --local --yes`; la RPC de inventario se probó en orden asc/desc y cursor estable; la RPC de configuración se probó con creación, publicación, asignación, auditoría e idempotencia (replay sin duplicar). Typecheck de API/dashboard y 276 pruebas API (259 pass, 17 skip existentes) pasan; 2 pruebas focalizadas del dashboard pasan.
 
 - **2026-09-22:** con autorización explícita se promovió el commit `b29e34b` a producción. Se aplicaron
   las seis migraciones QR/NFC de las fases 1–4 en Supabase productivo, sin reparar ni alterar las

@@ -88,6 +88,29 @@ Con una cuenta administradora y una unidad de prueba no archivada:
    automático. Consulta el perfil y verifica el conteo de QRs activos antes de deshabilitarlo.
 4. Con QRs activos usa exclusivamente **Deshabilitar y suspender**; confirma suspensión total, auditoría por
    unidad y conservación de cada URL permanente.
+5. En el editor de perfil prueba teléfono y WhatsApp con `+57 300 123 4567`, `300 123 4567` y un valor con
+   letras/extensión. Los dos primeros deben guardar; el último debe explicar el formato esperado sin mostrar
+   `business_profile_phone_invalid`. Activa/desactiva un enlace y confirma que uno desactivado sin URL no bloquea.
+6. Introduce valores que superen los límites visibles de nombre, titular, dirección y URL. El formulario debe
+   bloquear el envío, anunciar el error y mostrar el campo afectado; un fallo de red o JSON inesperado debe
+   mostrar una explicación genérica accionable, nunca el código o el body técnico.
+
+### Inventario de perfiles y agente móvil
+
+1. En **Perfiles de negocio** busca por nombre, slug, sede y dirección; cambia estado, asociación, orden,
+   dirección y tamaño. Confirma que Anterior/Siguiente conserva filtros, no duplica filas y mantiene el total.
+2. Abre una fila en **Editar** y modifica un enlace. Verifica que el modal obtiene el detalle vigente, advierte
+   al cerrar con cambios, y que una revisión obsoleta muestra el conflicto sin sobrescribir la versión remota.
+3. Usa **Eliminar** solo en el sentido documentado de **Deshabilitar perfil**; confirma el impacto de QRs activos
+   y que el perfil sigue localizable bajo el filtro Deshabilitado.
+4. Comprueba los metadatos `/.well-known/oauth-protected-resource` y registra un cliente móvil de staging con
+   un JWT válido de un `system_admin`. Sin exponer tokens en logs, llama `tools/list` a `POST /mcp` y verifica las
+   cinco herramientas esperadas.
+5. Desde la conversación móvil llama `parahoy_prepare_business_setup` con un código exacto y enlaces públicos.
+   Revisa coincidencias, advertencias, revisión y cambio actual→propuesto; confirma que todavía no se asignó el QR.
+6. Tras confirmar explícitamente, llama `parahoy_commit_business_setup` con `operationId`. Comprueba perfil
+   publicado, asociación, auditoría y URL permanente; repite el mismo comando y verifica `replayed: true` sin
+   duplicados. Usa una propuesta vencida o una revisión cambiada y confirma que toda la operación se rechaza.
 
 ## Seguridad y aislamiento
 
