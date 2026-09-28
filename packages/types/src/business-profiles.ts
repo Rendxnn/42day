@@ -15,6 +15,22 @@ export const BUSINESS_PROFILE_LINK_KINDS = [
 export type BusinessProfileLinkKind = (typeof BUSINESS_PROFILE_LINK_KINDS)[number];
 export type BusinessProfileStatus = "draft" | "published" | "disabled";
 export type BusinessProfileAssociation = "linked" | "generic";
+export type BusinessProfileIconMode = "brand" | "monochrome";
+export type BusinessProfileAppearance = {
+  backgroundColor: string;
+  cardColor: string;
+  textColor: string;
+  iconColor: string;
+  iconMode: BusinessProfileIconMode;
+};
+export type BusinessProfileAvatar = { assetId: string; altText: string; url: string };
+export const BUSINESS_PROFILE_DEFAULT_APPEARANCE: BusinessProfileAppearance = {
+  backgroundColor: "#F3E9DF",
+  cardColor: "#FFFFFF",
+  textColor: "#261D18",
+  iconColor: "#6D4D3C",
+  iconMode: "brand",
+};
 export type BusinessProfileSortField = "updatedAt" | "createdAt" | "displayName" | "slug" | "status";
 export type BusinessProfileSortDirection = "asc" | "desc";
 
@@ -36,6 +52,8 @@ export type BusinessProfile = {
   headline?: string;
   locationName?: string;
   address?: string;
+  appearance?: BusinessProfileAppearance;
+  avatar?: BusinessProfileAvatar;
   status: BusinessProfileStatus;
   revision: number;
   publishedAt?: string;
@@ -65,7 +83,10 @@ export type BusinessProfilePage = {
 };
 
 export type BusinessProfilePayload = {
-  profile: Pick<BusinessProfile, "slug" | "displayName" | "headline" | "locationName" | "address">;
+  profile: Pick<BusinessProfile, "slug" | "displayName" | "headline" | "locationName" | "address"> & {
+    appearance: BusinessProfileAppearance;
+    avatar?: BusinessProfileAvatar;
+  };
   links: Array<Pick<BusinessProfileLink, "kind" | "label" | "href" | "sortOrder">>;
 };
 
@@ -86,6 +107,9 @@ export type UpdateBusinessProfileRequest = {
   locationName?: string;
   address?: string;
   links: BusinessProfileLink[];
+  appearance?: BusinessProfileAppearance;
+  avatarAssetId?: string | null;
+  avatarAltText?: string;
 };
 
 export type BusinessProfileResponse = {
