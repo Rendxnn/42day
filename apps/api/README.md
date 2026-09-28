@@ -10,7 +10,7 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - Validar y ejecutar acciones controladas sobre drafts y órdenes.
 - Operar catálogo, menú, pagos, cobertura, alertas, notificaciones y configuración.
 - Servir perfil, carta y concierge públicos.
-- Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos. El handoff activo de escritura genera un enlace de Atajos para NFC.cool con la URL permanente; NFC Helper permanece como adaptador legado deshabilitado y no se emiten nuevas sesiones/callbacks.
+- Resolver enlaces físicos QR/NFC bajo `go.thaledon.com/r/:code`, inventario paginado, auditoría y configuración protegida de enlaces activos. El dashboard solo copia la URL permanente para NFC; el endpoint legacy de creación de handoff responde `410 nfc_handoff_disabled`. NFC Helper permanece aislado para canjear callbacks históricos.
 - Administrar perfiles ligeros en `features/public-profile`: borrador/publicación, enlaces activables,
   backfill compatible de restaurantes y suspensión atómica de QRs antes de deshabilitar un perfil.
 - Validar perfiles con límites compartidos y respuestas controladas (`error`, `message`, `field`); los
@@ -19,7 +19,12 @@ Worker de Cloudflare que recibe WhatsApp, orquesta pedidos y expone la API auten
 - Exponer el inventario paginado de perfiles (`/dashboard/admin/business-profiles`) con búsqueda,
   filtros y cursores, además del puente MCP privado (`POST /mcp`) para que un agente prepare y confirme
   una configuración de negocio desde una conversación móvil. El puente exige JWT de Supabase,
-  `system_admin`, cliente permitido y una confirmación idempotente separada de la preparación.
+  `system_admin`, cliente permitido y una confirmación idempotente separada de la preparación. El MCP
+  conserva setup v1, agrega la lectura QR exacta y no ofrece aún mutación v2, actualización de perfil o
+  importación remota de avatar; ver capacidades publicadas y feature 014.
+- Servir avatares desde Storage privado mediante proxy API con validación de bytes, metadata, tamaño,
+  estado del perfil y ETag; la migración `20260924142711_brandable_business_profiles.sql` está aplicada
+  y validada solo en Supabase local. No se aplicó a staging ni producción.
 - Integrar Supabase Postgres/Auth/Storage/Realtime y proveedores de IA.
 
 ## Entradas principales

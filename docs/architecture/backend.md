@@ -94,6 +94,10 @@ Los endpoints públicos de perfil, carta y concierge no requieren sesión. Deben
 `parahoy_commit_business_setup`. Preparar crea únicamente un registro efímero de propuesta; confirmar
 usa un `operationId`, hash de comando, revisiones esperadas y una RPC transaccional. El token de preparación
 se entrega solo en la respuesta de la herramienta, expira en diez minutos y no se escribe en logs.
+La iteración local 1.1 añade lectura exacta de unidad QR, body JSON limitado y `405` para GET/DELETE
+autenticados. El setup transaccional disponible conserva el contrato legacy: actualización de perfiles,
+importación remota y operaciones v2 aún no están expuestas. `OAuthConsentPage` atiende el consentimiento
+configurado localmente, pero no significa que OAuth esté habilitado en proyectos remotos.
 Los metadatos de recurso protegido se publican en `/.well-known/oauth-protected-resource`; las URLs del
 servidor OAuth deben apuntar al proveedor configurado y probarse en staging antes de registrar el conector.
 

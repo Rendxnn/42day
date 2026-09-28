@@ -1,10 +1,22 @@
 # Estado actual de ParaHoy
 
-> Corte documental: 2026-09-22. Esta es la única fuente para capacidades implementadas, parciales,
+> Corte documental: 2026-09-28. Esta es la única fuente para capacidades implementadas, parciales,
 > experimentales, deseadas y deuda de ingeniería pendiente. El estado de servicios externos debe
 > verificarse y fecharse antes de afirmarlo.
 
 ## Resumen
+
+### Actualización de implementación local — 2026-09-28
+
+- **Feature 012, copia NFC manual:** el comportamiento local está implementado: se retiró NFC.cool del flujo visible, la ruta heredada de creación responde `410` autenticado y copiar la URL permanente no modifica hitos físicos. Sus pruebas focalizadas pasan. Sigue abierto el cierre formal: revisión independiente de seguridad, gates generales/convergencia Spec Kit y commit de feature.
+- **Feature 013, apariencia de perfiles:** implementación local parcial. Existen tokens de cuatro colores, modo `brand`/`monochrome`, componente de tarjeta/preview compartido, avatar privado con validación por bytes y la migración `20260924142711_brandable_business_profiles.sql`. La migración se aplicó únicamente a Supabase local el 2026-09-24; lint y tres pruebas SQL transaccionales pasaron allí. Faltan recursos oficiales/procedencia de marcas, integración manager, backfill/RPC completos, más pruebas de DB y revisión independiente UX/seguridad. No está lista para staging.
+- **Feature 014, agente remoto:** implementación local parcial. Hay lectura exacta de QR, setup MCP legado, validación de JWT/JWKS con prueba de firma RS256, límites básicos de transporte, consentimiento local y paquetes de plugin separados. Faltan las operaciones persistentes v2 y sus RPC, actualización MCP de perfiles, importación remota de imágenes con defensas SSRF, matriz OAuth completa y validación/instalación de plugins. No está lista para staging.
+- Los plugins son archivos locales sin instalar/conectar. OAuth server está habilitado solo en `supabase/config.toml` local; staging/producción, allowlists, clientes, Workers y migraciones remotas no fueron modificados.
+- Verificación puntual de esta actualización: 20 pruebas dirigidas de API, 7 de dashboard y 2 de reglas de apariencia pasaron; los typechecks de API, dashboard, core y types pasaron con `tsc` local. Tres pruebas SQL transaccionales y `supabase db lint --local` constan como exitosas el 2026-09-24 en el quickstart de 013. Esto no equivale a la suite completa ni a la revisión independiente.
+- Los comandos raíz `pnpm test/typecheck/build` no se han certificado en este corte: el launcher pnpm reportó fallo de verificación de firma del registro en la ejecución previa. Una invocación directa de Supabase CLI tampoco pudo iniciar porque intentó escribir telemetría fuera del workspace; no se consultó ni modificó ninguna base remota en esta actualización.
+- Hay un commit local enfocado `6d0d096` con la subfase 1 de 013 (contratos de apariencia y reglas puras); no se ha empujado al remoto. El resto de cambios de implementación de 012–014 sigue en el worktree sin commit porque las fases están incompletas. `.codex-artifacts/` permanece sin seguimiento, se preserva y queda excluido de commits. No se hicieron migraciones remotas, despliegues ni cambios en staging o producción.
+
+Para el plan original y la secuencia actual, consultar [Evolución segura de QR/NFC, perfiles y agente remoto](./plans/qr-nfc-profiles-and-remote-agent.md). Las features 012–014 no deben considerarse listas para staging: revisar tareas abiertas en sus respectivos `tasks.md` y checklists.
 
 | Área | Madurez | Lectura actual |
 | --- | --- | --- |
@@ -97,7 +109,7 @@ El catálogo compartido ya permite que conversación y carta lean la misma base 
 
 ## Capacidades internas
 
-- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. El handoff activo abre NFC.cool mediante el Atajo `Escribir NFC ParaHoy` y solo entrega la URL permanente; copiar el enlace sigue disponible. NFC Helper se conserva como adaptador legado deshabilitado para callbacks que ya existían, y ningún handoff nuevo crea sesión/callback ni marca hitos. Los perfiles ligeros tienen migración forward, API, inventario paginado y modal de edición; el puente MCP privado puede preparar y confirmar una creación/publicación/asignación de negocio con idempotencia y auditoría. La certificación física de NFC, revisión independiente de seguridad y pruebas de rendimiento staging siguen pendientes.
+- **Enlaces QR/NFC — Actual / parcial, interno:** cada unidad conserva URL permanente, redirección no cacheable, auditoría y revisión optimista. El inventario usa consulta paginada server-side con cursor, búsqueda, filtros, orden y tamaños de 25/50/100; una unidad activa se muestra protegida en lectura y requiere una edición explícita con revisión fresca. `NFC bloqueado físicamente` es un hito registrado, no un bloqueo que el dashboard ejecute. La única acción NFC soportada por el dashboard es copiar la URL permanente; copiar no modifica unidad ni hitos físicos. NFC Helper se conserva como compatibilidad deshabilitada para callbacks históricos. El endpoint legacy de creación devuelve `410 nfc_handoff_disabled`. Los perfiles ligeros tienen migración forward, API, inventario paginado y modal de edición; el puente MCP privado puede preparar y confirmar una creación/publicación/asignación de negocio con idempotencia y auditoría. La certificación física de NFC, revisión independiente de seguridad y pruebas de rendimiento staging siguen pendientes.
 
 - **Analytics — Actual, interno:** snapshots y vistas administrativas para seguimiento operativo. No se ofrece como analítica avanzada del producto.
 - **Recordatorios de almuerzo — Experimental:** existe preview y envío a clientes recientes. Permanece fuera del producto hasta contar con consentimiento, opt-out, plantillas aprobadas, segmentación y controles de frecuencia.
@@ -207,6 +219,11 @@ El estándar aplicable a cualquier corrección de este backlog es `CODESTYLE.md`
   callbacks emitidos antes del cambio se conserva como compatibilidad temporal. La escritura, cancelación o
   apertura del Atajo no marca UID, programación, verificación ni bloqueo. Falta el spike físico de 20
   escrituras/lecturas con NTAG213 para certificar el proveedor.
+
+- **2026-09-24:** la implementación local del feature `012-manual-nfc-copy-only` deshabilitó nuevos handoffs:
+  la configuración rápida conserva `Copiar enlace para NFC`, el endpoint de creación devuelve `410` y NFC.cool
+  ya no aparece en el dashboard ni en contratos activos. El callback de NFC Helper sigue aislado para sesiones
+  históricas. Esta actualización aún no está publicada en ningún ambiente.
 
 - **2026-09-22:** las fases 2, 3 y 4 quedaron implementadas para prueba en staging. La configuración
   rápida permite seleccionar un perfil publicado o crear/publicar un perfil ligero y asignarlo al QR en

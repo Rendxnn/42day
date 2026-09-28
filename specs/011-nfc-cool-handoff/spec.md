@@ -1,6 +1,11 @@
-# Especificación: handoff NFC.cool en iPhone
+# Especificación histórica (reemplazada): handoff NFC.cool en iPhone
+
+> Esta feature se implementó localmente el 2026-09-23 y fue reemplazada el 2026-09-24 por
+> [012-manual-nfc-copy-only](../012-manual-nfc-copy-only/spec.md). Se conserva como registro histórico;
+> sus instrucciones y criterios ya no describen el comportamiento actual ni deben implementarse.
 
 **Feature Branch**: `011-nfc-cool-handoff`  
+**Estado**: Reemplazado por `012-manual-nfc-copy-only`; historial de la decisión anterior, no describe el flujo activo.
 **Creada**: 2026-09-23  
 **Estado**: Aprobada para implementación  
 **Entrada**: Activar NFC.cool como proveedor de escritura NFC desde el dashboard mediante Atajos de iPhone, conservando NFC Helper deshabilitado y el fallback manual.

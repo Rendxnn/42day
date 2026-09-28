@@ -20,6 +20,8 @@ El estándar incluye una URL de ParaHoy o dominio propio. Una página avanzada c
 - Ruta pública de perfil por slug.
 - Perfil canónico ligero `/p/:profileSlug` para negocios genéricos y restaurantes migrados.
 - Enlaces de WhatsApp, teléfono, redes, web, Maps y encuesta.
+- En la iteración local de 2026-09-24, paleta de cuatro colores, modo de iconos brand/monochrome,
+  carga de avatar privada JPEG/PNG/WebP y componente de tarjeta compartido con el preview.
 - Carta pública conectada al menú operativo.
 - Concierge IA con historial acotado y conocimiento del restaurante.
 - Configuración de perfil y carga/edición de conocimiento desde dashboard.
@@ -27,13 +29,16 @@ El estándar incluye una URL de ParaHoy o dominio propio. Una página avanzada c
 ### Parcial
 
 - El perfil es principalmente un hub de enlaces, no la landing completa.
-- El editor de perfil ligero ya permite guardar enlaces preparados y activar cada uno por separado; todavía
-  no incorpora branding avanzado, analítica pública ni carrito multi-producto.
+- La apariencia está parcialmente implementada localmente; faltan SVG oficiales con registro de procedencia,
+  integración equivalente en settings de manager, pruebas DB y revisión independiente de UX/seguridad.
+  No hay analítica pública ni carrito multi-producto.
 - La identidad visual, información y autogestión no cubren todos los campos objetivo.
 - El modo `standalone`/`connected` depende de `automation_enabled`; esto mezcla producto contratado y operación.
 
 ### Deseado
 
+- Personalización acotada de la tarjeta pública: foto/logo, fondo plano, fondo de tarjeta, texto, modo/color
+  de iconos y activos oficiales de WhatsApp, Instagram y Google. No incluye layout libre, CSS ni SVG subidos.
 - Branding y contenido estándar completos.
 - Horarios y dominio administrables.
 - Autogestión de identidad, información, enlaces, catálogo, carta, disponibilidad y conocimiento.

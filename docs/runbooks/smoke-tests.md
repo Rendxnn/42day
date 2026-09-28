@@ -76,9 +76,10 @@ Con una cuenta administradora y una unidad de prueba no archivada:
 10. Abre una unidad activa: debe empezar protegida en lectura. Selecciona **Editar configuración**, verifica que vuelve a consultar la revisión y confirma un cambio de destino actual→nuevo. Registra el bloqueo físico solo después de confirmar que el chip realmente fue bloqueado; ese hito no equivale a verificación NFC.
 11. Selecciona **Configurar varios**, agrega entre 2 y 100 códigos sin duplicarlos y ejecuta el preflight. Los activos deben aparecer protegidos, las unidades archivadas excluidas y cualquier exclusión obliga a corregir la selección antes de aplicar.
 12. Confirma individualmente los activos y aplica un perfil o redirección. Repite el mismo `operationId` desde una prueba API y verifica que no duplica auditoría; cambia una revisión y comprueba que el lote completo se revierte.
-13. En un iPhone con NFC.cool Tools, crea una sola vez el Atajo llamado exactamente **Escribir NFC ParaHoy**. Debe recibir texto y entregarlo a la acción `Write NFC` de NFC.cool como URL.
-14. Desde una unidad activa elige **Escribir con NFC.cool**. Atajos debe recibir únicamente la URL permanente; cancelar, fallar o volver al dashboard no modifica UID, `NFC programado`, `NFC verificado` ni `Bloqueado`. El fallback de copiar URL sigue disponible si NFC.cool o el Atajo no están instalados.
-15. Antes de certificar NFC.cool, completa 20 escrituras/lecturas físicas con NTAG213 en el iPhone objetivo. En cada ciclo compara byte a byte la URL NDEF leída con la URL permanente del dashboard; incluye chips nuevos, regrabables, preescritos y bloqueados.
+13. En una unidad no archivada, elige **Copiar enlace para NFC**. Comprueba que el portapapeles recibe byte a byte la URL permanente visible, no el destino final.
+14. Fuerza un fallo del portapapeles: debe quedar disponible el campo seleccionable con mensaje controlado. Copiar o fallar no cambia revisión, destino, UID ni hitos NFC.
+15. Llama el endpoint antiguo de creación con sesión admin: debe devolver `410 nfc_handoff_disabled` y no consultar/mutar unidad ni incluir enlaces externos. Sin sesión debe devolver `401`.
+16. La certificación física, si se realiza, usa cualquier aplicación elegida por el operador y compara 20 escrituras/lecturas NTAG213 byte a byte contra la URL permanente; ParaHoy solo registra hitos después de lectura física.
 
 ### Perfil ligero de negocio
 
