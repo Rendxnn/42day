@@ -1,4 +1,4 @@
-import { isDirectGoogleReviewUrl, normalizeBusinessProfileLink, slugifyBusinessProfile as coreSlugifyBusinessProfile } from "@42day/core";
+import { isDirectGoogleReviewUrl, normalizeBusinessProfileLink, slugifyBusinessProfile as coreSlugifyBusinessProfile, validateBusinessProfileAppearance } from "@42day/core";
 import { BUSINESS_PROFILE_ERROR_MESSAGES, BUSINESS_PROFILE_LIMITS } from "@42day/types";
 import type { BusinessProfileLink, BusinessProfileLinkKind, CreateBusinessProfileRequest, UpdateBusinessProfileRequest } from "@42day/types";
 
@@ -41,6 +41,7 @@ export function parseUpdateBusinessProfile(value: unknown): UpdateBusinessProfil
   if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < 1) throw new BusinessProfileValidationError("business_profile_revision_invalid");
   const linksValue = value.links;
   if (!Array.isArray(linksValue) || linksValue.length > 30) throw new BusinessProfileValidationError("business_profile_links_invalid");
+  const appearanceValue = value.appearance === undefined ? undefined : parseAppearance(value.appearance);
   return {
     revision: Number(value.revision),
     displayName: parseText(value.displayName, BUSINESS_PROFILE_LIMITS.displayName, "business_profile_display_name_invalid", "displayName"),
@@ -50,7 +51,21 @@ export function parseUpdateBusinessProfile(value: unknown): UpdateBusinessProfil
     links: linksValue
       .map((link, index) => normalizeLink(link, index))
       .filter((link) => link.enabled || link.href.length > 0),
+    ...(appearanceValue ? { appearance: appearanceValue } : {}),
+    ...(value.avatarAssetId === null ? { avatarAssetId: null } : value.avatarAssetId === undefined ? {} : { avatarAssetId: parseUuid(value.avatarAssetId, "business_profile_asset_invalid", "avatarAssetId") }),
+    ...(value.avatarAltText === undefined || value.avatarAltText === null ? {} : { avatarAltText: parseText(value.avatarAltText, 160, "business_profile_avatar_alt_text_invalid", "avatarAltText") }),
   };
+}
+
+export function parseAppearance(value: unknown) {
+  if (!isRecord(value)) throw new BusinessProfileValidationError("business_profile_appearance_invalid");
+  try {
+    const result = validateBusinessProfileAppearance({ backgroundColor: String(value.backgroundColor ?? ""), cardColor: String(value.cardColor ?? ""), textColor: String(value.textColor ?? ""), iconColor: String(value.iconColor ?? ""), iconMode: value.iconMode === "monochrome" ? "monochrome" : value.iconMode === "brand" ? "brand" : "invalid" } as never);
+    return result.appearance;
+  } catch (error) {
+    if (error instanceof BusinessProfileValidationError) throw error;
+    throw new BusinessProfileValidationError("business_profile_appearance_invalid");
+  }
 }
 
 export function normalizeLink(value: unknown, index = 0): BusinessProfileLink {

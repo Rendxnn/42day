@@ -86,52 +86,40 @@ test("bulk preflight separa unidades activas protegidas", async () => {
   } finally { globalThis.fetch = previousFetch; }
 });
 
-test("NFC handoff entrega NFC.cool con URL permanente sin crear sesión", async () => {
+test("NFC handoff autenticado queda retirado sin leer ni cambiar la unidad", async () => {
   const previousFetch = globalThis.fetch;
-  let handoffRpc = 0;
+  const unexpectedCalls = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url.includes("auth/v1/user")) return json({ id: actor, app_metadata: { system_admin: true } });
-    if (url.includes("dynamic_link_units") && url.includes("id=eq.")) return json([{ ...unit, status: "active", destination_type: "website", destination_url: "https://example.com" }]);
-    if (url.includes("rpc/create_nfc_handoff_session")) { handoffRpc += 1; return json({ id: "88888888-8888-4888-8888-888888888888" }); }
-    if (url.includes("rpc/consume_nfc_handoff_session")) return json({ sessionId: "88888888-8888-4888-8888-888888888888", unitId, reportedUid: "04A1" });
+    unexpectedCalls.push({ url, method: init?.method ?? "GET" });
     throw new Error(`Unexpected fetch ${url}`);
   };
   try {
     const created = await app.request(`https://api.test/dashboard/admin/dynamic-links/${unitId}/nfc-handoff`, { method: "POST", headers: { Authorization: "Bearer test" } }, env);
-    assert.equal(created.status, 200);
+    assert.equal(created.status, 410);
     const payload = await created.json();
-    const handoffUrl = new URL(payload.handoffUrl);
-    assert.equal(payload.provider, "nfc_cool");
-    assert.equal(payload.shortcutName, "Escribir NFC ParaHoy");
-    assert.equal(payload.setupUrl, "https://nfc.cool/developers/");
-    assert.equal(handoffUrl.protocol, "shortcuts:");
-    assert.equal(handoffUrl.hostname, "run-shortcut");
-    assert.equal(handoffUrl.searchParams.get("name"), "Escribir NFC ParaHoy");
-    assert.equal(handoffUrl.searchParams.get("input"), "text");
-    assert.equal(handoffUrl.searchParams.get("text"), "https://go-staging.thaledon.com/r/000000000991");
-    assert.equal("token" in payload, false);
-    assert.equal("sessionId" in payload, false);
-    assert.equal(payload.handoffUrl.includes("example.com"), false);
-    assert.equal(handoffRpc, 0);
+    assert.equal(payload.error, "nfc_handoff_disabled");
+    assert.match(payload.message, /copia la URL permanente/i);
+    assert.deepEqual(unexpectedCalls, []);
+    assert.equal(JSON.stringify(payload).includes("shortcuts:"), false);
+    assert.equal(JSON.stringify(payload).includes("nfc.cool"), false);
   } finally { globalThis.fetch = previousFetch; }
 });
 
-test("NFC handoff rechaza unidades archivadas sin crear sesión", async () => {
+test("NFC handoff requiere autenticación antes de responder que está retirado", async () => {
   const previousFetch = globalThis.fetch;
-  let handoffRpc = 0;
+  let authChecked = false;
   globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url.includes("auth/v1/user")) return json({ id: actor, app_metadata: { system_admin: true } });
-    if (url.includes("dynamic_link_units") && url.includes("id=eq.")) return json([{ ...unit, status: "archived" }]);
-    if (url.includes("rpc/create_nfc_handoff_session")) { handoffRpc += 1; return json({ id: "88888888-8888-4888-8888-888888888888" }); }
+    if (url.includes("auth/v1/user")) { authChecked = true; return json({ id: actor, app_metadata: { system_admin: false } }); }
     throw new Error(`Unexpected fetch ${url}`);
   };
   try {
     const response = await app.request(`https://api.test/dashboard/admin/dynamic-links/${unitId}/nfc-handoff`, { method: "POST", headers: { Authorization: "Bearer test" } }, env);
-    assert.equal(response.status, 409);
-    assert.equal((await response.json()).error, "dynamic_link_archived");
-    assert.equal(handoffRpc, 0);
+    assert.equal(response.status, 403);
+    assert.equal(authChecked, true);
+    assert.notEqual((await response.json()).error, "nfc_handoff_disabled");
   } finally { globalThis.fetch = previousFetch; }
 });
 

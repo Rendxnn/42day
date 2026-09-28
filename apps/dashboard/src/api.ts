@@ -46,11 +46,11 @@ import type {
   BusinessProfilePayload,
   CreateBusinessProfileRequest,
   UpdateBusinessProfileRequest,
+  BusinessProfileAppearance,
   BulkDynamicLinkPreflightRequest,
   BulkDynamicLinkPreflightResponse,
   BulkDynamicLinkApplyRequest,
   BulkDynamicLinkApplyResponse,
-  NfcHandoffResponse,
   NfcHandoffConsumeResponse,
 } from "@42day/types";
 import { getAccessToken } from "./auth";
@@ -500,10 +500,6 @@ export function applyDynamicLinkBulkConfiguration(payload: BulkDynamicLinkApplyR
   return request<BulkDynamicLinkApplyResponse>("/admin/dynamic-links/bulk-configuration", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function createNfcHandoff(unitId: string) {
-  return request<NfcHandoffResponse>(`/admin/dynamic-links/${encodeURIComponent(unitId)}/nfc-handoff`, { method: "POST", body: JSON.stringify({}) });
-}
-
 export function consumeNfcHandoff(sessionId: string, token: string, reportedUid?: string) {
   return request<NfcHandoffConsumeResponse>(`/admin/nfc-handoff/${encodeURIComponent(sessionId)}/consume`, { method: "POST", body: JSON.stringify({ token, ...(reportedUid ? { reportedUid } : {}) }) });
 }
@@ -712,6 +708,12 @@ export function getBusinessProfile(profileId: string) {
 
 export function updateBusinessProfile(profileId: string, input: UpdateBusinessProfileRequest) {
   return request<BusinessProfileResponse>(`/admin/business-profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function uploadBusinessProfileAvatar(profileId: string, file: File) {
+  const form = new FormData();
+  form.set("file", file);
+  return request<{ assetId: string; previewUrl: string; width: number; height: number; contentType: string }>(`/admin/business-profiles/${encodeURIComponent(profileId)}/avatar`, { method: "POST", body: form });
 }
 
 export function publishBusinessProfile(profileId: string, revision: number) {

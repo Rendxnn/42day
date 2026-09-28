@@ -13,6 +13,9 @@ en proyectos remotos ni los gates de instalación. Las capacidades MCP se report
 falta implementación. Las pruebas puntuales de API/plugins y typecheck pasan, pero el feature no está listo
 para staging. No marcar fases como completas sin la evidencia y revisión prescritas.
 
+> El checkpoint local del 2026-09-28 conserva el código parcial y estos artefactos para transferir el trabajo;
+> no declara completa ninguna fase, no ha sido desplegado y no habilita staging/producción.
+
 ## Fase 0 — Baseline y dependencias
 
 - [ ] T001 Confirmar con `git status`, historial y tests que features 012 y 013 están implementadas/cerradas; si

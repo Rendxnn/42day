@@ -18,6 +18,11 @@ test("profile editor exposes draft, publication, visibility and safe suspension 
   assert.match(editor, /revision/);
   assert.match(editor, /BUSINESS_PROFILE_LIMITS/);
   assert.match(editor, /aria-live/);
+  assert.match(editor, /Apariencia/);
+  assert.match(editor, /Fondo de página/);
+  assert.match(editor, /Vista previa móvil/);
+  assert.match(editor, /uploadBusinessProfileAvatar/);
+  assert.match(editor, /BusinessProfileCard/);
 });
 
 test("profile validation never renders technical error identifiers", async () => {

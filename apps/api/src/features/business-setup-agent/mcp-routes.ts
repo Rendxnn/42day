@@ -6,6 +6,8 @@ import { parseBusinessProfileListRequest } from "../public-profile/business-prof
 import { BusinessProfileValidationError } from "../public-profile/business-profile-validation.ts";
 import { BusinessSetupAgentError, commitBusinessSetup, getAgentProfile, listAgentProfiles, prepareBusinessSetup } from "./service.ts";
 import { requireAgentContext, type AgentContext } from "./auth.ts";
+import { findDynamicLinkUnitByCode } from "../dynamic-links/repository.ts";
+import { normalizePublicCode, toDynamicLinkUnit } from "../dynamic-links/service.ts";
 
 type JsonRpcRequest = {
   jsonrpc?: unknown;
@@ -15,6 +17,15 @@ type JsonRpcRequest = {
 };
 
 export const businessSetupMcpRoutes = new Hono<{ Bindings: ApiBindings }>();
+
+for (const method of ["get", "delete"] as const) {
+  businessSetupMcpRoutes[method]("/mcp", async (c) => {
+    const actor = await requireAgentContext(c);
+    if (actor instanceof Response) return actor;
+    c.header("Allow", "POST");
+    return c.body(null, 405);
+  });
+}
 
 const profileListInput = z.object({
   query: z.string().max(120).optional(),
@@ -75,6 +86,12 @@ const toolDefinitions = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
+    name: "parahoy_get_dynamic_link_unit",
+    description: "Obtiene una unidad QR exacta, su destino actual y sus hitos NFC informativos.",
+    inputSchema: { type: "object", properties: { code: { type: "string", minLength: 1, maxLength: 120 } }, required: ["code"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
     name: "parahoy_prepare_business_setup",
     description: "Prepara una propuesta para crear o reutilizar un perfil y asignarlo a un QR. No modifica datos y devuelve advertencias, coincidencias y un token de confirmación de corta duración.",
     inputSchema: { type: "object", properties: { business: { type: "object", properties: { displayName: { type: "string", minLength: 1, maxLength: 160 }, locationName: { type: "string", maxLength: 160 }, address: { type: "string", maxLength: 500 }, headline: { type: "string", maxLength: 180 }, tenantId: { type: ["string", "null"], format: "uuid" }, links: { type: "array", maxItems: 30, items: { type: "object", properties: { kind: { enum: ["menu", "google_review", "instagram", "tiktok", "website", "whatsapp", "phone", "facebook", "maps", "survey", "custom"] }, label: { type: "string", maxLength: 120 }, href: { type: "string", minLength: 1, maxLength: 2048 }, enabled: { type: "boolean" } }, required: ["kind", "href"], additionalProperties: false } } }, required: ["displayName", "links"], additionalProperties: false }, qrCode: { type: "string", minLength: 1, maxLength: 120 } }, required: ["business", "qrCode"], additionalProperties: false },
@@ -91,15 +108,16 @@ const toolDefinitions = [
 businessSetupMcpRoutes.post("/mcp", async (c) => {
   const actor = await requireAgentContext(c);
   if (actor instanceof Response) return actor;
-  const contentLength = Number(c.req.header("Content-Length") ?? 0);
-  if (contentLength > 256 * 1024) return jsonRpcError(null, -32600, "Request too large");
-  const body = await c.req.json().catch(() => undefined) as JsonRpcRequest | undefined;
+  const contentType = c.req.header("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") return jsonRpcError(null, -32600, "Content-Type must be application/json");
+  const body = await readJsonLimited(c.req.raw, 256 * 1024) as JsonRpcRequest | undefined;
+  if (body === null) return jsonRpcError(null, -32600, "Request too large or invalid JSON");
   if (!body || body.jsonrpc !== "2.0" || typeof body.method !== "string") return jsonRpcError(null, -32600, "Invalid Request");
   const id = body.id ?? null;
   try {
     switch (body.method) {
       case "initialize":
-        return jsonRpcResult(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "parahoy-business-setup", version: "1.0.0" } });
+        return jsonRpcResult(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "parahoy-business-setup", version: "1.1.0" } });
       case "notifications/initialized":
         return new Response(null, { status: 202 });
       case "tools/list":
@@ -121,7 +139,7 @@ async function handleToolCall(env: ApiBindings, actor: AgentContext, id: string 
   const input = z.object({ name: z.string(), arguments: z.unknown().optional() }).strict().parse(params);
   switch (input.name) {
     case "parahoy_get_connected_account":
-      return toolResult(id, input.name, { userId: actor.userId, email: actor.email, clientId: actor.clientId, role: "system_admin", environment: env.APP_ENV });
+      return toolResult(id, input.name, { userId: actor.userId, email: actor.email, clientId: actor.clientId, role: "system_admin", environment: env.APP_ENV, serverVersion: "1.1.0", capabilities: { businessSetupV2: false, businessProfileUpdateV2: false, appearance: true, remoteAvatarImport: false } });
     case "parahoy_list_business_profiles": {
       const parsed = profileListInput.parse(input.arguments ?? {});
       const query = new URL("https://mcp.local/admin/business-profiles");
@@ -131,6 +149,15 @@ async function handleToolCall(env: ApiBindings, actor: AgentContext, id: string 
     case "parahoy_get_business_profile": {
       const parsed = z.object({ profileId: z.string().uuid() }).strict().parse(input.arguments ?? {});
       return toolResult(id, input.name, await getAgentProfile(env, parsed.profileId));
+    }
+    case "parahoy_get_dynamic_link_unit": {
+      const parsed = z.object({ code: z.string().min(1).max(120) }).strict().parse(input.arguments ?? {});
+      const code = normalizePublicCode(parsed.code);
+      if (!code) throw new BusinessSetupAgentError("dynamic_link_code_invalid");
+      const row = await findDynamicLinkUnitByCode(env, code);
+      if (!row) throw new BusinessSetupAgentError("dynamic_link_not_found", 404);
+      const unit = toDynamicLinkUnit(row, env);
+      return toolResult(id, input.name, { unit: { id: unit.id, code: unit.publicCode, label: unit.label, status: unit.status, revision: unit.revision, publicUrl: unit.publicUrl, ...(unit.destinationType ? { destinationType: unit.destinationType } : {}), ...(unit.destinationUrl ? { destinationUrl: unit.destinationUrl } : {}), ...(unit.profileId ? { profileId: unit.profileId } : {}), ...(unit.nfcLockedAt ? { nfcLockedAt: unit.nfcLockedAt } : {}) } });
     }
     case "parahoy_prepare_business_setup":
       return toolResult(id, input.name, await prepareBusinessSetup(env, actor, prepareInput.parse(input.arguments)));
@@ -155,4 +182,24 @@ function jsonRpcResult(id: string | number | null, result: unknown) {
 
 function jsonRpcError(id: string | number | null, code: number, message: string) {
   return new Response(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }), { status: 400, headers: { "Content-Type": "application/json" } });
+}
+
+async function readJsonLimited(request: Request, maxBytes: number): Promise<unknown | null | undefined> {
+  if (!request.body) return undefined;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes));
+  } catch { return undefined; }
 }

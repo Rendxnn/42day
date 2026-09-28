@@ -14,8 +14,8 @@ type JwtPayload = {
   iss?: string;
   aud?: string | string[];
   exp?: number;
+  nbf?: number;
   client_id?: string;
-  azp?: string;
 };
 
 type JsonWebKeyWithMetadata = JsonWebKey & { kid?: string; alg?: string; kty?: string };
@@ -30,7 +30,8 @@ export async function requireAgentContext(c: Context<{ Bindings: ApiBindings }>)
   if (c.env.APP_ENV !== "test") {
     const issuer = c.env.MCP_OAUTH_ISSUER?.trim() || `${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
     const audience = c.env.MCP_JWT_AUDIENCE?.trim() || "authenticated";
-    if (payload.iss !== issuer || !audienceMatches(payload.aud, audience) || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) {
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.iss !== issuer || !audienceMatches(payload.aud, audience) || !Number.isFinite(payload.exp) || !payload.exp || payload.exp <= now || (payload.nbf !== undefined && (!Number.isFinite(payload.nbf) || payload.nbf > now + 60)) || !isUuid(payload.sub) || !isUuid(payload.client_id)) {
       return oauthChallenge(c, "invalid_token");
     }
     if (!(await verifyJwt(token, c.env))) return oauthChallenge(c, "invalid_token");
@@ -39,14 +40,14 @@ export async function requireAgentContext(c: Context<{ Bindings: ApiBindings }>)
   const authUser = await requireAuthUser(c as unknown as DashboardContext);
   if (authUser instanceof Response) return authUser;
   if (!isSystemAdmin(authUser) || (payload.sub && payload.sub !== authUser.id)) return c.json({ error: "admin_forbidden" }, 403);
-  const clientId = payload.client_id ?? payload.azp ?? (c.env.APP_ENV === "test" ? "test-client" : "");
+  const clientId = payload.client_id ?? (c.env.APP_ENV === "test" ? "test-client" : "");
   const allowed = (c.env.MCP_ALLOWED_CLIENT_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
   if (!clientId || (c.env.APP_ENV !== "test" && (allowed.length === 0 || !allowed.includes(clientId))) || (c.env.APP_ENV === "test" && allowed.length > 0 && !allowed.includes(clientId))) return c.json({ error: "mcp_client_forbidden" }, 403);
   return { userId: authUser.id, clientId, email: authUser.email };
 }
 
 export function oauthChallenge(c: Context<{ Bindings: ApiBindings }>, error: string) {
-  c.header("WWW-Authenticate", `Bearer error="${error}", resource_metadata="${c.env.MCP_RESOURCE_URL ?? new URL("/.well-known/oauth-protected-resource", c.req.url).toString()}"`);
+  c.header("WWW-Authenticate", `Bearer error="${error}", resource_metadata="${new URL("/.well-known/oauth-protected-resource", c.req.url).toString()}"`);
   return c.json({ error: "unauthorized" }, 401);
 }
 
@@ -65,8 +66,12 @@ async function verifyJwt(token: string, env: ApiBindings) {
     const header = JSON.parse(new TextDecoder().decode(fromBase64Url(encodedHeader))) as { kid?: string; alg?: string };
     if (!header.kid || !header.alg) return false;
     const jwksUrl = `${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/.well-known/jwks.json`;
-    const keys = await getJwks(jwksUrl);
-    const jwk = keys.find((key) => key.kid === header.kid);
+    let keys = await getJwks(jwksUrl);
+    let jwk = keys.find((key) => key.kid === header.kid && (!key.alg || key.alg === header.alg));
+    if (!jwk) {
+      keys = await getJwks(jwksUrl, true);
+      jwk = keys.find((key) => key.kid === header.kid && (!key.alg || key.alg === header.alg));
+    }
     if (!jwk) return false;
     const algorithm = header.alg === "RS256"
       ? { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }
@@ -79,9 +84,9 @@ async function verifyJwt(token: string, env: ApiBindings) {
   } catch { return false; }
 }
 
-async function getJwks(url: string) {
+async function getJwks(url: string, forceRefresh = false) {
   const cached = jwksCache.get(url);
-  if (cached && cached.expiresAt > Date.now()) return cached.keys;
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.keys;
   const response = await fetch(url, { headers: { Accept: "application/json" } });
   if (!response.ok) throw new Error("jwks_unavailable");
   const body = await response.json() as { keys?: Array<JsonWebKey & { kid?: string; alg?: string; kty?: string }> };
@@ -89,6 +94,8 @@ async function getJwks(url: string) {
   jwksCache.set(url, { keys, expiresAt: Date.now() + 5 * 60_000 });
   return keys;
 }
+
+function isUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 
 function fromBase64Url(value: string) {
   const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "="));

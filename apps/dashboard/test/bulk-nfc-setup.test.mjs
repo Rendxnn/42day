@@ -10,13 +10,11 @@ test("dashboard expone configuración masiva con preflight y consentimiento de a
   assert.match(source, /units.length >= 100/);
 });
 
-test("configuración rápida ofrece NFC.cool activo con fallback manual y guía de Atajos", async () => {
+test("configuración rápida solo ofrece copia manual y conserva las verificaciones físicas", async () => {
   const source = await readFile(new URL("../src/features/admin/QuickDynamicLinkSetup.tsx", import.meta.url), "utf8");
   assert.match(source, /Crear perfil rápido/);
-  assert.match(source, /Escribir con NFC\.cool/);
   assert.match(source, /Copiar enlace para NFC/);
-  assert.match(source, /Escribir NFC ParaHoy/);
-  assert.match(source, /nfc\.cool/);
-  assert.doesNotMatch(source, /Escribir con NFC Helper/);
-  assert.match(source, /Lee el chip después/);
+  assert.doesNotMatch(source, /NFC\.cool|NFC Helper|Atajos|shortcuts:|createNfcHandoff/);
+  assert.match(source, /Copiar el enlace no confirma una escritura/);
+  assert.match(source, /lee el chip después/i);
 });

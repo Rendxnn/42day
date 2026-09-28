@@ -4,6 +4,11 @@
 > 2026-09-28. El estado verificable vive en [current-status.md](../current-status.md); los criterios y
 > tareas normativos siguen en los SPEC enlazados. No sustituye esos contratos.
 
+> **Checkpoint de continuidad:** el código parcial disponible de 012–014 se guardó en un commit local el
+> 2026-09-28 por solicitud explícita del usuario para continuar en otra máquina. Es un snapshot de trabajo,
+> no una declaración de cierre, aprobación ni despliegue. No se ha empujado al remoto. `.codex-artifacts/`
+> se preserva fuera del commit.
+
 ## Objetivo de producto
 
 Desde un iPhone en la calle, el administrador debe poder describir un negocio a una tarea remota de Codex
@@ -84,11 +89,10 @@ Normas completas: [SPEC 012](../../specs/012-manual-nfc-copy-only/spec.md),
 No desplegar ahora. Avanzar de forma local y en commits pequeños que correspondan a fases completas y
 verificadas:
 
-1. **Estabilizar el handoff del repositorio.** Revisar `git status` y diffs antes de tocar; preservar
-   `.codex-artifacts/` y otros archivos no relacionados. El commit local `6d0d096` contiene solo la subfase 1
-   verificada de 013; aún no se ha empujado. El resto de implementación de 012–014 permanece sin commit.
-   No agrupar fases incompletas para aparentar cierre. El gate independiente no puede ser aprobado por el
-   mismo implementador.
+1. **Estabilizar el handoff del repositorio.** Revisar `git status`, rama, `git log` y diffs antes de tocar;
+   preservar `.codex-artifacts/` y otros archivos no relacionados. El checkpoint local del 2026-09-28 incluye
+   el código parcial y las especificaciones para transferir contexto, pero no está empujado al remoto y no
+   declara fases completas. El gate independiente no puede ser aprobado por el mismo implementador.
 2. **Cerrar 012.** Ejecutar/verificar sus tests con el loader definido por el repo, revisar
    `checklists/safety.md` con otra persona, correr los gates de raíz cuando el launcher pnpm sea confiable,
    converger el SPEC y solo entonces crear su commit enfocado.
@@ -142,9 +146,9 @@ prospectos en este repositorio. Antes de cambiar nada, lee en este orden:
 8. specs/009-profile-management-agent-actions/ y docs/runbooks/remote-prospect-agent.md
 
 Después inspecciona `git status`, la rama, `git log` y diffs antes de editar. Preserva cambios del usuario y
-`.codex-artifacts/`; no descartes, resetees ni sobrescribas trabajo existente. El commit local `6d0d096`
-contiene solo la fase 1 verificada de 013; no ha sido empujado. Los demás cambios de implementación 012–014
-siguen sin commit en el worktree actual. El estado al 2026-09-28 es
+`.codex-artifacts/`; no descartes, resetees ni sobrescribas trabajo existente. El checkpoint local del
+2026-09-28 guarda el código parcial de 012–014 para el handoff, pero no significa que esas features estén
+cerradas y aún no se ha empujado al remoto. El estado al 2026-09-28 es
 parcial: 012 necesita revisión independiente y convergencia; 013 tiene implementación parcial y una migración
 aplicada solo a Supabase local; 014 tiene OAuth/MCP/plugins parciales pero carece de operaciones v2 y del
 importador remoto seguro. Los tests dirigidos (20 API, 7 dashboard, 2 core) y typechecks de API/dashboard/core/types

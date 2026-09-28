@@ -24,7 +24,6 @@ import {
   consumeNfcHandoffSession,
 } from "./repository.ts";
 import { createDynamicLinkCode, dashboardBaseUrl, inferDestinationType, isDestinationType, normalizePublicCode, sha256Hex, toDynamicLinkUnit, validateAdminDestination } from "./service.ts";
-import { createActiveNfcHandoff, NfcHandoffError } from "./nfc-handoff.ts";
 import { GoogleReviewResolutionError, resolveGoogleReviewDestination } from "./google-review-resolver.ts";
 import { findBusinessProfile } from "../public-profile/business-profile-repository.ts";
 import { BusinessProfileValidationError, normalizeLink, parseCreateBusinessProfile } from "../public-profile/business-profile-validation.ts";
@@ -329,15 +328,10 @@ dynamicLinkAdminRoutes.post("/admin/dynamic-links/bulk-configuration", async (c)
 dynamicLinkAdminRoutes.post("/admin/dynamic-links/:id/nfc-handoff", async (c) => {
   const authUser = await requireSystemAdmin(c as DashboardContext);
   if (authUser instanceof Response) return authUser;
-  const unit = await findDynamicLinkUnitById(c.env, c.req.param("id"));
-  if (!unit) return c.json({ error: "dynamic_link_not_found" }, 404);
-  if (unit.status === "archived") return c.json({ error: "dynamic_link_archived" }, 409);
-  try {
-    return c.json(createActiveNfcHandoff(toDynamicLinkUnit(unit, c.env).publicUrl));
-  } catch (error) {
-    if (error instanceof NfcHandoffError) return c.json({ error: "nfc_handoff_failed" }, 502);
-    throw error;
-  }
+  return c.json({
+    error: "nfc_handoff_disabled",
+    message: "La escritura automática está deshabilitada. Copia la URL permanente desde la configuración rápida.",
+  }, 410);
 });
 
 dynamicLinkAdminRoutes.post("/admin/nfc-handoff/:sessionId/consume", async (c) => {

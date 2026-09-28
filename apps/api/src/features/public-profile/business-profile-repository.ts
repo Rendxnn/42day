@@ -1,4 +1,5 @@
-import type { BusinessProfile, BusinessProfileLink, BusinessProfileListRequest, BusinessProfilePage, BusinessProfileResponse, BusinessProfileSummary } from "@42day/types";
+import { BUSINESS_PROFILE_DEFAULT_APPEARANCE } from "@42day/types";
+import type { BusinessProfile, BusinessProfileAppearance, BusinessProfileLink, BusinessProfileListRequest, BusinessProfilePage, BusinessProfileResponse, BusinessProfileSummary } from "@42day/types";
 import type { ApiBindings } from "../../lib/bindings.ts";
 import { createSupabaseRestClient } from "../../lib/supabase-rest.ts";
 import { businessProfileCursorFingerprint, decodeBusinessProfileCursor, encodeBusinessProfileCursor } from "./business-profile-pagination.ts";
@@ -12,6 +13,13 @@ type ProfileRow = {
   headline?: string | null;
   location_name?: string | null;
   address?: string | null;
+  background_color?: string;
+  card_color?: string;
+  text_color?: string;
+  icon_color?: string;
+  icon_mode?: "brand" | "monochrome";
+  avatar_asset_id?: string | null;
+  avatar_alt_text?: string | null;
   status: "draft" | "published" | "disabled";
   revision: number;
   published_at?: string | null;
@@ -28,7 +36,7 @@ type BusinessProfilePageRpc = {
   pageInfo?: { hasNext?: boolean; nextCursor?: { value?: string; id?: string } | null };
 };
 
-const profileSelect = "id,creation_request_id,slug,tenant_id,display_name,headline,location_name,address,status,revision,published_at,created_by,created_at,updated_at";
+const profileSelect = "id,creation_request_id,slug,tenant_id,display_name,headline,location_name,address,status,revision,published_at,created_by,created_at,updated_at,background_color,card_color,text_color,icon_color,icon_mode,avatar_asset_id,avatar_alt_text";
 const linkSelect = "id,profile_id,kind,label,href,enabled,sort_order";
 
 export async function createBusinessProfile(env: ApiBindings, input: {
@@ -99,9 +107,9 @@ export async function listBusinessProfiles(env: ApiBindings, request: BusinessPr
 }
 
 export async function updateBusinessProfile(env: ApiBindings, input: {
-  profileId: string; expectedRevision: number; actorUserId: string; displayName: string; headline?: string; locationName?: string; address?: string; links: BusinessProfileLink[];
+  profileId: string; expectedRevision: number; actorUserId: string; displayName: string; headline?: string; locationName?: string; address?: string; links: BusinessProfileLink[]; appearance?: BusinessProfileAppearance; avatarAssetId?: string | null; avatarAltText?: string;
 }) {
-  const row = await createSupabaseRestClient(env).rpc<ProfileRow>({ schema: "control", functionName: "update_business_profile", args: {
+  const args = {
     p_profile_id: input.profileId,
     p_expected_revision: input.expectedRevision,
     p_actor_user_id: input.actorUserId,
@@ -110,8 +118,22 @@ export async function updateBusinessProfile(env: ApiBindings, input: {
     p_location_name: input.locationName ?? null,
     p_address: input.address ?? null,
     p_links: input.links.map(({ kind, label, href, enabled, sortOrder }) => ({ kind, label: label ?? null, href, enabled, sort_order: sortOrder })),
-  } });
-  return loadProfileResponse(env, row);
+  };
+  const appearance = input.appearance;
+  const updated = appearance
+    ? await createSupabaseRestClient(env).rpc<ProfileRow>({ schema: "control", functionName: "update_business_profile_complete", args: {
+        ...args,
+        p_appearance: { background_color: appearance.backgroundColor, card_color: appearance.cardColor, text_color: appearance.textColor, icon_color: appearance.iconColor, icon_mode: appearance.iconMode },
+        p_avatar_asset_id: input.avatarAssetId ?? null,
+        p_avatar_alt_text: input.avatarAltText ?? null,
+      } })
+    : await createSupabaseRestClient(env).rpc<ProfileRow>({ schema: "control", functionName: "update_business_profile", args });
+  return loadProfileResponse(env, updated);
+}
+
+export async function findBusinessProfileAsset(env: ApiBindings, id: string) {
+  const [asset] = await createSupabaseRestClient(env).select<{ id: string; profile_id: string; actor_user_id: string; object_path: string; content_type: string; state: string; sha256: string }>({ schema: "control", table: "business_profile_assets", query: { select: "id,profile_id,actor_user_id,object_path,content_type,state,sha256", id: `eq.${id}`, limit: 1 } });
+  return asset;
 }
 
 export async function publishBusinessProfile(env: ApiBindings, profileId: string, expectedRevision: number, actorUserId: string) {
@@ -133,7 +155,8 @@ async function loadProfileResponse(env: ApiBindings, row: ProfileRow, includeAct
 }
 
 export function mapProfile(row: ProfileRow): BusinessProfile {
-  return { id: row.id, creationRequestId: row.creation_request_id, slug: row.slug, tenantId: row.tenant_id ?? undefined, displayName: row.display_name, headline: row.headline ?? undefined, locationName: row.location_name ?? undefined, address: row.address ?? undefined, status: row.status, revision: row.revision, publishedAt: row.published_at ?? undefined, createdAt: row.created_at, updatedAt: row.updated_at };
+  const appearance = { backgroundColor: row.background_color ?? BUSINESS_PROFILE_DEFAULT_APPEARANCE.backgroundColor, cardColor: row.card_color ?? BUSINESS_PROFILE_DEFAULT_APPEARANCE.cardColor, textColor: row.text_color ?? BUSINESS_PROFILE_DEFAULT_APPEARANCE.textColor, iconColor: row.icon_color ?? BUSINESS_PROFILE_DEFAULT_APPEARANCE.iconColor, iconMode: row.icon_mode ?? BUSINESS_PROFILE_DEFAULT_APPEARANCE.iconMode };
+  return { id: row.id, creationRequestId: row.creation_request_id, slug: row.slug, tenantId: row.tenant_id ?? undefined, displayName: row.display_name, headline: row.headline ?? undefined, locationName: row.location_name ?? undefined, address: row.address ?? undefined, appearance, ...(row.avatar_asset_id ? { avatar: { assetId: row.avatar_asset_id, altText: row.avatar_alt_text ?? row.display_name, url: `/dashboard/business-profile-assets/${encodeURIComponent(row.avatar_asset_id)}/preview` } } : {}), status: row.status, revision: row.revision, publishedAt: row.published_at ?? undefined, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
 function mapLink(row: LinkRow): BusinessProfileLink { return { id: row.id, kind: row.kind, label: row.label ?? undefined, href: row.href, enabled: row.enabled, sortOrder: row.sort_order }; }

@@ -1,11 +1,10 @@
 import { DynamicLinkValidationError, normalizeBusinessProfileLink, parseDynamicLinkReference } from "@42day/core";
 import { BUSINESS_PROFILE_LIMITS } from "@42day/types";
 import type { BusinessProfileLinkKind } from "@42day/types";
-import { Check, Clipboard, ExternalLink, Loader2, QrCode, Radio, ScanLine, X } from "lucide-react";
+import { Check, Clipboard, ExternalLink, Loader2, QrCode, ScanLine, X } from "lucide-react";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   DashboardApiError,
-  createNfcHandoff,
   getDynamicLinkByCode,
   quickConfigureDynamicLink,
   resolveGoogleReviewDestination,
@@ -13,6 +12,7 @@ import {
 import type { AdminRestaurant, BusinessProfile, DynamicLinkUnit } from "../../api";
 import { DynamicLinkQrScanner } from "./DynamicLinkQrScanner";
 import { formatDynamicLinkLookupFailure } from "./dynamicLinkQuickSetupErrors";
+import { copyTextToClipboard } from "./copyToClipboard";
 import {
   beginGoogleReviewPreparation,
   confirmGoogleReviewPreparation,
@@ -245,7 +245,7 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
   async function copyNfcLink() {
     if (!unit) return;
     try {
-      await navigator.clipboard.writeText(unit.publicUrl);
+      await copyTextToClipboard(unit.publicUrl);
       setCopyFailed(false);
       setCopied(true);
     } catch {
@@ -256,22 +256,12 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
 
   async function copyReviewLink(reviewUrl: string) {
     try {
-      await navigator.clipboard.writeText(reviewUrl);
+      await copyTextToClipboard(reviewUrl);
       setReviewCopyFailed(false);
       setReviewCopied(true);
     } catch {
       setReviewCopyFailed(true);
       setReviewCopied(false);
-    }
-  }
-
-  async function openNfcCool() {
-    if (!unit) return;
-    try {
-      const handoff = await createNfcHandoff(unit.id);
-      window.location.href = handoff.handoffUrl;
-    } catch (handoffError) {
-      setError(formatError(handoffError));
     }
   }
 
@@ -441,17 +431,7 @@ export function QuickDynamicLinkSetup({ restaurants, profiles, onClose, onUpdate
             <p className="mt-4 text-sm text-[var(--text-soft)]">Programa este mismo enlace en el chip NFC.</p>
             <code className="mt-3 block break-all rounded-xl bg-[var(--surface-base)] p-3 text-sm font-bold text-[var(--text-strong)]">{unit.publicUrl}</code>
             <button className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--text-strong)] px-4 text-sm font-bold text-white" onClick={() => void copyNfcLink()} type="button"><Clipboard size={17} />Copiar enlace para NFC</button>
-            <button className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold" onClick={() => void openNfcCool()} type="button"><Radio size={17} />Escribir con NFC.cool</button>
-            <a className="mt-3 block text-center text-sm font-bold underline" href="https://nfc.cool/" rel="noopener noreferrer" target="_blank">Instalar NFC.cool Tools</a>
-            <details className="mt-3 rounded-xl border border-[rgba(118,93,71,0.14)] p-3 text-sm text-[var(--text-soft)]">
-              <summary className="cursor-pointer font-bold text-[var(--text-strong)]">Preparar Atajos una sola vez</summary>
-              <ol className="mt-3 list-decimal space-y-2 pl-5 leading-5">
-                <li>Instala NFC.cool Tools y comprueba que aparece la acción <span className="font-semibold">Write NFC</span> en Atajos.</li>
-                <li>Crea un Atajo llamado exactamente <span className="font-semibold">Escribir NFC ParaHoy</span>.</li>
-                <li>Configúralo para recibir texto y pasar esa URL a <span className="font-semibold">Write NFC</span> de NFC.cool.</li>
-              </ol>
-            </details>
-            <p className="mt-3 text-xs text-[var(--text-soft)]">Abrir NFC.cool no confirma una escritura. Lee el chip después y registra programación, verificación y bloqueo físico por separado.</p>
+            <p className="mt-3 text-xs text-[var(--text-soft)]">Copiar el enlace no confirma una escritura. Pégalo en tu app NFC y lee el chip después; registra programación, verificación y bloqueo físico por separado.</p>
             {copied && <p aria-live="polite" className="mt-3 text-sm font-semibold text-[var(--success)]">Enlace copiado para programar el NFC.</p>}
             {copyFailed && (
               <>

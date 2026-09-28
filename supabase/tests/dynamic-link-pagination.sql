@@ -11,7 +11,9 @@ declare
   v_first_code text;
   v_next_id uuid;
   v_next_code text;
+  v_initial_count integer;
 begin
+  select count(*)::integer into v_initial_count from control.dynamic_link_units;
   insert into control.dynamic_link_units (public_code, label)
   select lpad(g::text, 12, '0'), format('Lote %s', g)
   from generate_series(1, 251) as series(g);
@@ -36,7 +38,7 @@ begin
     p_page_size => 25
   );
   if jsonb_array_length(v_page -> 'units') <> 25
-     or (v_page ->> 'totalCount')::integer <> 251
+     or (v_page ->> 'totalCount')::integer <> v_initial_count + 251
      or not (v_page ->> 'hasNext')::boolean
   then
     raise exception 'first page assertion failed: %', v_page;
@@ -54,7 +56,7 @@ begin
   v_next_id := ((v_next -> 'units') -> 0 ->> 'id')::uuid;
   v_next_code := (v_next -> 'units') -> 0 ->> 'public_code';
   if jsonb_array_length(v_next -> 'units') <> 25
-     or (v_next ->> 'totalCount')::integer <> 251
+     or (v_next ->> 'totalCount')::integer <> v_initial_count + 251
      or v_next_code <= v_first_code
      or v_next_id = v_first_id
   then

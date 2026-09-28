@@ -78,6 +78,7 @@ import { PublicCartaConcierge } from "./features/public-carta/PublicCartaConcier
 import { PublicCartaProductDetail } from "./features/public-carta/PublicCartaProductDetail";
 import { PublicRestaurantProfilePage } from "./features/public-profile/PublicRestaurantProfilePage";
 import { PublicBusinessProfilePage } from "./features/public-profile/PublicBusinessProfilePage";
+import { OAuthConsentPage } from "./features/auth/OAuthConsentPage";
 import { AnalyticsSection } from "./features/admin/AnalyticsSection";
 import { DynamicLinksSection } from "./features/admin/DynamicLinksSection";
 import { BusinessProfilesSection } from "./features/admin/BusinessProfilesSection";
@@ -676,6 +677,7 @@ export function App() {
   const { locale } = useDashboardLocale();
   const marketingPage = resolvePublicMarketingPage(window.location.pathname);
 
+  if (window.location.pathname === "/oauth/consent") return <OAuthConsentPage />;
   if (isPublicCartaRoute()) return <PublicCartaPage />;
   if (isPublicBusinessProfileRoute()) return <PublicBusinessProfilePage slug={getPublicBusinessProfileSlug()} />;
   if (isPublicRestaurantProfileRoute()) return <PublicRestaurantProfilePage tenantSlug={getPublicRestaurantProfileTenantSlug()} />;

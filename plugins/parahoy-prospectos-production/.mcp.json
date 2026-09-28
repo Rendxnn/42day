@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "parahoy-production": {
+      "url": "https://42day-api-production.42day.workers.dev/mcp"
+    }
+  }
+}

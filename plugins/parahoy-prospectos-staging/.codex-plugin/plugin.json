@@ -1,0 +1,17 @@
+{
+  "name": "parahoy-prospectos-staging",
+  "version": "1.0.0",
+  "description": "Asistente de campo ParaHoy conectado exclusivamente al ambiente de staging.",
+  "author": { "name": "ParaHoy" },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ParaHoy Prospectos — STAGING",
+    "shortDescription": "Investiga prospectos y prepara perfiles ParaHoy en staging.",
+    "longDescription": "Flujo de campo con lectura, preparación y confirmación explícita de perfiles y QR; nunca opera producción.",
+    "developerName": "ParaHoy",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Ayúdame a investigar y configurar un perfil de prospecto en ParaHoy STAGING."
+  },
+  "mcpServers": "./.mcp.json"
+}

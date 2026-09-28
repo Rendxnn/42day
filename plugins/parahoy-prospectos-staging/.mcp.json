@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "parahoy-staging": {
+      "url": "https://42day-api-staging.42day.workers.dev/mcp"
+    }
+  }
+}

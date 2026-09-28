@@ -14,6 +14,9 @@ backfill/RPC completos, cobertura DB/UI, revisión independiente, gates integral
 No declarar la feature lista para staging. Los checkboxes solo se marcan al cumplir el alcance y evidencia de
 cada tarea; la presencia de código parcial no basta.
 
+> El checkpoint local del 2026-09-28 conserva el código parcial de esta feature para el handoff. No equivale
+> a los commits de cierre restantes, revisión independiente, convergencia ni autorización de staging.
+
 ## Fase 1 — Contratos y reglas puras
 
 - [x] T001 Extender los tipos canónicos de perfiles, requests, respuestas, avatar, apariencia, modo de iconos y

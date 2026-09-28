@@ -86,6 +86,21 @@ test("profile validation errors carry a safe field and user message", async () =
   }
 });
 
+test("avatar upload rejects absent or oversized Content-Length before database or storage access", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input).includes("auth/v1/user")) return jsonResponse({ id: "33333333-3333-4333-8333-333333333333", app_metadata: { system_admin: true } });
+    throw new Error("Avatar validation must not access profile data or Storage before size checks.");
+  };
+  try {
+    const missingLength = await app.request("https://api.test/dashboard/admin/business-profiles/11111111-1111-4111-8111-111111111111/avatar", { method: "POST", headers: { Authorization: "Bearer test-token" } }, env);
+    assert.equal(missingLength.status, 413);
+    assert.match((await missingLength.json()).message, /3 MB/i);
+    const tooLarge = await app.request("https://api.test/dashboard/admin/business-profiles/11111111-1111-4111-8111-111111111111/avatar", { method: "POST", headers: { Authorization: "Bearer test-token", "Content-Length": "4000000" } }, env);
+    assert.equal(tooLarge.status, 413);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test("public profile exposes only enabled links and drafts are not public", async () => {
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {

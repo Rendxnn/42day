@@ -3,6 +3,9 @@
 **Input**: documentos de `specs/012-manual-nfc-copy-only/`
 **Tests**: obligatorios por SPEC, constitución y regresión externa observada.
 
+> El checkpoint local del 2026-09-28 incluye la implementación parcial para transferencia entre máquinas.
+> No sustituye T018–T020 (gates generales, revisión independiente y convergencia) ni declara la feature cerrada.
+
 ## Phase 1: Contrato y regresiones
 
 - [x] T001 Activar `specs/012-manual-nfc-copy-only` en `.specify/feature.json` y revisar el estado limpio sin modificar `.codex-artifacts/`.

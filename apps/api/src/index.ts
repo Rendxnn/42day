@@ -46,21 +46,11 @@ app.route("/health", healthRoutes);
 app.route("/webhooks/whatsapp", whatsappRoutes);
 app.get("/.well-known/oauth-protected-resource", (c) => {
   const issuer = c.env.MCP_OAUTH_ISSUER?.trim() || `${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
+  c.header("Cache-Control", "public, max-age=300");
   return c.json({
     resource: c.env.MCP_RESOURCE_URL ?? new URL("/mcp", c.req.url).toString(),
     authorization_servers: [issuer],
-  });
-});
-app.get("/.well-known/oauth-authorization-server", (c) => {
-  const issuer = c.env.MCP_OAUTH_ISSUER?.trim() || `${c.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
-  return c.json({
-    issuer,
-    authorization_endpoint: `${issuer}/authorize`,
-    token_endpoint: `${issuer}/token`,
-    jwks_uri: `${issuer}/.well-known/jwks.json`,
-    response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code", "refresh_token"],
-    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["openid", "email", "profile"],
   });
 });
 app.route("/", businessSetupMcpRoutes);
